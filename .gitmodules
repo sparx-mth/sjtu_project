@@ -1,0 +1,4 @@
+[submodule "sjtu_drone"]
+	url = https://github.com/NadavCherry/sjtu_drone.git
+[submodule "aws-robomaker-hospital-world"]
+	url = https://github.com/aws-robotics/aws-robomaker-hospital-world.git
