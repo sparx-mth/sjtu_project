@@ -4,11 +4,11 @@ This guide explains how to run the **SJTU Drone simulation** with the **AWS Robo
 
 ---
 
-## ✅ Setup Steps
+## Setup Steps
 
 ### 1️⃣ Create workspace folder
 ```bash
-mkdir -p /april_gazebo && cd /april_gazebo
+mkdir -p /sjtu_project && cd /sjtu_project
 ```
 
 ### 2️⃣ Clone SJTU drone repo
@@ -54,7 +54,7 @@ chmod +x run.sh
 
 ## 📂 Folder Structure
 ```
-/april_gazebo
+/sjtu_project
  ├─ sjtu_drone/
  │   ├─ Dockerfile
  │   ├─ run.sh
