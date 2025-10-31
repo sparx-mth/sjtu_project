@@ -1,0 +1,16 @@
+material april_tag_36h11_0/material
+{
+  technique
+  {
+    pass
+    {
+      lighting off
+      depth_write on
+      texture_unit
+      {
+        texture tag36h11_0.png
+        filtering anisotropic
+      }
+    }
+  }
+}
