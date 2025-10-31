@@ -1,0 +1,1 @@
+['-DBUILD_TESTING=OFF', '-DRMW_IMPLEMENTATION=rmw_fastrtps_cpp']

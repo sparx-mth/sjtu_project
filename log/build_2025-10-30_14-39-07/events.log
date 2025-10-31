@@ -1,0 +1,635 @@
+[0.000000] (-) TimerEvent: {}
+[0.000811] (-) JobUnselected: {'identifier': 'aws_robomaker_hospital_world'}
+[0.000844] (sjtu_drone_bringup) JobQueued: {'identifier': 'sjtu_drone_bringup', 'dependencies': OrderedDict()}
+[0.000918] (sjtu_drone_control) JobQueued: {'identifier': 'sjtu_drone_control', 'dependencies': OrderedDict()}
+[0.000935] (sjtu_drone_description) JobQueued: {'identifier': 'sjtu_drone_description', 'dependencies': OrderedDict()}
+[0.000949] (sjtu_drone_bringup) JobStarted: {'identifier': 'sjtu_drone_bringup'}
+[0.012708] (sjtu_drone_control) JobStarted: {'identifier': 'sjtu_drone_control'}
+[0.017060] (sjtu_drone_description) JobStarted: {'identifier': 'sjtu_drone_description'}
+[0.099777] (-) TimerEvent: {}
+[0.200024] (-) TimerEvent: {}
+[0.300299] (-) TimerEvent: {}
+[0.400521] (-) TimerEvent: {}
+[0.406236] (sjtu_drone_description) JobProgress: {'identifier': 'sjtu_drone_description', 'progress': 'cmake'}
+[0.406647] (sjtu_drone_description) Command: {'cmd': ['/usr/bin/cmake', '/root/april_gazebo/sjtu_drone/sjtu_drone_description', '-DBUILD_TESTING=OFF', '-DRMW_IMPLEMENTATION=rmw_fastrtps_cpp', '-DCMAKE_INSTALL_PREFIX=/root/april_gazebo/install/sjtu_drone_description'], 'cwd': '/root/april_gazebo/build/sjtu_drone_description', 'env': OrderedDict([('HOSTNAME', 'LP-Boston-12214'), ('SHLVL', '1'), ('LD_LIBRARY_PATH', '/root/april_gazebo/install/sjtu_drone_description/lib:/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib'), ('HOME', '/root'), ('SKIP_MAP', 'true'), ('OLDPWD', '/ros2_ws'), ('GAZEBO_MASTER_URI', 'http://localhost:11345'), ('ROS_PYTHON_VERSION', '3'), ('COLCON_PREFIX_PATH', '/root/april_gazebo/install'), ('ROS_DISTRO', 'humble'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('TERM', 'xterm'), ('GAZEBO_MODEL_PATH', '/usr/share/gazebo-11/models:/root/april_gazebo/aws-robomaker-hospital-world/models:/root/april_gazebo/sjtu_drone/sjtu_drone_description:/root/april_gazebo/sjtu_drone/models'), ('ROS_LOCALHOST_ONLY', '0'), ('QT_X11_NO_MITSHM', '1'), ('PATH', '/opt/ros/humble/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'), ('GAZEBO_VERBOSE', '1'), ('DISPLAY', ':1'), ('LANG', 'C.UTF-8'), ('RMW_IMPLEMENTATION', 'rmw_fastrtps_cpp'), ('XAUTHORITY', '/home/shirb/.Xauthority'), ('AMENT_PREFIX_PATH', '/root/april_gazebo/install/sjtu_drone_description:/root/april_gazebo/install/sjtu_drone_control:/root/april_gazebo/install/sjtu_drone_bringup:/opt/ros/humble'), ('ALSA_CARD', '0'), ('GAZEBO_RESOURCE_PATH', '/usr/share/gazebo-11:/root/april_gazebo/aws-robomaker-hospital-world/worlds:/root/april_gazebo/aws-robomaker-hospital-world'), ('GAZEBO_MODEL_DATABASE_URI', ''), ('GAZEBO_AUDIO_DEVICE', 'null'), ('PWD', '/root/april_gazebo/build/sjtu_drone_description'), ('LC_ALL', 'C.UTF-8'), ('GAZEBO_PLUGIN_PATH', '/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:'), ('PYTHONPATH', '/root/april_gazebo/install/sjtu_drone_control/lib/python3.10/site-packages:/root/april_gazebo/install/sjtu_drone_bringup/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('NVIDIA_VISIBLE_DEVICES', 'all'), ('COLCON', '1'), ('CMAKE_PREFIX_PATH', '/root/april_gazebo/install/sjtu_drone_description:/root/april_gazebo/install/sjtu_drone_control:/root/april_gazebo/install/sjtu_drone_bringup:/opt/ros/humble')]), 'shell': False}
+[0.500603] (-) TimerEvent: {}
+[0.521558] (sjtu_drone_description) StdoutLine: {'line': b'-- The C compiler identification is GNU 11.4.0\n'}
+[0.578056] (sjtu_drone_description) StdoutLine: {'line': b'-- The CXX compiler identification is GNU 11.4.0\n'}
+[0.589289] (sjtu_drone_description) StdoutLine: {'line': b'-- Detecting C compiler ABI info\n'}
+[0.600719] (-) TimerEvent: {}
+[0.661604] (sjtu_drone_description) StdoutLine: {'line': b'-- Detecting C compiler ABI info - done\n'}
+[0.671294] (sjtu_drone_description) StdoutLine: {'line': b'-- Check for working C compiler: /usr/bin/cc - skipped\n'}
+[0.671838] (sjtu_drone_description) StdoutLine: {'line': b'-- Detecting C compile features\n'}
+[0.672567] (sjtu_drone_description) StdoutLine: {'line': b'-- Detecting C compile features - done\n'}
+[0.676741] (sjtu_drone_description) StdoutLine: {'line': b'-- Detecting CXX compiler ABI info\n'}
+[0.697104] (sjtu_drone_control) Command: {'cmd': ['/usr/bin/python3', '-W', 'ignore:setup.py install is deprecated', '-W', 'ignore:easy_install command is deprecated', 'setup.py', 'egg_info', '--egg-base', '../../build/sjtu_drone_control', 'build', '--build-base', '/root/april_gazebo/build/sjtu_drone_control/build', 'install', '--record', '/root/april_gazebo/build/sjtu_drone_control/install.log', '--single-version-externally-managed', 'install_data'], 'cwd': '/root/april_gazebo/sjtu_drone/sjtu_drone_control', 'env': {'HOSTNAME': 'LP-Boston-12214', 'SHLVL': '1', 'LD_LIBRARY_PATH': '/root/april_gazebo/install/sjtu_drone_description/lib:/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib', 'HOME': '/root', 'SKIP_MAP': 'true', 'OLDPWD': '/ros2_ws', 'GAZEBO_MASTER_URI': 'http://localhost:11345', 'ROS_PYTHON_VERSION': '3', 'COLCON_PREFIX_PATH': '/root/april_gazebo/install', 'ROS_DISTRO': 'humble', '_': '/usr/bin/colcon', 'ROS_VERSION': '2', 'TERM': 'xterm', 'GAZEBO_MODEL_PATH': '/usr/share/gazebo-11/models:/root/april_gazebo/aws-robomaker-hospital-world/models:/root/april_gazebo/sjtu_drone/sjtu_drone_description:/root/april_gazebo/sjtu_drone/models', 'ROS_LOCALHOST_ONLY': '0', 'QT_X11_NO_MITSHM': '1', 'PATH': '/opt/ros/humble/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', 'GAZEBO_VERBOSE': '1', 'DISPLAY': ':1', 'LANG': 'C.UTF-8', 'RMW_IMPLEMENTATION': 'rmw_fastrtps_cpp', 'XAUTHORITY': '/home/shirb/.Xauthority', 'AMENT_PREFIX_PATH': '/root/april_gazebo/install/sjtu_drone_description:/root/april_gazebo/install/sjtu_drone_control:/root/april_gazebo/install/sjtu_drone_bringup:/opt/ros/humble', 'ALSA_CARD': '0', 'GAZEBO_RESOURCE_PATH': '/usr/share/gazebo-11:/root/april_gazebo/aws-robomaker-hospital-world/worlds:/root/april_gazebo/aws-robomaker-hospital-world', 'GAZEBO_MODEL_DATABASE_URI': '', 'GAZEBO_AUDIO_DEVICE': 'null', 'PWD': '/root/april_gazebo/build/sjtu_drone_control', 'LC_ALL': 'C.UTF-8', 'GAZEBO_PLUGIN_PATH': '/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:', 'PYTHONPATH': '/root/april_gazebo/build/sjtu_drone_control/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/root/april_gazebo/install/sjtu_drone_control/lib/python3.10/site-packages:/root/april_gazebo/install/sjtu_drone_control/lib/python3.10/site-packages:/root/april_gazebo/install/sjtu_drone_bringup/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages', 'NVIDIA_VISIBLE_DEVICES': 'all', 'COLCON': '1', 'CMAKE_PREFIX_PATH': '/root/april_gazebo/install/sjtu_drone_description'}, 'shell': False}
+[0.700967] (-) TimerEvent: {}
+[0.701521] (sjtu_drone_bringup) Command: {'cmd': ['/usr/bin/python3', '-W', 'ignore:setup.py install is deprecated', '-W', 'ignore:easy_install command is deprecated', 'setup.py', 'egg_info', '--egg-base', '../../build/sjtu_drone_bringup', 'build', '--build-base', '/root/april_gazebo/build/sjtu_drone_bringup/build', 'install', '--record', '/root/april_gazebo/build/sjtu_drone_bringup/install.log', '--single-version-externally-managed', 'install_data'], 'cwd': '/root/april_gazebo/sjtu_drone/sjtu_drone_bringup', 'env': {'HOSTNAME': 'LP-Boston-12214', 'SHLVL': '1', 'LD_LIBRARY_PATH': '/root/april_gazebo/install/sjtu_drone_description/lib:/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib', 'HOME': '/root', 'SKIP_MAP': 'true', 'OLDPWD': '/ros2_ws', 'GAZEBO_MASTER_URI': 'http://localhost:11345', 'ROS_PYTHON_VERSION': '3', 'COLCON_PREFIX_PATH': '/root/april_gazebo/install', 'ROS_DISTRO': 'humble', '_': '/usr/bin/colcon', 'ROS_VERSION': '2', 'TERM': 'xterm', 'GAZEBO_MODEL_PATH': '/usr/share/gazebo-11/models:/root/april_gazebo/aws-robomaker-hospital-world/models:/root/april_gazebo/sjtu_drone/sjtu_drone_description:/root/april_gazebo/sjtu_drone/models', 'ROS_LOCALHOST_ONLY': '0', 'QT_X11_NO_MITSHM': '1', 'PATH': '/opt/ros/humble/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', 'GAZEBO_VERBOSE': '1', 'DISPLAY': ':1', 'LANG': 'C.UTF-8', 'RMW_IMPLEMENTATION': 'rmw_fastrtps_cpp', 'XAUTHORITY': '/home/shirb/.Xauthority', 'AMENT_PREFIX_PATH': '/root/april_gazebo/install/sjtu_drone_description:/root/april_gazebo/install/sjtu_drone_control:/root/april_gazebo/install/sjtu_drone_bringup:/opt/ros/humble', 'ALSA_CARD': '0', 'GAZEBO_RESOURCE_PATH': '/usr/share/gazebo-11:/root/april_gazebo/aws-robomaker-hospital-world/worlds:/root/april_gazebo/aws-robomaker-hospital-world', 'GAZEBO_MODEL_DATABASE_URI': '', 'GAZEBO_AUDIO_DEVICE': 'null', 'PWD': '/root/april_gazebo/build/sjtu_drone_bringup', 'LC_ALL': 'C.UTF-8', 'GAZEBO_PLUGIN_PATH': '/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:', 'PYTHONPATH': '/root/april_gazebo/build/sjtu_drone_bringup/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/root/april_gazebo/install/sjtu_drone_bringup/lib/python3.10/site-packages:/root/april_gazebo/install/sjtu_drone_control/lib/python3.10/site-packages:/root/april_gazebo/install/sjtu_drone_bringup/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages', 'NVIDIA_VISIBLE_DEVICES': 'all', 'COLCON': '1', 'CMAKE_PREFIX_PATH': '/root/april_gazebo/install/sjtu_drone_description'}, 'shell': False}
+[0.753762] (sjtu_drone_description) StdoutLine: {'line': b'-- Detecting CXX compiler ABI info - done\n'}
+[0.760654] (sjtu_drone_description) StdoutLine: {'line': b'-- Check for working CXX compiler: /usr/bin/c++ - skipped\n'}
+[0.760898] (sjtu_drone_description) StdoutLine: {'line': b'-- Detecting CXX compile features\n'}
+[0.761308] (sjtu_drone_description) StdoutLine: {'line': b'-- Detecting CXX compile features - done\n'}
+[0.766702] (sjtu_drone_description) StdoutLine: {'line': b'-- Found PkgConfig: /usr/bin/pkg-config (found version "0.29.2") \n'}
+[0.767165] (sjtu_drone_description) StdoutLine: {'line': b"-- Checking for module 'OGRE'\n"}
+[0.778841] (sjtu_drone_description) StdoutLine: {'line': b'--   Found OGRE, version 1.9.0\n'}
+[0.801086] (-) TimerEvent: {}
+[0.807336] (sjtu_drone_description) StdoutLine: {'line': b"-- Checking for module 'OGRE-Terrain'\n"}
+[0.818577] (sjtu_drone_description) StdoutLine: {'line': b'--   Found OGRE-Terrain, version 1.9.0\n'}
+[0.850013] (sjtu_drone_description) StdoutLine: {'line': b'-- Found ament_cmake: 1.3.12 (/opt/ros/humble/share/ament_cmake/cmake)\n'}
+[0.875678] (sjtu_drone_control) StdoutLine: {'line': b'running egg_info\n'}
+[0.876311] (sjtu_drone_control) StdoutLine: {'line': b'creating ../../build/sjtu_drone_control/sjtu_drone_control.egg-info\n'}
+[0.876569] (sjtu_drone_control) StdoutLine: {'line': b'writing ../../build/sjtu_drone_control/sjtu_drone_control.egg-info/PKG-INFO\n'}
+[0.876835] (sjtu_drone_control) StdoutLine: {'line': b'writing dependency_links to ../../build/sjtu_drone_control/sjtu_drone_control.egg-info/dependency_links.txt\n'}
+[0.877039] (sjtu_drone_control) StdoutLine: {'line': b'writing entry points to ../../build/sjtu_drone_control/sjtu_drone_control.egg-info/entry_points.txt\n'}
+[0.877395] (sjtu_drone_control) StdoutLine: {'line': b'writing requirements to ../../build/sjtu_drone_control/sjtu_drone_control.egg-info/requires.txt\n'}
+[0.877503] (sjtu_drone_control) StdoutLine: {'line': b'writing top-level names to ../../build/sjtu_drone_control/sjtu_drone_control.egg-info/top_level.txt\n'}
+[0.877598] (sjtu_drone_bringup) StdoutLine: {'line': b'running egg_info\n'}
+[0.877712] (sjtu_drone_control) StdoutLine: {'line': b"writing manifest file '../../build/sjtu_drone_control/sjtu_drone_control.egg-info/SOURCES.txt'\n"}
+[0.877944] (sjtu_drone_bringup) StdoutLine: {'line': b'creating ../../build/sjtu_drone_bringup/sjtu_drone_bringup.egg-info\n'}
+[0.878069] (sjtu_drone_bringup) StdoutLine: {'line': b'writing ../../build/sjtu_drone_bringup/sjtu_drone_bringup.egg-info/PKG-INFO\n'}
+[0.878237] (sjtu_drone_bringup) StdoutLine: {'line': b'writing dependency_links to ../../build/sjtu_drone_bringup/sjtu_drone_bringup.egg-info/dependency_links.txt\n'}
+[0.878339] (sjtu_drone_bringup) StdoutLine: {'line': b'writing entry points to ../../build/sjtu_drone_bringup/sjtu_drone_bringup.egg-info/entry_points.txt\n'}
+[0.878428] (sjtu_drone_bringup) StdoutLine: {'line': b'writing requirements to ../../build/sjtu_drone_bringup/sjtu_drone_bringup.egg-info/requires.txt\n'}
+[0.878552] (sjtu_drone_bringup) StdoutLine: {'line': b'writing top-level names to ../../build/sjtu_drone_bringup/sjtu_drone_bringup.egg-info/top_level.txt\n'}
+[0.878793] (sjtu_drone_bringup) StdoutLine: {'line': b"writing manifest file '../../build/sjtu_drone_bringup/sjtu_drone_bringup.egg-info/SOURCES.txt'\n"}
+[0.878921] (sjtu_drone_control) StdoutLine: {'line': b"reading manifest file '../../build/sjtu_drone_control/sjtu_drone_control.egg-info/SOURCES.txt'\n"}
+[0.879437] (sjtu_drone_control) StdoutLine: {'line': b"writing manifest file '../../build/sjtu_drone_control/sjtu_drone_control.egg-info/SOURCES.txt'\n"}
+[0.879622] (sjtu_drone_control) StdoutLine: {'line': b'running build\n'}
+[0.879709] (sjtu_drone_control) StdoutLine: {'line': b'running build_py\n'}
+[0.879844] (sjtu_drone_control) StdoutLine: {'line': b'creating /root/april_gazebo/build/sjtu_drone_control/build\n'}
+[0.880008] (sjtu_drone_control) StdoutLine: {'line': b'creating /root/april_gazebo/build/sjtu_drone_control/build/lib\n'}
+[0.880151] (sjtu_drone_control) StdoutLine: {'line': b'creating /root/april_gazebo/build/sjtu_drone_control/build/lib/sjtu_drone_control\n'}
+[0.880231] (sjtu_drone_control) StdoutLine: {'line': b'copying sjtu_drone_control/open_loop_control.py -> /root/april_gazebo/build/sjtu_drone_control/build/lib/sjtu_drone_control\n'}
+[0.880288] (sjtu_drone_control) StdoutLine: {'line': b'copying sjtu_drone_control/__init__.py -> /root/april_gazebo/build/sjtu_drone_control/build/lib/sjtu_drone_control\n'}
+[0.880345] (sjtu_drone_control) StdoutLine: {'line': b'copying sjtu_drone_control/drone_position_control.py -> /root/april_gazebo/build/sjtu_drone_control/build/lib/sjtu_drone_control\n'}
+[0.880422] (sjtu_drone_bringup) StdoutLine: {'line': b"reading manifest file '../../build/sjtu_drone_bringup/sjtu_drone_bringup.egg-info/SOURCES.txt'\n"}
+[0.880480] (sjtu_drone_control) StdoutLine: {'line': b'copying sjtu_drone_control/teleop.py -> /root/april_gazebo/build/sjtu_drone_control/build/lib/sjtu_drone_control\n'}
+[0.880533] (sjtu_drone_control) StdoutLine: {'line': b'copying sjtu_drone_control/teleop_joystick.py -> /root/april_gazebo/build/sjtu_drone_control/build/lib/sjtu_drone_control\n'}
+[0.880585] (sjtu_drone_control) StdoutLine: {'line': b'running install\n'}
+[0.880684] (sjtu_drone_bringup) StdoutLine: {'line': b"writing manifest file '../../build/sjtu_drone_bringup/sjtu_drone_bringup.egg-info/SOURCES.txt'\n"}
+[0.880858] (sjtu_drone_bringup) StdoutLine: {'line': b'running build\n'}
+[0.881019] (sjtu_drone_bringup) StdoutLine: {'line': b'running build_py\n'}
+[0.881127] (sjtu_drone_control) StdoutLine: {'line': b'running install_lib\n'}
+[0.881195] (sjtu_drone_bringup) StdoutLine: {'line': b'creating /root/april_gazebo/build/sjtu_drone_bringup/build\n'}
+[0.881304] (sjtu_drone_bringup) StdoutLine: {'line': b'creating /root/april_gazebo/build/sjtu_drone_bringup/build/lib\n'}
+[0.881370] (sjtu_drone_bringup) StdoutLine: {'line': b'creating /root/april_gazebo/build/sjtu_drone_bringup/build/lib/sjtu_drone_bringup\n'}
+[0.881466] (sjtu_drone_bringup) StdoutLine: {'line': b'copying sjtu_drone_bringup/__init__.py -> /root/april_gazebo/build/sjtu_drone_bringup/build/lib/sjtu_drone_bringup\n'}
+[0.881564] (sjtu_drone_bringup) StdoutLine: {'line': b'copying sjtu_drone_bringup/spawn_drone.py -> /root/april_gazebo/build/sjtu_drone_bringup/build/lib/sjtu_drone_bringup\n'}
+[0.881659] (sjtu_drone_control) StdoutLine: {'line': b'creating /root/april_gazebo/install/sjtu_drone_control/lib/python3.10/site-packages/sjtu_drone_control\n'}
+[0.881793] (sjtu_drone_control) StdoutLine: {'line': b'copying /root/april_gazebo/build/sjtu_drone_control/build/lib/sjtu_drone_control/open_loop_control.py -> /root/april_gazebo/install/sjtu_drone_control/lib/python3.10/site-packages/sjtu_drone_control\n'}
+[0.881886] (sjtu_drone_bringup) StdoutLine: {'line': b'running install\n'}
+[0.881978] (sjtu_drone_bringup) StdoutLine: {'line': b'running install_lib\n'}
+[0.882078] (sjtu_drone_control) StdoutLine: {'line': b'copying /root/april_gazebo/build/sjtu_drone_control/build/lib/sjtu_drone_control/__init__.py -> /root/april_gazebo/install/sjtu_drone_control/lib/python3.10/site-packages/sjtu_drone_control\n'}
+[0.882240] (sjtu_drone_control) StdoutLine: {'line': b'copying /root/april_gazebo/build/sjtu_drone_control/build/lib/sjtu_drone_control/drone_position_control.py -> /root/april_gazebo/install/sjtu_drone_control/lib/python3.10/site-packages/sjtu_drone_control\n'}
+[0.882299] (sjtu_drone_control) StdoutLine: {'line': b'copying /root/april_gazebo/build/sjtu_drone_control/build/lib/sjtu_drone_control/teleop.py -> /root/april_gazebo/install/sjtu_drone_control/lib/python3.10/site-packages/sjtu_drone_control\n'}
+[0.882351] (sjtu_drone_control) StdoutLine: {'line': b'copying /root/april_gazebo/build/sjtu_drone_control/build/lib/sjtu_drone_control/teleop_joystick.py -> /root/april_gazebo/install/sjtu_drone_control/lib/python3.10/site-packages/sjtu_drone_control\n'}
+[0.882402] (sjtu_drone_control) StdoutLine: {'line': b'byte-compiling /root/april_gazebo/install/sjtu_drone_control/lib/python3.10/site-packages/sjtu_drone_control/open_loop_control.py to open_loop_control.cpython-310.pyc\n'}
+[0.882453] (sjtu_drone_bringup) StdoutLine: {'line': b'creating /root/april_gazebo/install/sjtu_drone_bringup/lib/python3.10/site-packages/sjtu_drone_bringup\n'}
+[0.882508] (sjtu_drone_bringup) StdoutLine: {'line': b'copying /root/april_gazebo/build/sjtu_drone_bringup/build/lib/sjtu_drone_bringup/__init__.py -> /root/april_gazebo/install/sjtu_drone_bringup/lib/python3.10/site-packages/sjtu_drone_bringup\n'}
+[0.882559] (sjtu_drone_bringup) StdoutLine: {'line': b'copying /root/april_gazebo/build/sjtu_drone_bringup/build/lib/sjtu_drone_bringup/spawn_drone.py -> /root/april_gazebo/install/sjtu_drone_bringup/lib/python3.10/site-packages/sjtu_drone_bringup\n'}
+[0.882642] (sjtu_drone_bringup) StdoutLine: {'line': b'byte-compiling /root/april_gazebo/install/sjtu_drone_bringup/lib/python3.10/site-packages/sjtu_drone_bringup/__init__.py to __init__.cpython-310.pyc\n'}
+[0.882802] (sjtu_drone_bringup) StdoutLine: {'line': b'byte-compiling /root/april_gazebo/install/sjtu_drone_bringup/lib/python3.10/site-packages/sjtu_drone_bringup/spawn_drone.py to spawn_drone.cpython-310.pyc\n'}
+[0.883203] (sjtu_drone_bringup) StdoutLine: {'line': b'running install_data\n'}
+[0.883343] (sjtu_drone_bringup) StdoutLine: {'line': b'creating /root/april_gazebo/install/sjtu_drone_bringup/share/ament_index\n'}
+[0.883530] (sjtu_drone_bringup) StdoutLine: {'line': b'creating /root/april_gazebo/install/sjtu_drone_bringup/share/ament_index/resource_index\n'}
+[0.883622] (sjtu_drone_bringup) StdoutLine: {'line': b'creating /root/april_gazebo/install/sjtu_drone_bringup/share/ament_index/resource_index/packages\n'}
+[0.883721] (sjtu_drone_bringup) StdoutLine: {'line': b'copying resource/sjtu_drone_bringup -> /root/april_gazebo/install/sjtu_drone_bringup/share/ament_index/resource_index/packages\n'}
+[0.883818] (sjtu_drone_bringup) StdoutLine: {'line': b'copying package.xml -> /root/april_gazebo/install/sjtu_drone_bringup/share/sjtu_drone_bringup\n'}
+[0.883940] (sjtu_drone_bringup) StdoutLine: {'line': b'creating /root/april_gazebo/install/sjtu_drone_bringup/share/sjtu_drone_bringup/launch\n'}
+[0.884105] (sjtu_drone_bringup) StdoutLine: {'line': b'copying launch/sjtu_drone_bringup.launch.py -> /root/april_gazebo/install/sjtu_drone_bringup/share/sjtu_drone_bringup/launch\n'}
+[0.884180] (sjtu_drone_bringup) StdoutLine: {'line': b'copying launch/sjtu_drone_gazebo.launch.py -> /root/april_gazebo/install/sjtu_drone_bringup/share/sjtu_drone_bringup/launch\n'}
+[0.884242] (sjtu_drone_bringup) StdoutLine: {'line': b'creating /root/april_gazebo/install/sjtu_drone_bringup/share/sjtu_drone_bringup/rviz\n'}
+[0.884294] (sjtu_drone_bringup) StdoutLine: {'line': b'copying rviz/rviz.rviz -> /root/april_gazebo/install/sjtu_drone_bringup/share/sjtu_drone_bringup/rviz\n'}
+[0.884383] (sjtu_drone_bringup) StdoutLine: {'line': b'creating /root/april_gazebo/install/sjtu_drone_bringup/share/sjtu_drone_bringup/config\n'}
+[0.884437] (sjtu_drone_bringup) StdoutLine: {'line': b'copying config/drone.yaml -> /root/april_gazebo/install/sjtu_drone_bringup/share/sjtu_drone_bringup/config\n'}
+[0.884499] (sjtu_drone_bringup) StdoutLine: {'line': b'running install_egg_info\n'}
+[0.884555] (sjtu_drone_control) StdoutLine: {'line': b'byte-compiling /root/april_gazebo/install/sjtu_drone_control/lib/python3.10/site-packages/sjtu_drone_control/__init__.py to __init__.cpython-310.pyc\n'}
+[0.884639] (sjtu_drone_control) StdoutLine: {'line': b'byte-compiling /root/april_gazebo/install/sjtu_drone_control/lib/python3.10/site-packages/sjtu_drone_control/drone_position_control.py to drone_position_control.cpython-310.pyc\n'}
+[0.884807] (sjtu_drone_control) StdoutLine: {'line': b'byte-compiling /root/april_gazebo/install/sjtu_drone_control/lib/python3.10/site-packages/sjtu_drone_control/teleop.py to teleop.cpython-310.pyc\n'}
+[0.885473] (sjtu_drone_control) StdoutLine: {'line': b'byte-compiling /root/april_gazebo/install/sjtu_drone_control/lib/python3.10/site-packages/sjtu_drone_control/teleop_joystick.py to teleop_joystick.cpython-310.pyc\n'}
+[0.885922] (sjtu_drone_control) StdoutLine: {'line': b'running install_data\n'}
+[0.886096] (sjtu_drone_control) StdoutLine: {'line': b'creating /root/april_gazebo/install/sjtu_drone_control/share/ament_index\n'}
+[0.886320] (sjtu_drone_control) StdoutLine: {'line': b'creating /root/april_gazebo/install/sjtu_drone_control/share/ament_index/resource_index\n'}
+[0.886422] (sjtu_drone_control) StdoutLine: {'line': b'creating /root/april_gazebo/install/sjtu_drone_control/share/ament_index/resource_index/packages\n'}
+[0.886513] (sjtu_drone_control) StdoutLine: {'line': b'copying resource/sjtu_drone_control -> /root/april_gazebo/install/sjtu_drone_control/share/ament_index/resource_index/packages\n'}
+[0.886602] (sjtu_drone_control) StdoutLine: {'line': b'copying package.xml -> /root/april_gazebo/install/sjtu_drone_control/share/sjtu_drone_control\n'}
+[0.886704] (sjtu_drone_control) StdoutLine: {'line': b'running install_egg_info\n'}
+[0.886792] (sjtu_drone_bringup) StdoutLine: {'line': b'Copying ../../build/sjtu_drone_bringup/sjtu_drone_bringup.egg-info to /root/april_gazebo/install/sjtu_drone_bringup/lib/python3.10/site-packages/sjtu_drone_bringup-0.0.0-py3.10.egg-info\n'}
+[0.887045] (sjtu_drone_bringup) StdoutLine: {'line': b'running install_scripts\n'}
+[0.887647] (sjtu_drone_control) StdoutLine: {'line': b'Copying ../../build/sjtu_drone_control/sjtu_drone_control.egg-info to /root/april_gazebo/install/sjtu_drone_control/lib/python3.10/site-packages/sjtu_drone_control-0.0.0-py3.10.egg-info\n'}
+[0.888510] (sjtu_drone_control) StdoutLine: {'line': b'running install_scripts\n'}
+[0.901178] (-) TimerEvent: {}
+[0.905327] (sjtu_drone_bringup) StdoutLine: {'line': b'Installing spawn_drone script to /root/april_gazebo/install/sjtu_drone_bringup/lib/sjtu_drone_bringup\n'}
+[0.905618] (sjtu_drone_bringup) StdoutLine: {'line': b"writing list of installed files to '/root/april_gazebo/build/sjtu_drone_bringup/install.log'\n"}
+[0.906568] (sjtu_drone_control) StdoutLine: {'line': b'Installing drone_position_control script to /root/april_gazebo/install/sjtu_drone_control/lib/sjtu_drone_control\n'}
+[0.906819] (sjtu_drone_control) StdoutLine: {'line': b'Installing open_loop_control script to /root/april_gazebo/install/sjtu_drone_control/lib/sjtu_drone_control\n'}
+[0.906982] (sjtu_drone_control) StdoutLine: {'line': b'Installing teleop script to /root/april_gazebo/install/sjtu_drone_control/lib/sjtu_drone_control\n'}
+[0.907072] (sjtu_drone_control) StdoutLine: {'line': b'Installing teleop_joystick script to /root/april_gazebo/install/sjtu_drone_control/lib/sjtu_drone_control\n'}
+[0.907320] (sjtu_drone_control) StdoutLine: {'line': b"writing list of installed files to '/root/april_gazebo/build/sjtu_drone_control/install.log'\n"}
+[0.928690] (sjtu_drone_bringup) CommandEnded: {'returncode': 0}
+[0.941249] (sjtu_drone_bringup) JobEnded: {'identifier': 'sjtu_drone_bringup', 'rc': 0}
+[0.942674] (sjtu_drone_control) CommandEnded: {'returncode': 0}
+[0.947880] (sjtu_drone_control) JobEnded: {'identifier': 'sjtu_drone_control', 'rc': 0}
+[0.992868] (sjtu_drone_description) StdoutLine: {'line': b'-- Found Python3: /usr/bin/python3 (found version "3.10.12") found components: Interpreter \n'}
+[1.001234] (-) TimerEvent: {}
+[1.101505] (-) TimerEvent: {}
+[1.125077] (sjtu_drone_description) StdoutLine: {'line': b'-- Found ament_cmake_ros: 0.10.0 (/opt/ros/humble/share/ament_cmake_ros/cmake)\n'}
+[1.139315] (sjtu_drone_description) StdoutLine: {'line': b'-- Found rclcpp: 16.0.15 (/opt/ros/humble/share/rclcpp/cmake)\n'}
+[1.187670] (sjtu_drone_description) StdoutLine: {'line': b'-- Found rosidl_generator_c: 3.1.7 (/opt/ros/humble/share/rosidl_generator_c/cmake)\n'}
+[1.193467] (sjtu_drone_description) StdoutLine: {'line': b'-- Found rosidl_adapter: 3.1.7 (/opt/ros/humble/share/rosidl_adapter/cmake)\n'}
+[1.201583] (-) TimerEvent: {}
+[1.202948] (sjtu_drone_description) StdoutLine: {'line': b'-- Found rosidl_generator_cpp: 3.1.7 (/opt/ros/humble/share/rosidl_generator_cpp/cmake)\n'}
+[1.215811] (sjtu_drone_description) StdoutLine: {'line': b'-- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c\n'}
+[1.234003] (sjtu_drone_description) StdoutLine: {'line': b'-- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp\n'}
+[1.282271] (sjtu_drone_description) StdoutLine: {'line': b'-- Found rmw_implementation_cmake: 6.1.2 (/opt/ros/humble/share/rmw_implementation_cmake/cmake)\n'}
+[1.285829] (sjtu_drone_description) StdoutLine: {'line': b'-- Found rmw_fastrtps_cpp: 6.2.8 (/opt/ros/humble/share/rmw_fastrtps_cpp/cmake)\n'}
+[1.301674] (-) TimerEvent: {}
+[1.374834] (sjtu_drone_description) StdoutLine: {'line': b'-- Found OpenSSL: /usr/lib/x86_64-linux-gnu/libcrypto.so (found version "3.0.2")  \n'}
+[1.398738] (sjtu_drone_description) StdoutLine: {'line': b'-- Found FastRTPS: /opt/ros/humble/include  \n'}
+[1.401773] (-) TimerEvent: {}
+[1.437745] (sjtu_drone_description) StdoutLine: {'line': b"-- Using RMW implementation 'rmw_fastrtps_cpp' as default\n"}
+[1.448447] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for pthread.h\n'}
+[1.501922] (-) TimerEvent: {}
+[1.522360] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for pthread.h - found\n'}
+[1.522581] (sjtu_drone_description) StdoutLine: {'line': b'-- Performing Test CMAKE_HAVE_LIBC_PTHREAD\n'}
+[1.592065] (sjtu_drone_description) StdoutLine: {'line': b'-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success\n'}
+[1.593121] (sjtu_drone_description) StdoutLine: {'line': b'-- Found Threads: TRUE  \n'}
+[1.602010] (-) TimerEvent: {}
+[1.654697] (sjtu_drone_description) StdoutLine: {'line': b'-- Found gazebo_ros: 3.9.0 (/opt/ros/humble/share/gazebo_ros/cmake)\n'}
+[1.667655] (sjtu_drone_description) StdoutLine: {'line': b"-- Checking for module 'bullet>=2.82'\n"}
+[1.678762] (sjtu_drone_description) StdoutLine: {'line': b'--   Found bullet, version 3.05\n'}
+[1.702153] (-) TimerEvent: {}
+[1.780366] (sjtu_drone_description) StdoutLine: {'line': b'-- Found fcl: /usr/include (found suitable version "0.7.0", minimum required is "0.5.0") \n'}
+[1.802240] (-) TimerEvent: {}
+[1.824262] (sjtu_drone_description) StdoutLine: {'line': b'-- Found assimp: /usr/include (found version "5.2.0") \n'}
+[1.848736] (sjtu_drone_description) StdoutLine: {'line': b'-- Found DART: /usr/include (Required is at least version "6.6") found components: dart \n'}
+[1.875210] (sjtu_drone_description) StdoutLine: {'line': b'-- Found Boost: /usr/lib/x86_64-linux-gnu/cmake/Boost-1.74.0/BoostConfig.cmake (found suitable version "1.74.0", minimum required is "1.40.0") found components: thread system filesystem program_options regex iostreams date_time \n'}
+[1.893590] (sjtu_drone_description) StdoutLine: {'line': b'-- Found Protobuf: /usr/lib/x86_64-linux-gnu/libprotobuf.so (found version "3.12.4") \n'}
+[1.898966] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for ignition-math6 -- found version 6.15.1\n'}
+[1.902303] (-) TimerEvent: {}
+[1.916065] (sjtu_drone_description) StdoutLine: {'line': b'-- Searching for dependencies of ignition-math6\n'}
+[1.921245] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for OGRE...\n'}
+[1.922099] (sjtu_drone_description) StdoutLine: {'line': b'-- OGRE_PREFIX_WATCH changed.\n'}
+[1.931229] (sjtu_drone_description) StdoutLine: {'line': b"-- Checking for module 'OGRE'\n"}
+[1.947073] (sjtu_drone_description) StdoutLine: {'line': b'--   Found OGRE, version 1.9.0\n'}
+[1.985616] (sjtu_drone_description) StdoutLine: {'line': b'-- Found Ogre Ghadamon (1.9.0)\n'}
+[2.002418] (-) TimerEvent: {}
+[2.003191] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for OGRE_Paging...\n'}
+[2.006425] (sjtu_drone_description) StdoutLine: {'line': b'-- Found OGRE_Paging: optimized;/usr/lib/x86_64-linux-gnu/libOgrePaging.so;debug;/usr/lib/x86_64-linux-gnu/libOgrePaging.so\n'}
+[2.006521] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for OGRE_Terrain...\n'}
+[2.009467] (sjtu_drone_description) StdoutLine: {'line': b'-- Found OGRE_Terrain: optimized;/usr/lib/x86_64-linux-gnu/libOgreTerrain.so;debug;/usr/lib/x86_64-linux-gnu/libOgreTerrain.so\n'}
+[2.009575] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for OGRE_Property...\n'}
+[2.012230] (sjtu_drone_description) StdoutLine: {'line': b'-- Found OGRE_Property: optimized;/usr/lib/x86_64-linux-gnu/libOgreProperty.so;debug;/usr/lib/x86_64-linux-gnu/libOgreProperty.so\n'}
+[2.012317] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for OGRE_RTShaderSystem...\n'}
+[2.014872] (sjtu_drone_description) StdoutLine: {'line': b'-- Found OGRE_RTShaderSystem: optimized;/usr/lib/x86_64-linux-gnu/libOgreRTShaderSystem.so;debug;/usr/lib/x86_64-linux-gnu/libOgreRTShaderSystem.so\n'}
+[2.014959] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for OGRE_Volume...\n'}
+[2.017567] (sjtu_drone_description) StdoutLine: {'line': b'-- Found OGRE_Volume: optimized;/usr/lib/x86_64-linux-gnu/libOgreVolume.so;debug;/usr/lib/x86_64-linux-gnu/libOgreVolume.so\n'}
+[2.017652] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for OGRE_Overlay...\n'}
+[2.020100] (sjtu_drone_description) StdoutLine: {'line': b'-- Found OGRE_Overlay: optimized;/usr/lib/x86_64-linux-gnu/libOgreOverlay.so;debug;/usr/lib/x86_64-linux-gnu/libOgreOverlay.so\n'}
+[2.086491] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for ignition-math6 -- found version 6.15.1\n'}
+[2.088790] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for ignition-transport8 -- found version 8.2.1\n'}
+[2.089277] (sjtu_drone_description) StdoutLine: {'line': b'-- Searching for dependencies of ignition-transport8\n'}
+[2.102518] (-) TimerEvent: {}
+[2.105630] (sjtu_drone_description) StdoutLine: {'line': b'-- Found Protobuf: /usr/lib/x86_64-linux-gnu/libprotobuf.so (found suitable version "3.12.4", minimum required is "3") \n'}
+[2.116626] (sjtu_drone_description) StdoutLine: {'line': b'-- Config-file not installed for ZeroMQ -- checking for pkg-config\n'}
+[2.120811] (sjtu_drone_description) StdoutLine: {'line': b"-- Checking for module 'libzmq >= 4'\n"}
+[2.134598] (sjtu_drone_description) StdoutLine: {'line': b'--   Found libzmq , version 4.3.4\n'}
+[2.167289] (sjtu_drone_description) StdoutLine: {'line': b'-- Found ZeroMQ: TRUE (Required is at least version "4") \n'}
+[2.172428] (sjtu_drone_description) StdoutLine: {'line': b"-- Checking for module 'uuid'\n"}
+[2.183320] (sjtu_drone_description) StdoutLine: {'line': b'--   Found uuid, version 2.37.2\n'}
+[2.202632] (-) TimerEvent: {}
+[2.211715] (sjtu_drone_description) StdoutLine: {'line': b'-- Found UUID: TRUE  \n'}
+[2.214348] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for ignition-msgs5 -- found version 5.8.1\n'}
+[2.214801] (sjtu_drone_description) StdoutLine: {'line': b'-- Searching for dependencies of ignition-msgs5\n'}
+[2.232473] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for ignition-math6 -- found version 6.15.1\n'}
+[2.237491] (sjtu_drone_description) StdoutLine: {'line': b"-- Checking for module 'tinyxml2'\n"}
+[2.248673] (sjtu_drone_description) StdoutLine: {'line': b'--   Found tinyxml2, version 9.0.0\n'}
+[2.279395] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for ignition-msgs5 -- found version 5.8.1\n'}
+[2.281756] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for ignition-common3 -- found version 3.14.0\n'}
+[2.282257] (sjtu_drone_description) StdoutLine: {'line': b'-- Searching for dependencies of ignition-common3\n'}
+[2.282719] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for dlfcn.h - found\n'}
+[2.283047] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for libdl - found\n'}
+[2.284443] (sjtu_drone_description) StdoutLine: {'line': b'-- Found DL: TRUE  \n'}
+[2.294353] (sjtu_drone_description) StdoutLine: {'line': b'-- Found tinyobjloader: /usr/lib/x86_64-linux-gnu/cmake/tinyobjloader/tinyobjloader-config.cmake (found version "2.0.0") \n'}
+[2.295147] (sjtu_drone_description) StdoutLine: {'line': b'-- Searching for <ignition-common3> component [graphics]\n'}
+[2.297444] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for ignition-common3-graphics -- found version 3.14.0\n'}
+[2.297896] (sjtu_drone_description) StdoutLine: {'line': b'-- Searching for dependencies of ignition-common3-graphics\n'}
+[2.298213] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for ignition-math6 -- found version 6.15.1\n'}
+[2.301585] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for ignition-fuel_tools4 -- found version 4.4.0\n'}
+[2.302004] (sjtu_drone_description) StdoutLine: {'line': b'-- Searching for dependencies of ignition-fuel_tools4\n'}
+[2.302731] (-) TimerEvent: {}
+[2.369156] (sjtu_drone_description) StdoutLine: {'line': b'-- Found CURL: /usr/lib/x86_64-linux-gnu/libcurl.so (found version "7.81.0")  \n'}
+[2.377959] (sjtu_drone_description) StdoutLine: {'line': b"-- Checking for module 'jsoncpp'\n"}
+[2.389532] (sjtu_drone_description) StdoutLine: {'line': b'--   Found jsoncpp, version 1.9.5\n'}
+[2.402816] (-) TimerEvent: {}
+[2.418886] (sjtu_drone_description) StdoutLine: {'line': b'-- Found JSONCPP: TRUE  \n'}
+[2.424481] (sjtu_drone_description) StdoutLine: {'line': b"-- Checking for module 'libzip'\n"}
+[2.436389] (sjtu_drone_description) StdoutLine: {'line': b'--   Found libzip, version 1.7.3\n'}
+[2.465364] (sjtu_drone_description) StdoutLine: {'line': b'-- Found ZIP: TRUE  \n'}
+[2.465766] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for ignition-common3 -- found version 3.14.0\n'}
+[2.466162] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for ignition-math6 -- found version 6.15.1\n'}
+[2.466537] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for ignition-msgs5 -- found version 5.8.1\n'}
+[2.471256] (sjtu_drone_description) StdoutLine: {'line': b'-- Gazebo version: 11.10\n'}
+[2.471555] (sjtu_drone_description) StdoutLine: {'line': b"-- Checking for module 'tbb'\n"}
+[2.483546] (sjtu_drone_description) StdoutLine: {'line': b'--   Found tbb, version 2021.5.0\n'}
+[2.502929] (-) TimerEvent: {}
+[2.514599] (sjtu_drone_description) StdoutLine: {'line': b'-- Found gazebo_plugins: 3.9.0 (/opt/ros/humble/share/gazebo_plugins/cmake)\n'}
+[2.585932] (sjtu_drone_description) StdoutLine: {'line': b'-- Found sensor_msgs: 4.9.0 (/opt/ros/humble/share/sensor_msgs/cmake)\n'}
+[2.603017] (-) TimerEvent: {}
+[2.605816] (sjtu_drone_description) StdoutLine: {'line': b'-- Found nav_msgs: 4.9.0 (/opt/ros/humble/share/nav_msgs/cmake)\n'}
+[2.630287] (sjtu_drone_description) StdoutLine: {'line': b'-- Found tf2: 0.25.16 (/opt/ros/humble/share/tf2/cmake)\n'}
+[2.643294] (sjtu_drone_description) StdoutLine: {'line': b'-- Found tf2_ros: 0.25.16 (/opt/ros/humble/share/tf2_ros/cmake)\n'}
+[2.703145] (-) TimerEvent: {}
+[2.757202] (sjtu_drone_description) StdoutLine: {'line': b'-- Found tf2_geometry_msgs: 0.25.16 (/opt/ros/humble/share/tf2_geometry_msgs/cmake)\n'}
+[2.767754] (sjtu_drone_description) StdoutLine: {'line': b'-- Found eigen3_cmake_module: 0.1.1 (/opt/ros/humble/share/eigen3_cmake_module/cmake)\n'}
+[2.769350] (sjtu_drone_description) StdoutLine: {'line': b'-- Found Eigen3: TRUE (found version "3.4.0") \n'}
+[2.769585] (sjtu_drone_description) StdoutLine: {'line': b'-- Ensuring Eigen3 include directory is part of orocos-kdl CMake target\n'}
+[2.803231] (-) TimerEvent: {}
+[2.853575] (sjtu_drone_description) StdoutLine: {'line': b'-- Configuring done\n'}
+[2.903321] (-) TimerEvent: {}
+[2.914603] (sjtu_drone_description) StdoutLine: {'line': b'-- Generating done\n'}
+[2.921650] (sjtu_drone_description) StdoutLine: {'line': b'-- Build files have been written to: /root/april_gazebo/build/sjtu_drone_description\n'}
+[2.934926] (sjtu_drone_description) CommandEnded: {'returncode': 0}
+[2.936060] (sjtu_drone_description) JobProgress: {'identifier': 'sjtu_drone_description', 'progress': 'build'}
+[2.937118] (sjtu_drone_description) Command: {'cmd': ['/usr/bin/cmake', '--build', '/root/april_gazebo/build/sjtu_drone_description', '--', '-j12', '-l12'], 'cwd': '/root/april_gazebo/build/sjtu_drone_description', 'env': OrderedDict([('HOSTNAME', 'LP-Boston-12214'), ('SHLVL', '1'), ('LD_LIBRARY_PATH', '/root/april_gazebo/install/sjtu_drone_description/lib:/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib'), ('HOME', '/root'), ('SKIP_MAP', 'true'), ('OLDPWD', '/ros2_ws'), ('GAZEBO_MASTER_URI', 'http://localhost:11345'), ('ROS_PYTHON_VERSION', '3'), ('COLCON_PREFIX_PATH', '/root/april_gazebo/install'), ('ROS_DISTRO', 'humble'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('TERM', 'xterm'), ('GAZEBO_MODEL_PATH', '/usr/share/gazebo-11/models:/root/april_gazebo/aws-robomaker-hospital-world/models:/root/april_gazebo/sjtu_drone/sjtu_drone_description:/root/april_gazebo/sjtu_drone/models'), ('ROS_LOCALHOST_ONLY', '0'), ('QT_X11_NO_MITSHM', '1'), ('PATH', '/opt/ros/humble/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'), ('GAZEBO_VERBOSE', '1'), ('DISPLAY', ':1'), ('LANG', 'C.UTF-8'), ('RMW_IMPLEMENTATION', 'rmw_fastrtps_cpp'), ('XAUTHORITY', '/home/shirb/.Xauthority'), ('AMENT_PREFIX_PATH', '/root/april_gazebo/install/sjtu_drone_description:/root/april_gazebo/install/sjtu_drone_control:/root/april_gazebo/install/sjtu_drone_bringup:/opt/ros/humble'), ('ALSA_CARD', '0'), ('GAZEBO_RESOURCE_PATH', '/usr/share/gazebo-11:/root/april_gazebo/aws-robomaker-hospital-world/worlds:/root/april_gazebo/aws-robomaker-hospital-world'), ('GAZEBO_MODEL_DATABASE_URI', ''), ('GAZEBO_AUDIO_DEVICE', 'null'), ('PWD', '/root/april_gazebo/build/sjtu_drone_description'), ('LC_ALL', 'C.UTF-8'), ('GAZEBO_PLUGIN_PATH', '/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:'), ('PYTHONPATH', '/root/april_gazebo/install/sjtu_drone_control/lib/python3.10/site-packages:/root/april_gazebo/install/sjtu_drone_bringup/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('NVIDIA_VISIBLE_DEVICES', 'all'), ('COLCON', '1'), ('CMAKE_PREFIX_PATH', '/root/april_gazebo/install/sjtu_drone_description:/root/april_gazebo/install/sjtu_drone_control:/root/april_gazebo/install/sjtu_drone_bringup:/opt/ros/humble')]), 'shell': False}
+[2.996428] (sjtu_drone_description) StdoutLine: {'line': b'[ 75%] \x1b[32mBuilding CXX object CMakeFiles/plugin_drone.dir/src/plugin_drone_private.cpp.o\x1b[0m\n'}
+[2.996660] (sjtu_drone_description) StdoutLine: {'line': b'[ 75%] \x1b[32mBuilding CXX object CMakeFiles/plugin_drone.dir/src/pid_controller.cpp.o\x1b[0m\n'}
+[2.996803] (sjtu_drone_description) StdoutLine: {'line': b'[ 75%] \x1b[32mBuilding CXX object CMakeFiles/plugin_drone.dir/src/plugin_drone.cpp.o\x1b[0m\n'}
+[3.003435] (-) TimerEvent: {}
+[3.103689] (-) TimerEvent: {}
+[3.203939] (-) TimerEvent: {}
+[3.304232] (-) TimerEvent: {}
+[3.404547] (-) TimerEvent: {}
+[3.504812] (-) TimerEvent: {}
+[3.605089] (-) TimerEvent: {}
+[3.705342] (-) TimerEvent: {}
+[3.805625] (-) TimerEvent: {}
+[3.905933] (-) TimerEvent: {}
+[4.006269] (-) TimerEvent: {}
+[4.106567] (-) TimerEvent: {}
+[4.206890] (-) TimerEvent: {}
+[4.307278] (-) TimerEvent: {}
+[4.409905] (-) TimerEvent: {}
+[4.510488] (-) TimerEvent: {}
+[4.610841] (-) TimerEvent: {}
+[4.711159] (-) TimerEvent: {}
+[4.811563] (-) TimerEvent: {}
+[4.912098] (-) TimerEvent: {}
+[5.012373] (-) TimerEvent: {}
+[5.112699] (-) TimerEvent: {}
+[5.212965] (-) TimerEvent: {}
+[5.313311] (-) TimerEvent: {}
+[5.413639] (-) TimerEvent: {}
+[5.513940] (-) TimerEvent: {}
+[5.614206] (-) TimerEvent: {}
+[5.714536] (-) TimerEvent: {}
+[5.814956] (-) TimerEvent: {}
+[5.915212] (-) TimerEvent: {}
+[6.015494] (-) TimerEvent: {}
+[6.115802] (-) TimerEvent: {}
+[6.216082] (-) TimerEvent: {}
+[6.316370] (-) TimerEvent: {}
+[6.416691] (-) TimerEvent: {}
+[6.516962] (-) TimerEvent: {}
+[6.617212] (-) TimerEvent: {}
+[6.717469] (-) TimerEvent: {}
+[6.817729] (-) TimerEvent: {}
+[6.918039] (-) TimerEvent: {}
+[7.018372] (-) TimerEvent: {}
+[7.118749] (-) TimerEvent: {}
+[7.219398] (-) TimerEvent: {}
+[7.320033] (-) TimerEvent: {}
+[7.420552] (-) TimerEvent: {}
+[7.521053] (-) TimerEvent: {}
+[7.621381] (-) TimerEvent: {}
+[7.721688] (-) TimerEvent: {}
+[7.822118] (-) TimerEvent: {}
+[7.922425] (-) TimerEvent: {}
+[8.022783] (-) TimerEvent: {}
+[8.123187] (-) TimerEvent: {}
+[8.224610] (-) TimerEvent: {}
+[8.326331] (-) TimerEvent: {}
+[8.427679] (-) TimerEvent: {}
+[8.528156] (-) TimerEvent: {}
+[8.628414] (-) TimerEvent: {}
+[8.728692] (-) TimerEvent: {}
+[8.828934] (-) TimerEvent: {}
+[8.929158] (-) TimerEvent: {}
+[9.029427] (-) TimerEvent: {}
+[9.129735] (-) TimerEvent: {}
+[9.230021] (-) TimerEvent: {}
+[9.330310] (-) TimerEvent: {}
+[9.430636] (-) TimerEvent: {}
+[9.530901] (-) TimerEvent: {}
+[9.631151] (-) TimerEvent: {}
+[9.731430] (-) TimerEvent: {}
+[9.831815] (-) TimerEvent: {}
+[9.932153] (-) TimerEvent: {}
+[10.032425] (-) TimerEvent: {}
+[10.132795] (-) TimerEvent: {}
+[10.233101] (-) TimerEvent: {}
+[10.333359] (-) TimerEvent: {}
+[10.433642] (-) TimerEvent: {}
+[10.533984] (-) TimerEvent: {}
+[10.634299] (-) TimerEvent: {}
+[10.734838] (-) TimerEvent: {}
+[10.835501] (-) TimerEvent: {}
+[10.935857] (-) TimerEvent: {}
+[11.036223] (-) TimerEvent: {}
+[11.136658] (-) TimerEvent: {}
+[11.236979] (-) TimerEvent: {}
+[11.337336] (-) TimerEvent: {}
+[11.437637] (-) TimerEvent: {}
+[11.538043] (-) TimerEvent: {}
+[11.638396] (-) TimerEvent: {}
+[11.738698] (-) TimerEvent: {}
+[11.838998] (-) TimerEvent: {}
+[11.939295] (-) TimerEvent: {}
+[12.039600] (-) TimerEvent: {}
+[12.139920] (-) TimerEvent: {}
+[12.240252] (-) TimerEvent: {}
+[12.340583] (-) TimerEvent: {}
+[12.441000] (-) TimerEvent: {}
+[12.541418] (-) TimerEvent: {}
+[12.641980] (-) TimerEvent: {}
+[12.742371] (-) TimerEvent: {}
+[12.842678] (-) TimerEvent: {}
+[12.942981] (-) TimerEvent: {}
+[13.043303] (-) TimerEvent: {}
+[13.143620] (-) TimerEvent: {}
+[13.243970] (-) TimerEvent: {}
+[13.344256] (-) TimerEvent: {}
+[13.444547] (-) TimerEvent: {}
+[13.544828] (-) TimerEvent: {}
+[13.645099] (-) TimerEvent: {}
+[13.745349] (-) TimerEvent: {}
+[13.845613] (-) TimerEvent: {}
+[13.945896] (-) TimerEvent: {}
+[14.046172] (-) TimerEvent: {}
+[14.146429] (-) TimerEvent: {}
+[14.246819] (-) TimerEvent: {}
+[14.347087] (-) TimerEvent: {}
+[14.447357] (-) TimerEvent: {}
+[14.547672] (-) TimerEvent: {}
+[14.647928] (-) TimerEvent: {}
+[14.748277] (-) TimerEvent: {}
+[14.848567] (-) TimerEvent: {}
+[14.948831] (-) TimerEvent: {}
+[15.049087] (-) TimerEvent: {}
+[15.149365] (-) TimerEvent: {}
+[15.249641] (-) TimerEvent: {}
+[15.349963] (-) TimerEvent: {}
+[15.450479] (-) TimerEvent: {}
+[15.550746] (-) TimerEvent: {}
+[15.651058] (-) TimerEvent: {}
+[15.751353] (-) TimerEvent: {}
+[15.851616] (-) TimerEvent: {}
+[15.951860] (-) TimerEvent: {}
+[16.052261] (-) TimerEvent: {}
+[16.152652] (-) TimerEvent: {}
+[16.253045] (-) TimerEvent: {}
+[16.353289] (-) TimerEvent: {}
+[16.453553] (-) TimerEvent: {}
+[16.553923] (-) TimerEvent: {}
+[16.654183] (-) TimerEvent: {}
+[16.754797] (-) TimerEvent: {}
+[16.855211] (-) TimerEvent: {}
+[16.955514] (-) TimerEvent: {}
+[17.055783] (-) TimerEvent: {}
+[17.156059] (-) TimerEvent: {}
+[17.256307] (-) TimerEvent: {}
+[17.356563] (-) TimerEvent: {}
+[17.456846] (-) TimerEvent: {}
+[17.557151] (-) TimerEvent: {}
+[17.657429] (-) TimerEvent: {}
+[17.757721] (-) TimerEvent: {}
+[17.857986] (-) TimerEvent: {}
+[17.958193] (-) TimerEvent: {}
+[18.058474] (-) TimerEvent: {}
+[18.158786] (-) TimerEvent: {}
+[18.259098] (-) TimerEvent: {}
+[18.359356] (-) TimerEvent: {}
+[18.459626] (-) TimerEvent: {}
+[18.559889] (-) TimerEvent: {}
+[18.660158] (-) TimerEvent: {}
+[18.760424] (-) TimerEvent: {}
+[18.860720] (-) TimerEvent: {}
+[18.961056] (-) TimerEvent: {}
+[19.061396] (-) TimerEvent: {}
+[19.161715] (-) TimerEvent: {}
+[19.261999] (-) TimerEvent: {}
+[19.362256] (-) TimerEvent: {}
+[19.462548] (-) TimerEvent: {}
+[19.562851] (-) TimerEvent: {}
+[19.663141] (-) TimerEvent: {}
+[19.763417] (-) TimerEvent: {}
+[19.863705] (-) TimerEvent: {}
+[19.963964] (-) TimerEvent: {}
+[20.066088] (-) TimerEvent: {}
+[20.166345] (-) TimerEvent: {}
+[20.266632] (-) TimerEvent: {}
+[20.366881] (-) TimerEvent: {}
+[20.467188] (-) TimerEvent: {}
+[20.567457] (-) TimerEvent: {}
+[20.667732] (-) TimerEvent: {}
+[20.768033] (-) TimerEvent: {}
+[20.868416] (-) TimerEvent: {}
+[20.968903] (-) TimerEvent: {}
+[21.069168] (-) TimerEvent: {}
+[21.169519] (-) TimerEvent: {}
+[21.269825] (-) TimerEvent: {}
+[21.370134] (-) TimerEvent: {}
+[21.470413] (-) TimerEvent: {}
+[21.570726] (-) TimerEvent: {}
+[21.671016] (-) TimerEvent: {}
+[21.771282] (-) TimerEvent: {}
+[21.871525] (-) TimerEvent: {}
+[21.971807] (-) TimerEvent: {}
+[22.072095] (-) TimerEvent: {}
+[22.172385] (-) TimerEvent: {}
+[22.272688] (-) TimerEvent: {}
+[22.372972] (-) TimerEvent: {}
+[22.473205] (-) TimerEvent: {}
+[22.573487] (-) TimerEvent: {}
+[22.673784] (-) TimerEvent: {}
+[22.774065] (-) TimerEvent: {}
+[22.874324] (-) TimerEvent: {}
+[22.974627] (-) TimerEvent: {}
+[23.074925] (-) TimerEvent: {}
+[23.175219] (-) TimerEvent: {}
+[23.275526] (-) TimerEvent: {}
+[23.375816] (-) TimerEvent: {}
+[23.476113] (-) TimerEvent: {}
+[23.576420] (-) TimerEvent: {}
+[23.676707] (-) TimerEvent: {}
+[23.777009] (-) TimerEvent: {}
+[23.877331] (-) TimerEvent: {}
+[23.977616] (-) TimerEvent: {}
+[24.077898] (-) TimerEvent: {}
+[24.178189] (-) TimerEvent: {}
+[24.278468] (-) TimerEvent: {}
+[24.378795] (-) TimerEvent: {}
+[24.479094] (-) TimerEvent: {}
+[24.579348] (-) TimerEvent: {}
+[24.679638] (-) TimerEvent: {}
+[24.779933] (-) TimerEvent: {}
+[24.880257] (-) TimerEvent: {}
+[24.980554] (-) TimerEvent: {}
+[25.080886] (-) TimerEvent: {}
+[25.181222] (-) TimerEvent: {}
+[25.281495] (-) TimerEvent: {}
+[25.381768] (-) TimerEvent: {}
+[25.482044] (-) TimerEvent: {}
+[25.582335] (-) TimerEvent: {}
+[25.682616] (-) TimerEvent: {}
+[25.782902] (-) TimerEvent: {}
+[25.883185] (-) TimerEvent: {}
+[25.983461] (-) TimerEvent: {}
+[26.083736] (-) TimerEvent: {}
+[26.183984] (-) TimerEvent: {}
+[26.284372] (-) TimerEvent: {}
+[26.384647] (-) TimerEvent: {}
+[26.484925] (-) TimerEvent: {}
+[26.585187] (-) TimerEvent: {}
+[26.685459] (-) TimerEvent: {}
+[26.785737] (-) TimerEvent: {}
+[26.886017] (-) TimerEvent: {}
+[26.986301] (-) TimerEvent: {}
+[27.086579] (-) TimerEvent: {}
+[27.186836] (-) TimerEvent: {}
+[27.287199] (-) TimerEvent: {}
+[27.387502] (-) TimerEvent: {}
+[27.487759] (-) TimerEvent: {}
+[27.588029] (-) TimerEvent: {}
+[27.688261] (-) TimerEvent: {}
+[27.788536] (-) TimerEvent: {}
+[27.888789] (-) TimerEvent: {}
+[27.989105] (-) TimerEvent: {}
+[28.089365] (-) TimerEvent: {}
+[28.189623] (-) TimerEvent: {}
+[28.290048] (-) TimerEvent: {}
+[28.390281] (-) TimerEvent: {}
+[28.490494] (-) TimerEvent: {}
+[28.590775] (-) TimerEvent: {}
+[28.691049] (-) TimerEvent: {}
+[28.791332] (-) TimerEvent: {}
+[28.891625] (-) TimerEvent: {}
+[28.991903] (-) TimerEvent: {}
+[29.092183] (-) TimerEvent: {}
+[29.192456] (-) TimerEvent: {}
+[29.292731] (-) TimerEvent: {}
+[29.393067] (-) TimerEvent: {}
+[29.493374] (-) TimerEvent: {}
+[29.593649] (-) TimerEvent: {}
+[29.693930] (-) TimerEvent: {}
+[29.794208] (-) TimerEvent: {}
+[29.894492] (-) TimerEvent: {}
+[29.994808] (-) TimerEvent: {}
+[30.095091] (-) TimerEvent: {}
+[30.195375] (-) TimerEvent: {}
+[30.295648] (-) TimerEvent: {}
+[30.396005] (-) TimerEvent: {}
+[30.496522] (-) TimerEvent: {}
+[30.596797] (-) TimerEvent: {}
+[30.697101] (-) TimerEvent: {}
+[30.797465] (-) TimerEvent: {}
+[30.897744] (-) TimerEvent: {}
+[30.998007] (-) TimerEvent: {}
+[31.098269] (-) TimerEvent: {}
+[31.198545] (-) TimerEvent: {}
+[31.298821] (-) TimerEvent: {}
+[31.399092] (-) TimerEvent: {}
+[31.499334] (-) TimerEvent: {}
+[31.599607] (-) TimerEvent: {}
+[31.699882] (-) TimerEvent: {}
+[31.800170] (-) TimerEvent: {}
+[31.900438] (-) TimerEvent: {}
+[32.000768] (-) TimerEvent: {}
+[32.101055] (-) TimerEvent: {}
+[32.201353] (-) TimerEvent: {}
+[32.301647] (-) TimerEvent: {}
+[32.401909] (-) TimerEvent: {}
+[32.502202] (-) TimerEvent: {}
+[32.602497] (-) TimerEvent: {}
+[32.702810] (-) TimerEvent: {}
+[32.803115] (-) TimerEvent: {}
+[32.903459] (-) TimerEvent: {}
+[33.003758] (-) TimerEvent: {}
+[33.104054] (-) TimerEvent: {}
+[33.204319] (-) TimerEvent: {}
+[33.304605] (-) TimerEvent: {}
+[33.369258] (sjtu_drone_description) StdoutLine: {'line': b'[100%] \x1b[32m\x1b[1mLinking CXX shared library /root/april_gazebo/sjtu_drone/sjtu_drone_description/plugins/libplugin_drone.so\x1b[0m\n'}
+[33.404829] (-) TimerEvent: {}
+[33.505285] (-) TimerEvent: {}
+[33.605548] (-) TimerEvent: {}
+[33.705831] (-) TimerEvent: {}
+[33.806131] (-) TimerEvent: {}
+[33.906633] (-) TimerEvent: {}
+[34.006967] (-) TimerEvent: {}
+[34.107216] (-) TimerEvent: {}
+[34.207521] (-) TimerEvent: {}
+[34.307798] (-) TimerEvent: {}
+[34.408068] (-) TimerEvent: {}
+[34.508394] (-) TimerEvent: {}
+[34.608740] (-) TimerEvent: {}
+[34.709093] (-) TimerEvent: {}
+[34.809360] (-) TimerEvent: {}
+[34.909640] (-) TimerEvent: {}
+[35.009919] (-) TimerEvent: {}
+[35.110219] (-) TimerEvent: {}
+[35.210514] (-) TimerEvent: {}
+[35.310794] (-) TimerEvent: {}
+[35.411059] (-) TimerEvent: {}
+[35.511443] (-) TimerEvent: {}
+[35.611955] (-) TimerEvent: {}
+[35.712233] (-) TimerEvent: {}
+[35.725072] (sjtu_drone_description) StdoutLine: {'line': b'[100%] Built target plugin_drone\n'}
+[35.757925] (sjtu_drone_description) CommandEnded: {'returncode': 0}
+[35.761281] (sjtu_drone_description) JobProgress: {'identifier': 'sjtu_drone_description', 'progress': 'install'}
+[35.794940] (sjtu_drone_description) Command: {'cmd': ['/usr/bin/cmake', '--install', '/root/april_gazebo/build/sjtu_drone_description'], 'cwd': '/root/april_gazebo/build/sjtu_drone_description', 'env': OrderedDict([('HOSTNAME', 'LP-Boston-12214'), ('SHLVL', '1'), ('LD_LIBRARY_PATH', '/root/april_gazebo/install/sjtu_drone_description/lib:/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib'), ('HOME', '/root'), ('SKIP_MAP', 'true'), ('OLDPWD', '/ros2_ws'), ('GAZEBO_MASTER_URI', 'http://localhost:11345'), ('ROS_PYTHON_VERSION', '3'), ('COLCON_PREFIX_PATH', '/root/april_gazebo/install'), ('ROS_DISTRO', 'humble'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('TERM', 'xterm'), ('GAZEBO_MODEL_PATH', '/usr/share/gazebo-11/models:/root/april_gazebo/aws-robomaker-hospital-world/models:/root/april_gazebo/sjtu_drone/sjtu_drone_description:/root/april_gazebo/sjtu_drone/models'), ('ROS_LOCALHOST_ONLY', '0'), ('QT_X11_NO_MITSHM', '1'), ('PATH', '/opt/ros/humble/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'), ('GAZEBO_VERBOSE', '1'), ('DISPLAY', ':1'), ('LANG', 'C.UTF-8'), ('RMW_IMPLEMENTATION', 'rmw_fastrtps_cpp'), ('XAUTHORITY', '/home/shirb/.Xauthority'), ('AMENT_PREFIX_PATH', '/root/april_gazebo/install/sjtu_drone_description:/root/april_gazebo/install/sjtu_drone_control:/root/april_gazebo/install/sjtu_drone_bringup:/opt/ros/humble'), ('ALSA_CARD', '0'), ('GAZEBO_RESOURCE_PATH', '/usr/share/gazebo-11:/root/april_gazebo/aws-robomaker-hospital-world/worlds:/root/april_gazebo/aws-robomaker-hospital-world'), ('GAZEBO_MODEL_DATABASE_URI', ''), ('GAZEBO_AUDIO_DEVICE', 'null'), ('PWD', '/root/april_gazebo/build/sjtu_drone_description'), ('LC_ALL', 'C.UTF-8'), ('GAZEBO_PLUGIN_PATH', '/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:'), ('PYTHONPATH', '/root/april_gazebo/install/sjtu_drone_control/lib/python3.10/site-packages:/root/april_gazebo/install/sjtu_drone_bringup/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('NVIDIA_VISIBLE_DEVICES', 'all'), ('COLCON', '1'), ('CMAKE_PREFIX_PATH', '/root/april_gazebo/install/sjtu_drone_description:/root/april_gazebo/install/sjtu_drone_control:/root/april_gazebo/install/sjtu_drone_bringup:/opt/ros/humble')]), 'shell': False}
+[35.811790] (sjtu_drone_description) StdoutLine: {'line': b'-- Install configuration: ""\n'}
+[35.812322] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/include\n'}
+[35.812544] (-) TimerEvent: {}
+[35.812806] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/include/sjtu_drone_description\n'}
+[35.813141] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/include/sjtu_drone_description/plugin_drone.h\n'}
+[35.813654] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/include/sjtu_drone_description/pid_controller.h\n'}
+[35.814183] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/include/sjtu_drone_description/plugin_drone_private.h\n'}
+[35.814834] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/lib/libplugin_drone.so\n'}
+[35.849648] (sjtu_drone_description) StdoutLine: {'line': b'-- Set runtime path of "/root/april_gazebo/install/sjtu_drone_description/lib/libplugin_drone.so" to ""\n'}
+[35.849893] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/share/sjtu_drone_description/environment/library_path.sh\n'}
+[35.850435] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/share/sjtu_drone_description/environment/library_path.dsv\n'}
+[35.850589] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/share/sjtu_drone_description/models\n'}
+[35.850734] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/share/sjtu_drone_description/models/sjtu_drone\n'}
+[35.850921] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/share/sjtu_drone_description/models/sjtu_drone/sjtu_drone.sdf\n'}
+[35.851797] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/share/sjtu_drone_description/models/sjtu_drone/model.config\n'}
+[35.851998] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/share/sjtu_drone_description/models/sjtu_drone/quadrotor_4.stl\n'}
+[35.852702] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/share/sjtu_drone_description/models/sjtu_drone/quadrotor_4.dae\n'}
+[35.853865] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/share/sjtu_drone_description/models/database.config\n'}
+[35.854355] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/share/sjtu_drone_description/urdf\n'}
+[35.854581] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/share/sjtu_drone_description/urdf/sjtu_drone.urdf.xacro\n'}
+[35.855151] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/share/sjtu_drone_description/urdf/sjtu_drone.urdf\n'}
+[35.855683] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/share/sjtu_drone_description/worlds\n'}
+[35.855863] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/share/sjtu_drone_description/worlds/playground.world\n'}
+[35.856717] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/share/ament_index/resource_index/package_run_dependencies/sjtu_drone_description\n'}
+[35.856866] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/share/ament_index/resource_index/parent_prefix_path/sjtu_drone_description\n'}
+[35.856983] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/share/sjtu_drone_description/environment/ament_prefix_path.sh\n'}
+[35.857389] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/share/sjtu_drone_description/environment/ament_prefix_path.dsv\n'}
+[35.857514] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/share/sjtu_drone_description/environment/path.sh\n'}
+[35.857805] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/share/sjtu_drone_description/environment/path.dsv\n'}
+[35.857920] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/share/sjtu_drone_description/local_setup.bash\n'}
+[35.858035] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/share/sjtu_drone_description/local_setup.sh\n'}
+[35.858261] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/share/sjtu_drone_description/local_setup.zsh\n'}
+[35.858410] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/share/sjtu_drone_description/local_setup.dsv\n'}
+[35.858543] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/share/sjtu_drone_description/package.dsv\n'}
+[35.858695] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/share/ament_index/resource_index/packages/sjtu_drone_description\n'}
+[35.858830] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/share/sjtu_drone_description/cmake/export_sjtu_drone_descriptionExport.cmake\n'}
+[35.858993] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/share/sjtu_drone_description/cmake/export_sjtu_drone_descriptionExport-noconfig.cmake\n'}
+[35.859094] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/share/sjtu_drone_description/cmake/ament_cmake_export_include_directories-extras.cmake\n'}
+[35.859354] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/share/sjtu_drone_description/cmake/ament_cmake_export_libraries-extras.cmake\n'}
+[35.859489] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/share/sjtu_drone_description/cmake/ament_cmake_export_targets-extras.cmake\n'}
+[35.859601] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/share/sjtu_drone_description/cmake/sjtu_drone_descriptionConfig.cmake\n'}
+[35.859710] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/share/sjtu_drone_description/cmake/sjtu_drone_descriptionConfig-version.cmake\n'}
+[35.859813] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/april_gazebo/install/sjtu_drone_description/share/sjtu_drone_description/package.xml\n'}
+[35.861799] (sjtu_drone_description) CommandEnded: {'returncode': 0}
+[35.880792] (sjtu_drone_description) JobEnded: {'identifier': 'sjtu_drone_description', 'rc': 0}
+[35.881433] (-) EventReactorShutdown: {}
