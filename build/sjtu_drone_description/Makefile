@@ -57,10 +57,10 @@ RM = /usr/bin/cmake -E rm -f
 EQUALS = =
 
 # The top-level source directory on which CMake was run.
-CMAKE_SOURCE_DIR = /root/april_gazebo/sjtu_drone/sjtu_drone_description
+CMAKE_SOURCE_DIR = /root/sjtu_project/sjtu_drone/sjtu_drone_description
 
 # The top-level build directory on which CMake was run.
-CMAKE_BINARY_DIR = /root/april_gazebo/build/sjtu_drone_description
+CMAKE_BINARY_DIR = /root/sjtu_project/build/sjtu_drone_description
 
 #=============================================================================
 # Targets provided globally by CMake.
@@ -142,9 +142,9 @@ install/strip/fast: preinstall/fast
 
 # The main all target
 all: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /root/april_gazebo/build/sjtu_drone_description/CMakeFiles /root/april_gazebo/build/sjtu_drone_description//CMakeFiles/progress.marks
+	$(CMAKE_COMMAND) -E cmake_progress_start /root/sjtu_project/build/sjtu_drone_description/CMakeFiles /root/sjtu_project/build/sjtu_drone_description//CMakeFiles/progress.marks
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 all
-	$(CMAKE_COMMAND) -E cmake_progress_start /root/april_gazebo/build/sjtu_drone_description/CMakeFiles 0
+	$(CMAKE_COMMAND) -E cmake_progress_start /root/sjtu_project/build/sjtu_drone_description/CMakeFiles 0
 .PHONY : all
 
 # The main clean target

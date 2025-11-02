@@ -1,1 +1,1 @@
-/root/april_gazebo/install/sjtu_drone_description:/root/april_gazebo/install/sjtu_drone_control:/root/april_gazebo/install/sjtu_drone_bringup:/opt/ros/humble
+/root/sjtu_project/install/sjtu_drone_description:/root/sjtu_project/install/sjtu_drone_control:/root/sjtu_project/install/sjtu_drone_bringup:/opt/ros/humble

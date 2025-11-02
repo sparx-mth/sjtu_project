@@ -1,7 +1,7 @@
 CMakeFiles/plugin_drone.dir/src/pid_controller.cpp.o: \
- /root/april_gazebo/sjtu_drone/sjtu_drone_description/src/pid_controller.cpp \
+ /root/sjtu_project/sjtu_drone/sjtu_drone_description/src/pid_controller.cpp \
  /usr/include/stdc-predef.h \
- /root/april_gazebo/sjtu_drone/sjtu_drone_description/include/sjtu_drone_description/pid_controller.h \
+ /root/sjtu_project/sjtu_drone/sjtu_drone_description/include/sjtu_drone_description/pid_controller.h \
  /usr/include/gazebo-11/gazebo/gazebo.hh \
  /usr/include/gazebo-11/gazebo/gazebo_core.hh \
  /usr/include/gazebo-11/gazebo/common/common.hh \

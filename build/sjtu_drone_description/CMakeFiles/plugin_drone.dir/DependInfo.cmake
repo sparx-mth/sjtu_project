@@ -8,9 +8,9 @@ set(CMAKE_DEPENDS_LANGUAGES
 
 # The set of dependency files which are needed:
 set(CMAKE_DEPENDS_DEPENDENCY_FILES
-  "/root/april_gazebo/sjtu_drone/sjtu_drone_description/src/pid_controller.cpp" "CMakeFiles/plugin_drone.dir/src/pid_controller.cpp.o" "gcc" "CMakeFiles/plugin_drone.dir/src/pid_controller.cpp.o.d"
-  "/root/april_gazebo/sjtu_drone/sjtu_drone_description/src/plugin_drone.cpp" "CMakeFiles/plugin_drone.dir/src/plugin_drone.cpp.o" "gcc" "CMakeFiles/plugin_drone.dir/src/plugin_drone.cpp.o.d"
-  "/root/april_gazebo/sjtu_drone/sjtu_drone_description/src/plugin_drone_private.cpp" "CMakeFiles/plugin_drone.dir/src/plugin_drone_private.cpp.o" "gcc" "CMakeFiles/plugin_drone.dir/src/plugin_drone_private.cpp.o.d"
+  "/root/sjtu_project/sjtu_drone/sjtu_drone_description/src/pid_controller.cpp" "CMakeFiles/plugin_drone.dir/src/pid_controller.cpp.o" "gcc" "CMakeFiles/plugin_drone.dir/src/pid_controller.cpp.o.d"
+  "/root/sjtu_project/sjtu_drone/sjtu_drone_description/src/plugin_drone.cpp" "CMakeFiles/plugin_drone.dir/src/plugin_drone.cpp.o" "gcc" "CMakeFiles/plugin_drone.dir/src/plugin_drone.cpp.o.d"
+  "/root/sjtu_project/sjtu_drone/sjtu_drone_description/src/plugin_drone_private.cpp" "CMakeFiles/plugin_drone.dir/src/plugin_drone_private.cpp.o" "gcc" "CMakeFiles/plugin_drone.dir/src/plugin_drone_private.cpp.o.d"
   )
 
 # Targets to which this target links.

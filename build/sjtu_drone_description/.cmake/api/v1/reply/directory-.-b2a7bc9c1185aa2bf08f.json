@@ -323,7 +323,7 @@
 			"destination" : "lib",
 			"paths" : 
 			[
-				"/root/april_gazebo/sjtu_drone/sjtu_drone_description/plugins/libplugin_drone.so"
+				"/root/sjtu_project/sjtu_drone/sjtu_drone_description/plugins/libplugin_drone.so"
 			],
 			"targetId" : "plugin_drone::@6890427a1f51a3e7e1df",
 			"targetIndex" : 0,
@@ -345,7 +345,7 @@
 			"destination" : "share/sjtu_drone_description/environment",
 			"paths" : 
 			[
-				"/root/april_gazebo/build/sjtu_drone_description/ament_cmake_environment_hooks/library_path.dsv"
+				"/root/sjtu_project/build/sjtu_drone_description/ament_cmake_environment_hooks/library_path.dsv"
 			],
 			"type" : "file"
 		},
@@ -367,7 +367,7 @@
 			"destination" : "share/ament_index/resource_index/package_run_dependencies",
 			"paths" : 
 			[
-				"/root/april_gazebo/build/sjtu_drone_description/ament_cmake_index/share/ament_index/resource_index/package_run_dependencies/sjtu_drone_description"
+				"/root/sjtu_project/build/sjtu_drone_description/ament_cmake_index/share/ament_index/resource_index/package_run_dependencies/sjtu_drone_description"
 			],
 			"type" : "file"
 		},
@@ -377,7 +377,7 @@
 			"destination" : "share/ament_index/resource_index/parent_prefix_path",
 			"paths" : 
 			[
-				"/root/april_gazebo/build/sjtu_drone_description/ament_cmake_index/share/ament_index/resource_index/parent_prefix_path/sjtu_drone_description"
+				"/root/sjtu_project/build/sjtu_drone_description/ament_cmake_index/share/ament_index/resource_index/parent_prefix_path/sjtu_drone_description"
 			],
 			"type" : "file"
 		},
@@ -397,7 +397,7 @@
 			"destination" : "share/sjtu_drone_description/environment",
 			"paths" : 
 			[
-				"/root/april_gazebo/build/sjtu_drone_description/ament_cmake_environment_hooks/ament_prefix_path.dsv"
+				"/root/sjtu_project/build/sjtu_drone_description/ament_cmake_environment_hooks/ament_prefix_path.dsv"
 			],
 			"type" : "file"
 		},
@@ -417,7 +417,7 @@
 			"destination" : "share/sjtu_drone_description/environment",
 			"paths" : 
 			[
-				"/root/april_gazebo/build/sjtu_drone_description/ament_cmake_environment_hooks/path.dsv"
+				"/root/sjtu_project/build/sjtu_drone_description/ament_cmake_environment_hooks/path.dsv"
 			],
 			"type" : "file"
 		},
@@ -427,7 +427,7 @@
 			"destination" : "share/sjtu_drone_description",
 			"paths" : 
 			[
-				"/root/april_gazebo/build/sjtu_drone_description/ament_cmake_environment_hooks/local_setup.bash"
+				"/root/sjtu_project/build/sjtu_drone_description/ament_cmake_environment_hooks/local_setup.bash"
 			],
 			"type" : "file"
 		},
@@ -437,7 +437,7 @@
 			"destination" : "share/sjtu_drone_description",
 			"paths" : 
 			[
-				"/root/april_gazebo/build/sjtu_drone_description/ament_cmake_environment_hooks/local_setup.sh"
+				"/root/sjtu_project/build/sjtu_drone_description/ament_cmake_environment_hooks/local_setup.sh"
 			],
 			"type" : "file"
 		},
@@ -447,7 +447,7 @@
 			"destination" : "share/sjtu_drone_description",
 			"paths" : 
 			[
-				"/root/april_gazebo/build/sjtu_drone_description/ament_cmake_environment_hooks/local_setup.zsh"
+				"/root/sjtu_project/build/sjtu_drone_description/ament_cmake_environment_hooks/local_setup.zsh"
 			],
 			"type" : "file"
 		},
@@ -457,7 +457,7 @@
 			"destination" : "share/sjtu_drone_description",
 			"paths" : 
 			[
-				"/root/april_gazebo/build/sjtu_drone_description/ament_cmake_environment_hooks/local_setup.dsv"
+				"/root/sjtu_project/build/sjtu_drone_description/ament_cmake_environment_hooks/local_setup.dsv"
 			],
 			"type" : "file"
 		},
@@ -467,7 +467,7 @@
 			"destination" : "share/sjtu_drone_description",
 			"paths" : 
 			[
-				"/root/april_gazebo/build/sjtu_drone_description/ament_cmake_environment_hooks/package.dsv"
+				"/root/sjtu_project/build/sjtu_drone_description/ament_cmake_environment_hooks/package.dsv"
 			],
 			"type" : "file"
 		},
@@ -477,7 +477,7 @@
 			"destination" : "share/ament_index/resource_index/packages",
 			"paths" : 
 			[
-				"/root/april_gazebo/build/sjtu_drone_description/ament_cmake_index/share/ament_index/resource_index/packages/sjtu_drone_description"
+				"/root/sjtu_project/build/sjtu_drone_description/ament_cmake_index/share/ament_index/resource_index/packages/sjtu_drone_description"
 			],
 			"type" : "file"
 		},
@@ -505,7 +505,7 @@
 			"destination" : "share/sjtu_drone_description/cmake",
 			"paths" : 
 			[
-				"/root/april_gazebo/build/sjtu_drone_description/ament_cmake_export_include_directories/ament_cmake_export_include_directories-extras.cmake"
+				"/root/sjtu_project/build/sjtu_drone_description/ament_cmake_export_include_directories/ament_cmake_export_include_directories-extras.cmake"
 			],
 			"type" : "file"
 		},
@@ -515,7 +515,7 @@
 			"destination" : "share/sjtu_drone_description/cmake",
 			"paths" : 
 			[
-				"/root/april_gazebo/build/sjtu_drone_description/ament_cmake_export_libraries/ament_cmake_export_libraries-extras.cmake"
+				"/root/sjtu_project/build/sjtu_drone_description/ament_cmake_export_libraries/ament_cmake_export_libraries-extras.cmake"
 			],
 			"type" : "file"
 		},
@@ -525,7 +525,7 @@
 			"destination" : "share/sjtu_drone_description/cmake",
 			"paths" : 
 			[
-				"/root/april_gazebo/build/sjtu_drone_description/ament_cmake_export_targets/ament_cmake_export_targets-extras.cmake"
+				"/root/sjtu_project/build/sjtu_drone_description/ament_cmake_export_targets/ament_cmake_export_targets-extras.cmake"
 			],
 			"type" : "file"
 		},
@@ -535,8 +535,8 @@
 			"destination" : "share/sjtu_drone_description/cmake",
 			"paths" : 
 			[
-				"/root/april_gazebo/build/sjtu_drone_description/ament_cmake_core/sjtu_drone_descriptionConfig.cmake",
-				"/root/april_gazebo/build/sjtu_drone_description/ament_cmake_core/sjtu_drone_descriptionConfig-version.cmake"
+				"/root/sjtu_project/build/sjtu_drone_description/ament_cmake_core/sjtu_drone_descriptionConfig.cmake",
+				"/root/sjtu_project/build/sjtu_drone_description/ament_cmake_core/sjtu_drone_descriptionConfig-version.cmake"
 			],
 			"type" : "file"
 		},

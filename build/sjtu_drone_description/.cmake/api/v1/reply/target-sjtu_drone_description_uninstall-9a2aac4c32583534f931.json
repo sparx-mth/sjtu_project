@@ -98,13 +98,13 @@
 		{
 			"backtrace" : 9,
 			"isGenerated" : true,
-			"path" : "/root/april_gazebo/build/sjtu_drone_description/CMakeFiles/sjtu_drone_description_uninstall",
+			"path" : "/root/sjtu_project/build/sjtu_drone_description/CMakeFiles/sjtu_drone_description_uninstall",
 			"sourceGroupIndex" : 0
 		},
 		{
 			"backtrace" : 0,
 			"isGenerated" : true,
-			"path" : "/root/april_gazebo/build/sjtu_drone_description/CMakeFiles/sjtu_drone_description_uninstall.rule",
+			"path" : "/root/sjtu_project/build/sjtu_drone_description/CMakeFiles/sjtu_drone_description_uninstall.rule",
 			"sourceGroupIndex" : 1
 		}
 	],

@@ -1,6 +1,6 @@
 file(REMOVE_RECURSE
-  "/root/april_gazebo/sjtu_drone/sjtu_drone_description/plugins/libplugin_drone.pdb"
-  "/root/april_gazebo/sjtu_drone/sjtu_drone_description/plugins/libplugin_drone.so"
+  "/root/sjtu_project/sjtu_drone/sjtu_drone_description/plugins/libplugin_drone.pdb"
+  "/root/sjtu_project/sjtu_drone/sjtu_drone_description/plugins/libplugin_drone.so"
   "CMakeFiles/plugin_drone.dir/src/pid_controller.cpp.o"
   "CMakeFiles/plugin_drone.dir/src/pid_controller.cpp.o.d"
   "CMakeFiles/plugin_drone.dir/src/plugin_drone.cpp.o"
