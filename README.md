@@ -6,46 +6,27 @@ This guide explains how to run the **SJTU Drone simulation** with the **AWS Robo
 
 ## Setup Steps
 
-### 1️⃣ Create workspace folder
+
+### Clone SJTU drone repo
 ```bash
-mkdir -p /sjtu_project && cd /sjtu_project
+git clone https://github.com/sparx-mth/sjtu_project
 ```
 
-### 2️⃣ Clone SJTU drone repo
+### Build Docker image
 ```bash
-git clone https://github.com/NadavCherry/sjtu_drone
-```
-
-### 3️⃣ Clone AWS Hospital World
-```bash
-git clone https://github.com/aws-robotics/aws-robomaker-hospital-world.git
-```
-
-### 4️⃣ Edit Dockerfile — switch to ROS2 Humble
-In `sjtu_drone/Dockerfile`, replace:
-```
-ARG ROS_DISTRO=iron
-```
-with:
-```
-ARG ROS_DISTRO=humble
-```
-
-### 5️⃣ Build Docker image
-```bash
-cd /april_gazebo/sjtu_drone
+cd /sjtu_project/sjtu_drone
 docker build -t sjtu_drone_clean:humble_ros2 .
 ```
 
 ### 6️⃣ Run simulation with hospital world
 Copy the world file next to the run script:
 ```bash
-cp /april_gazebo/aws-robotics/aws-robomaker-hospital-world/worlds/hospital.world    /april_gazebo/sjtu_drone/hospital.world
+cp /sjtu_project/aws-robomaker-hospital-world/worlds/hospital.world    /sjtu_project/sjtu_drone/hospital.world
 ```
 
 Run:
 ```bash
-cd /april_gazebo/sjtu_drone
+cd /sjtu_project/sjtu_drone
 chmod +x run.sh
 ./run.sh --no-map hospital.world
 ```
@@ -62,7 +43,10 @@ chmod +x run.sh
  └─ aws-robomaker-hospital-world/
      └─ worlds/
          └─ hospital.world
-```
+     └─ models/
+         └─ Apriltag36_11_00014
+         └─ Apriltag36_11_00015
+
 
 ---
 

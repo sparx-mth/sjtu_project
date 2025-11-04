@@ -1,0 +1,638 @@
+[0.000000] (-) TimerEvent: {}
+[0.000387] (-) JobUnselected: {'identifier': 'aws_robomaker_hospital_world'}
+[0.000537] (sjtu_drone_bringup) JobQueued: {'identifier': 'sjtu_drone_bringup', 'dependencies': OrderedDict()}
+[0.000568] (sjtu_drone_control) JobQueued: {'identifier': 'sjtu_drone_control', 'dependencies': OrderedDict()}
+[0.000588] (sjtu_drone_description) JobQueued: {'identifier': 'sjtu_drone_description', 'dependencies': OrderedDict()}
+[0.000606] (sjtu_drone_bringup) JobStarted: {'identifier': 'sjtu_drone_bringup'}
+[0.013584] (sjtu_drone_control) JobStarted: {'identifier': 'sjtu_drone_control'}
+[0.018031] (sjtu_drone_description) JobStarted: {'identifier': 'sjtu_drone_description'}
+[0.099491] (-) TimerEvent: {}
+[0.199771] (-) TimerEvent: {}
+[0.300041] (-) TimerEvent: {}
+[0.400335] (-) TimerEvent: {}
+[0.470113] (sjtu_drone_description) JobProgress: {'identifier': 'sjtu_drone_description', 'progress': 'cmake'}
+[0.470697] (sjtu_drone_description) Command: {'cmd': ['/usr/bin/cmake', '/root/sjtu_project/sjtu_drone/sjtu_drone_description', '-DBUILD_TESTING=OFF', '-DRMW_IMPLEMENTATION=rmw_fastrtps_cpp', '-DCMAKE_INSTALL_PREFIX=/root/sjtu_project/install/sjtu_drone_description'], 'cwd': '/root/sjtu_project/build/sjtu_drone_description', 'env': OrderedDict([('HOSTNAME', 'LP-Boston-12214'), ('SHLVL', '1'), ('LD_LIBRARY_PATH', '/root/sjtu_project/install/sjtu_drone_description/lib:/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib'), ('HOME', '/root'), ('SKIP_MAP', 'true'), ('OLDPWD', '/ros2_ws'), ('GAZEBO_MASTER_URI', 'http://localhost:11345'), ('ROS_PYTHON_VERSION', '3'), ('COLCON_PREFIX_PATH', '/root/sjtu_project/install'), ('ROS_DISTRO', 'humble'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('TERM', 'xterm'), ('GAZEBO_MODEL_PATH', '/usr/share/gazebo-11/models:/root/sjtu_project/aws-robomaker-hospital-world/models:/root/sjtu_project/sjtu_drone/sjtu_drone_description:/root/sjtu_project/sjtu_drone/models'), ('ROS_LOCALHOST_ONLY', '0'), ('QT_X11_NO_MITSHM', '1'), ('PATH', '/opt/ros/humble/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'), ('GAZEBO_VERBOSE', '1'), ('DISPLAY', ':1'), ('LANG', 'C.UTF-8'), ('RMW_IMPLEMENTATION', 'rmw_fastrtps_cpp'), ('XAUTHORITY', '/home/shirb/.Xauthority'), ('AMENT_PREFIX_PATH', '/root/sjtu_project/install/sjtu_drone_description:/root/sjtu_project/install/sjtu_drone_control:/root/sjtu_project/install/sjtu_drone_bringup:/opt/ros/humble'), ('ALSA_CARD', '0'), ('GAZEBO_RESOURCE_PATH', '/usr/share/gazebo-11:/root/sjtu_project/aws-robomaker-hospital-world/worlds:/root/sjtu_project/aws-robomaker-hospital-world'), ('GAZEBO_MODEL_DATABASE_URI', ''), ('GAZEBO_AUDIO_DEVICE', 'null'), ('PWD', '/root/sjtu_project/build/sjtu_drone_description'), ('LC_ALL', 'C.UTF-8'), ('GAZEBO_PLUGIN_PATH', '/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:'), ('PYTHONPATH', '/root/sjtu_project/install/sjtu_drone_control/lib/python3.10/site-packages:/root/sjtu_project/install/sjtu_drone_bringup/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('NVIDIA_VISIBLE_DEVICES', 'all'), ('COLCON', '1'), ('CMAKE_PREFIX_PATH', '/root/sjtu_project/install/sjtu_drone_description:/root/sjtu_project/install/sjtu_drone_control:/root/sjtu_project/install/sjtu_drone_bringup:/opt/ros/humble')]), 'shell': False}
+[0.500421] (-) TimerEvent: {}
+[0.541179] (sjtu_drone_description) StdoutLine: {'line': b'-- The C compiler identification is GNU 11.4.0\n'}
+[0.600514] (-) TimerEvent: {}
+[0.629922] (sjtu_drone_description) StdoutLine: {'line': b'-- The CXX compiler identification is GNU 11.4.0\n'}
+[0.644887] (sjtu_drone_description) StdoutLine: {'line': b'-- Detecting C compiler ABI info\n'}
+[0.700607] (-) TimerEvent: {}
+[0.800902] (-) TimerEvent: {}
+[0.807115] (sjtu_drone_description) StdoutLine: {'line': b'-- Detecting C compiler ABI info - done\n'}
+[0.815578] (sjtu_drone_description) StdoutLine: {'line': b'-- Check for working C compiler: /usr/bin/cc - skipped\n'}
+[0.815860] (sjtu_drone_description) StdoutLine: {'line': b'-- Detecting C compile features\n'}
+[0.816242] (sjtu_drone_description) StdoutLine: {'line': b'-- Detecting C compile features - done\n'}
+[0.819802] (sjtu_drone_description) StdoutLine: {'line': b'-- Detecting CXX compiler ABI info\n'}
+[0.886504] (sjtu_drone_control) Command: {'cmd': ['/usr/bin/python3', '-W', 'ignore:setup.py install is deprecated', '-W', 'ignore:easy_install command is deprecated', 'setup.py', 'egg_info', '--egg-base', '../../build/sjtu_drone_control', 'build', '--build-base', '/root/sjtu_project/build/sjtu_drone_control/build', 'install', '--record', '/root/sjtu_project/build/sjtu_drone_control/install.log', '--single-version-externally-managed', 'install_data'], 'cwd': '/root/sjtu_project/sjtu_drone/sjtu_drone_control', 'env': {'HOSTNAME': 'LP-Boston-12214', 'SHLVL': '1', 'LD_LIBRARY_PATH': '/root/sjtu_project/install/sjtu_drone_description/lib:/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib', 'HOME': '/root', 'SKIP_MAP': 'true', 'OLDPWD': '/ros2_ws', 'GAZEBO_MASTER_URI': 'http://localhost:11345', 'ROS_PYTHON_VERSION': '3', 'COLCON_PREFIX_PATH': '/root/sjtu_project/install', 'ROS_DISTRO': 'humble', '_': '/usr/bin/colcon', 'ROS_VERSION': '2', 'TERM': 'xterm', 'GAZEBO_MODEL_PATH': '/usr/share/gazebo-11/models:/root/sjtu_project/aws-robomaker-hospital-world/models:/root/sjtu_project/sjtu_drone/sjtu_drone_description:/root/sjtu_project/sjtu_drone/models', 'ROS_LOCALHOST_ONLY': '0', 'QT_X11_NO_MITSHM': '1', 'PATH': '/opt/ros/humble/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', 'GAZEBO_VERBOSE': '1', 'DISPLAY': ':1', 'LANG': 'C.UTF-8', 'RMW_IMPLEMENTATION': 'rmw_fastrtps_cpp', 'XAUTHORITY': '/home/shirb/.Xauthority', 'AMENT_PREFIX_PATH': '/root/sjtu_project/install/sjtu_drone_description:/root/sjtu_project/install/sjtu_drone_control:/root/sjtu_project/install/sjtu_drone_bringup:/opt/ros/humble', 'ALSA_CARD': '0', 'GAZEBO_RESOURCE_PATH': '/usr/share/gazebo-11:/root/sjtu_project/aws-robomaker-hospital-world/worlds:/root/sjtu_project/aws-robomaker-hospital-world', 'GAZEBO_MODEL_DATABASE_URI': '', 'GAZEBO_AUDIO_DEVICE': 'null', 'PWD': '/root/sjtu_project/build/sjtu_drone_control', 'LC_ALL': 'C.UTF-8', 'GAZEBO_PLUGIN_PATH': '/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:', 'PYTHONPATH': '/root/sjtu_project/build/sjtu_drone_control/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/root/sjtu_project/install/sjtu_drone_control/lib/python3.10/site-packages:/root/sjtu_project/install/sjtu_drone_control/lib/python3.10/site-packages:/root/sjtu_project/install/sjtu_drone_bringup/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages', 'NVIDIA_VISIBLE_DEVICES': 'all', 'COLCON': '1', 'CMAKE_PREFIX_PATH': '/root/sjtu_project/install/sjtu_drone_description'}, 'shell': False}
+[0.890702] (sjtu_drone_bringup) Command: {'cmd': ['/usr/bin/python3', '-W', 'ignore:setup.py install is deprecated', '-W', 'ignore:easy_install command is deprecated', 'setup.py', 'egg_info', '--egg-base', '../../build/sjtu_drone_bringup', 'build', '--build-base', '/root/sjtu_project/build/sjtu_drone_bringup/build', 'install', '--record', '/root/sjtu_project/build/sjtu_drone_bringup/install.log', '--single-version-externally-managed', 'install_data'], 'cwd': '/root/sjtu_project/sjtu_drone/sjtu_drone_bringup', 'env': {'HOSTNAME': 'LP-Boston-12214', 'SHLVL': '1', 'LD_LIBRARY_PATH': '/root/sjtu_project/install/sjtu_drone_description/lib:/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib', 'HOME': '/root', 'SKIP_MAP': 'true', 'OLDPWD': '/ros2_ws', 'GAZEBO_MASTER_URI': 'http://localhost:11345', 'ROS_PYTHON_VERSION': '3', 'COLCON_PREFIX_PATH': '/root/sjtu_project/install', 'ROS_DISTRO': 'humble', '_': '/usr/bin/colcon', 'ROS_VERSION': '2', 'TERM': 'xterm', 'GAZEBO_MODEL_PATH': '/usr/share/gazebo-11/models:/root/sjtu_project/aws-robomaker-hospital-world/models:/root/sjtu_project/sjtu_drone/sjtu_drone_description:/root/sjtu_project/sjtu_drone/models', 'ROS_LOCALHOST_ONLY': '0', 'QT_X11_NO_MITSHM': '1', 'PATH': '/opt/ros/humble/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin', 'GAZEBO_VERBOSE': '1', 'DISPLAY': ':1', 'LANG': 'C.UTF-8', 'RMW_IMPLEMENTATION': 'rmw_fastrtps_cpp', 'XAUTHORITY': '/home/shirb/.Xauthority', 'AMENT_PREFIX_PATH': '/root/sjtu_project/install/sjtu_drone_description:/root/sjtu_project/install/sjtu_drone_control:/root/sjtu_project/install/sjtu_drone_bringup:/opt/ros/humble', 'ALSA_CARD': '0', 'GAZEBO_RESOURCE_PATH': '/usr/share/gazebo-11:/root/sjtu_project/aws-robomaker-hospital-world/worlds:/root/sjtu_project/aws-robomaker-hospital-world', 'GAZEBO_MODEL_DATABASE_URI': '', 'GAZEBO_AUDIO_DEVICE': 'null', 'PWD': '/root/sjtu_project/build/sjtu_drone_bringup', 'LC_ALL': 'C.UTF-8', 'GAZEBO_PLUGIN_PATH': '/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:', 'PYTHONPATH': '/root/sjtu_project/build/sjtu_drone_bringup/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/root/sjtu_project/install/sjtu_drone_bringup/lib/python3.10/site-packages:/root/sjtu_project/install/sjtu_drone_control/lib/python3.10/site-packages:/root/sjtu_project/install/sjtu_drone_bringup/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages', 'NVIDIA_VISIBLE_DEVICES': 'all', 'COLCON': '1', 'CMAKE_PREFIX_PATH': '/root/sjtu_project/install/sjtu_drone_description'}, 'shell': False}
+[0.900994] (-) TimerEvent: {}
+[0.913990] (sjtu_drone_description) StdoutLine: {'line': b'-- Detecting CXX compiler ABI info - done\n'}
+[0.921585] (sjtu_drone_description) StdoutLine: {'line': b'-- Check for working CXX compiler: /usr/bin/c++ - skipped\n'}
+[0.921783] (sjtu_drone_description) StdoutLine: {'line': b'-- Detecting CXX compile features\n'}
+[0.922312] (sjtu_drone_description) StdoutLine: {'line': b'-- Detecting CXX compile features - done\n'}
+[0.927894] (sjtu_drone_description) StdoutLine: {'line': b'-- Found PkgConfig: /usr/bin/pkg-config (found version "0.29.2") \n'}
+[0.928419] (sjtu_drone_description) StdoutLine: {'line': b"-- Checking for module 'OGRE'\n"}
+[0.941348] (sjtu_drone_description) StdoutLine: {'line': b'--   Found OGRE, version 1.9.0\n'}
+[0.972535] (sjtu_drone_description) StdoutLine: {'line': b"-- Checking for module 'OGRE-Terrain'\n"}
+[0.984270] (sjtu_drone_description) StdoutLine: {'line': b'--   Found OGRE-Terrain, version 1.9.0\n'}
+[1.001087] (-) TimerEvent: {}
+[1.017169] (sjtu_drone_description) StdoutLine: {'line': b'-- Found ament_cmake: 1.3.12 (/opt/ros/humble/share/ament_cmake/cmake)\n'}
+[1.077501] (sjtu_drone_control) StdoutLine: {'line': b'running egg_info\n'}
+[1.078147] (sjtu_drone_control) StdoutLine: {'line': b'creating ../../build/sjtu_drone_control/sjtu_drone_control.egg-info\n'}
+[1.078324] (sjtu_drone_control) StdoutLine: {'line': b'writing ../../build/sjtu_drone_control/sjtu_drone_control.egg-info/PKG-INFO\n'}
+[1.078534] (sjtu_drone_control) StdoutLine: {'line': b'writing dependency_links to ../../build/sjtu_drone_control/sjtu_drone_control.egg-info/dependency_links.txt\n'}
+[1.078667] (sjtu_drone_control) StdoutLine: {'line': b'writing entry points to ../../build/sjtu_drone_control/sjtu_drone_control.egg-info/entry_points.txt\n'}
+[1.078796] (sjtu_drone_control) StdoutLine: {'line': b'writing requirements to ../../build/sjtu_drone_control/sjtu_drone_control.egg-info/requires.txt\n'}
+[1.078915] (sjtu_drone_control) StdoutLine: {'line': b'writing top-level names to ../../build/sjtu_drone_control/sjtu_drone_control.egg-info/top_level.txt\n'}
+[1.079013] (sjtu_drone_control) StdoutLine: {'line': b"writing manifest file '../../build/sjtu_drone_control/sjtu_drone_control.egg-info/SOURCES.txt'\n"}
+[1.080071] (sjtu_drone_control) StdoutLine: {'line': b"reading manifest file '../../build/sjtu_drone_control/sjtu_drone_control.egg-info/SOURCES.txt'\n"}
+[1.080749] (sjtu_drone_control) StdoutLine: {'line': b"writing manifest file '../../build/sjtu_drone_control/sjtu_drone_control.egg-info/SOURCES.txt'\n"}
+[1.080937] (sjtu_drone_control) StdoutLine: {'line': b'running build\n'}
+[1.081080] (sjtu_drone_control) StdoutLine: {'line': b'running build_py\n'}
+[1.081177] (sjtu_drone_control) StdoutLine: {'line': b'creating /root/sjtu_project/build/sjtu_drone_control/build\n'}
+[1.081283] (sjtu_drone_control) StdoutLine: {'line': b'creating /root/sjtu_project/build/sjtu_drone_control/build/lib\n'}
+[1.081379] (sjtu_drone_control) StdoutLine: {'line': b'creating /root/sjtu_project/build/sjtu_drone_control/build/lib/sjtu_drone_control\n'}
+[1.081474] (sjtu_drone_control) StdoutLine: {'line': b'copying sjtu_drone_control/open_loop_control.py -> /root/sjtu_project/build/sjtu_drone_control/build/lib/sjtu_drone_control\n'}
+[1.081584] (sjtu_drone_control) StdoutLine: {'line': b'copying sjtu_drone_control/__init__.py -> /root/sjtu_project/build/sjtu_drone_control/build/lib/sjtu_drone_control\n'}
+[1.081703] (sjtu_drone_control) StdoutLine: {'line': b'copying sjtu_drone_control/drone_position_control.py -> /root/sjtu_project/build/sjtu_drone_control/build/lib/sjtu_drone_control\n'}
+[1.082040] (sjtu_drone_control) StdoutLine: {'line': b'copying sjtu_drone_control/teleop.py -> /root/sjtu_project/build/sjtu_drone_control/build/lib/sjtu_drone_control\n'}
+[1.082528] (sjtu_drone_control) StdoutLine: {'line': b'copying sjtu_drone_control/teleop_joystick.py -> /root/sjtu_project/build/sjtu_drone_control/build/lib/sjtu_drone_control\n'}
+[1.082885] (sjtu_drone_control) StdoutLine: {'line': b'running install\n'}
+[1.083131] (sjtu_drone_control) StdoutLine: {'line': b'running install_lib\n'}
+[1.083722] (sjtu_drone_control) StdoutLine: {'line': b'creating /root/sjtu_project/install/sjtu_drone_control/lib/python3.10/site-packages/sjtu_drone_control\n'}
+[1.083898] (sjtu_drone_control) StdoutLine: {'line': b'copying /root/sjtu_project/build/sjtu_drone_control/build/lib/sjtu_drone_control/open_loop_control.py -> /root/sjtu_project/install/sjtu_drone_control/lib/python3.10/site-packages/sjtu_drone_control\n'}
+[1.084027] (sjtu_drone_control) StdoutLine: {'line': b'copying /root/sjtu_project/build/sjtu_drone_control/build/lib/sjtu_drone_control/__init__.py -> /root/sjtu_project/install/sjtu_drone_control/lib/python3.10/site-packages/sjtu_drone_control\n'}
+[1.084155] (sjtu_drone_control) StdoutLine: {'line': b'copying /root/sjtu_project/build/sjtu_drone_control/build/lib/sjtu_drone_control/drone_position_control.py -> /root/sjtu_project/install/sjtu_drone_control/lib/python3.10/site-packages/sjtu_drone_control\n'}
+[1.084270] (sjtu_drone_control) StdoutLine: {'line': b'copying /root/sjtu_project/build/sjtu_drone_control/build/lib/sjtu_drone_control/teleop.py -> /root/sjtu_project/install/sjtu_drone_control/lib/python3.10/site-packages/sjtu_drone_control\n'}
+[1.084370] (sjtu_drone_control) StdoutLine: {'line': b'copying /root/sjtu_project/build/sjtu_drone_control/build/lib/sjtu_drone_control/teleop_joystick.py -> /root/sjtu_project/install/sjtu_drone_control/lib/python3.10/site-packages/sjtu_drone_control\n'}
+[1.084570] (sjtu_drone_control) StdoutLine: {'line': b'byte-compiling /root/sjtu_project/install/sjtu_drone_control/lib/python3.10/site-packages/sjtu_drone_control/open_loop_control.py to open_loop_control.cpython-310.pyc\n'}
+[1.087600] (sjtu_drone_control) StdoutLine: {'line': b'byte-compiling /root/sjtu_project/install/sjtu_drone_control/lib/python3.10/site-packages/sjtu_drone_control/__init__.py to __init__.cpython-310.pyc\n'}
+[1.087832] (sjtu_drone_control) StdoutLine: {'line': b'byte-compiling /root/sjtu_project/install/sjtu_drone_control/lib/python3.10/site-packages/sjtu_drone_control/drone_position_control.py to drone_position_control.cpython-310.pyc\n'}
+[1.088316] (sjtu_drone_control) StdoutLine: {'line': b'byte-compiling /root/sjtu_project/install/sjtu_drone_control/lib/python3.10/site-packages/sjtu_drone_control/teleop.py to teleop.cpython-310.pyc\n'}
+[1.089113] (sjtu_drone_control) StdoutLine: {'line': b'byte-compiling /root/sjtu_project/install/sjtu_drone_control/lib/python3.10/site-packages/sjtu_drone_control/teleop_joystick.py to teleop_joystick.cpython-310.pyc\n'}
+[1.089655] (sjtu_drone_control) StdoutLine: {'line': b'running install_data\n'}
+[1.089874] (sjtu_drone_control) StdoutLine: {'line': b'creating /root/sjtu_project/install/sjtu_drone_control/share/ament_index\n'}
+[1.090026] (sjtu_drone_control) StdoutLine: {'line': b'creating /root/sjtu_project/install/sjtu_drone_control/share/ament_index/resource_index\n'}
+[1.090164] (sjtu_drone_control) StdoutLine: {'line': b'creating /root/sjtu_project/install/sjtu_drone_control/share/ament_index/resource_index/packages\n'}
+[1.090274] (sjtu_drone_control) StdoutLine: {'line': b'copying resource/sjtu_drone_control -> /root/sjtu_project/install/sjtu_drone_control/share/ament_index/resource_index/packages\n'}
+[1.090344] (sjtu_drone_control) StdoutLine: {'line': b'copying package.xml -> /root/sjtu_project/install/sjtu_drone_control/share/sjtu_drone_control\n'}
+[1.090422] (sjtu_drone_control) StdoutLine: {'line': b'running install_egg_info\n'}
+[1.092435] (sjtu_drone_control) StdoutLine: {'line': b'Copying ../../build/sjtu_drone_control/sjtu_drone_control.egg-info to /root/sjtu_project/install/sjtu_drone_control/lib/python3.10/site-packages/sjtu_drone_control-0.0.0-py3.10.egg-info\n'}
+[1.093478] (sjtu_drone_control) StdoutLine: {'line': b'running install_scripts\n'}
+[1.099166] (sjtu_drone_bringup) StdoutLine: {'line': b'running egg_info\n'}
+[1.099921] (sjtu_drone_bringup) StdoutLine: {'line': b'creating ../../build/sjtu_drone_bringup/sjtu_drone_bringup.egg-info\n'}
+[1.100102] (sjtu_drone_bringup) StdoutLine: {'line': b'writing ../../build/sjtu_drone_bringup/sjtu_drone_bringup.egg-info/PKG-INFO\n'}
+[1.100258] (sjtu_drone_bringup) StdoutLine: {'line': b'writing dependency_links to ../../build/sjtu_drone_bringup/sjtu_drone_bringup.egg-info/dependency_links.txt\n'}
+[1.100450] (sjtu_drone_bringup) StdoutLine: {'line': b'writing entry points to ../../build/sjtu_drone_bringup/sjtu_drone_bringup.egg-info/entry_points.txt\n'}
+[1.100582] (sjtu_drone_bringup) StdoutLine: {'line': b'writing requirements to ../../build/sjtu_drone_bringup/sjtu_drone_bringup.egg-info/requires.txt\n'}
+[1.100695] (sjtu_drone_bringup) StdoutLine: {'line': b'writing top-level names to ../../build/sjtu_drone_bringup/sjtu_drone_bringup.egg-info/top_level.txt\n'}
+[1.100791] (sjtu_drone_bringup) StdoutLine: {'line': b"writing manifest file '../../build/sjtu_drone_bringup/sjtu_drone_bringup.egg-info/SOURCES.txt'\n"}
+[1.101144] (-) TimerEvent: {}
+[1.101977] (sjtu_drone_bringup) StdoutLine: {'line': b"reading manifest file '../../build/sjtu_drone_bringup/sjtu_drone_bringup.egg-info/SOURCES.txt'\n"}
+[1.102945] (sjtu_drone_bringup) StdoutLine: {'line': b"writing manifest file '../../build/sjtu_drone_bringup/sjtu_drone_bringup.egg-info/SOURCES.txt'\n"}
+[1.103143] (sjtu_drone_bringup) StdoutLine: {'line': b'running build\n'}
+[1.103270] (sjtu_drone_bringup) StdoutLine: {'line': b'running build_py\n'}
+[1.103479] (sjtu_drone_bringup) StdoutLine: {'line': b'creating /root/sjtu_project/build/sjtu_drone_bringup/build\n'}
+[1.103594] (sjtu_drone_bringup) StdoutLine: {'line': b'creating /root/sjtu_project/build/sjtu_drone_bringup/build/lib\n'}
+[1.103745] (sjtu_drone_bringup) StdoutLine: {'line': b'creating /root/sjtu_project/build/sjtu_drone_bringup/build/lib/sjtu_drone_bringup\n'}
+[1.103853] (sjtu_drone_bringup) StdoutLine: {'line': b'copying sjtu_drone_bringup/__init__.py -> /root/sjtu_project/build/sjtu_drone_bringup/build/lib/sjtu_drone_bringup\n'}
+[1.103955] (sjtu_drone_bringup) StdoutLine: {'line': b'copying sjtu_drone_bringup/spawn_drone.py -> /root/sjtu_project/build/sjtu_drone_bringup/build/lib/sjtu_drone_bringup\n'}
+[1.104258] (sjtu_drone_bringup) StdoutLine: {'line': b'running install\n'}
+[1.104811] (sjtu_drone_bringup) StdoutLine: {'line': b'running install_lib\n'}
+[1.105871] (sjtu_drone_bringup) StdoutLine: {'line': b'creating /root/sjtu_project/install/sjtu_drone_bringup/lib/python3.10/site-packages/sjtu_drone_bringup\n'}
+[1.106054] (sjtu_drone_bringup) StdoutLine: {'line': b'copying /root/sjtu_project/build/sjtu_drone_bringup/build/lib/sjtu_drone_bringup/__init__.py -> /root/sjtu_project/install/sjtu_drone_bringup/lib/python3.10/site-packages/sjtu_drone_bringup\n'}
+[1.106210] (sjtu_drone_bringup) StdoutLine: {'line': b'copying /root/sjtu_project/build/sjtu_drone_bringup/build/lib/sjtu_drone_bringup/spawn_drone.py -> /root/sjtu_project/install/sjtu_drone_bringup/lib/python3.10/site-packages/sjtu_drone_bringup\n'}
+[1.106952] (sjtu_drone_bringup) StdoutLine: {'line': b'byte-compiling /root/sjtu_project/install/sjtu_drone_bringup/lib/python3.10/site-packages/sjtu_drone_bringup/__init__.py to __init__.cpython-310.pyc\n'}
+[1.107215] (sjtu_drone_bringup) StdoutLine: {'line': b'byte-compiling /root/sjtu_project/install/sjtu_drone_bringup/lib/python3.10/site-packages/sjtu_drone_bringup/spawn_drone.py to spawn_drone.cpython-310.pyc\n'}
+[1.107691] (sjtu_drone_bringup) StdoutLine: {'line': b'running install_data\n'}
+[1.107849] (sjtu_drone_bringup) StdoutLine: {'line': b'creating /root/sjtu_project/install/sjtu_drone_bringup/share/ament_index\n'}
+[1.108034] (sjtu_drone_bringup) StdoutLine: {'line': b'creating /root/sjtu_project/install/sjtu_drone_bringup/share/ament_index/resource_index\n'}
+[1.108171] (sjtu_drone_bringup) StdoutLine: {'line': b'creating /root/sjtu_project/install/sjtu_drone_bringup/share/ament_index/resource_index/packages\n'}
+[1.108314] (sjtu_drone_bringup) StdoutLine: {'line': b'copying resource/sjtu_drone_bringup -> /root/sjtu_project/install/sjtu_drone_bringup/share/ament_index/resource_index/packages\n'}
+[1.108423] (sjtu_drone_bringup) StdoutLine: {'line': b'copying package.xml -> /root/sjtu_project/install/sjtu_drone_bringup/share/sjtu_drone_bringup\n'}
+[1.108527] (sjtu_drone_bringup) StdoutLine: {'line': b'creating /root/sjtu_project/install/sjtu_drone_bringup/share/sjtu_drone_bringup/launch\n'}
+[1.108659] (sjtu_drone_bringup) StdoutLine: {'line': b'copying launch/sjtu_drone_bringup.launch.py -> /root/sjtu_project/install/sjtu_drone_bringup/share/sjtu_drone_bringup/launch\n'}
+[1.108765] (sjtu_drone_bringup) StdoutLine: {'line': b'copying launch/sjtu_drone_gazebo.launch.py -> /root/sjtu_project/install/sjtu_drone_bringup/share/sjtu_drone_bringup/launch\n'}
+[1.108909] (sjtu_drone_bringup) StdoutLine: {'line': b'creating /root/sjtu_project/install/sjtu_drone_bringup/share/sjtu_drone_bringup/rviz\n'}
+[1.109050] (sjtu_drone_bringup) StdoutLine: {'line': b'copying rviz/rviz.rviz -> /root/sjtu_project/install/sjtu_drone_bringup/share/sjtu_drone_bringup/rviz\n'}
+[1.109171] (sjtu_drone_bringup) StdoutLine: {'line': b'creating /root/sjtu_project/install/sjtu_drone_bringup/share/sjtu_drone_bringup/config\n'}
+[1.109316] (sjtu_drone_bringup) StdoutLine: {'line': b'copying config/drone.yaml -> /root/sjtu_project/install/sjtu_drone_bringup/share/sjtu_drone_bringup/config\n'}
+[1.109469] (sjtu_drone_bringup) StdoutLine: {'line': b'running install_egg_info\n'}
+[1.112024] (sjtu_drone_bringup) StdoutLine: {'line': b'Copying ../../build/sjtu_drone_bringup/sjtu_drone_bringup.egg-info to /root/sjtu_project/install/sjtu_drone_bringup/lib/python3.10/site-packages/sjtu_drone_bringup-0.0.0-py3.10.egg-info\n'}
+[1.113009] (sjtu_drone_bringup) StdoutLine: {'line': b'running install_scripts\n'}
+[1.114692] (sjtu_drone_control) StdoutLine: {'line': b'Installing drone_position_control script to /root/sjtu_project/install/sjtu_drone_control/lib/sjtu_drone_control\n'}
+[1.114887] (sjtu_drone_control) StdoutLine: {'line': b'Installing open_loop_control script to /root/sjtu_project/install/sjtu_drone_control/lib/sjtu_drone_control\n'}
+[1.115043] (sjtu_drone_control) StdoutLine: {'line': b'Installing teleop script to /root/sjtu_project/install/sjtu_drone_control/lib/sjtu_drone_control\n'}
+[1.115191] (sjtu_drone_control) StdoutLine: {'line': b'Installing teleop_joystick script to /root/sjtu_project/install/sjtu_drone_control/lib/sjtu_drone_control\n'}
+[1.115487] (sjtu_drone_control) StdoutLine: {'line': b"writing list of installed files to '/root/sjtu_project/build/sjtu_drone_control/install.log'\n"}
+[1.136008] (sjtu_drone_bringup) StdoutLine: {'line': b'Installing spawn_drone script to /root/sjtu_project/install/sjtu_drone_bringup/lib/sjtu_drone_bringup\n'}
+[1.136462] (sjtu_drone_bringup) StdoutLine: {'line': b"writing list of installed files to '/root/sjtu_project/build/sjtu_drone_bringup/install.log'\n"}
+[1.141335] (sjtu_drone_control) CommandEnded: {'returncode': 0}
+[1.156834] (sjtu_drone_control) JobEnded: {'identifier': 'sjtu_drone_control', 'rc': 0}
+[1.165048] (sjtu_drone_bringup) CommandEnded: {'returncode': 0}
+[1.172194] (sjtu_drone_bringup) JobEnded: {'identifier': 'sjtu_drone_bringup', 'rc': 0}
+[1.181618] (sjtu_drone_description) StdoutLine: {'line': b'-- Found Python3: /usr/bin/python3 (found version "3.10.12") found components: Interpreter \n'}
+[1.201288] (-) TimerEvent: {}
+[1.273761] (sjtu_drone_description) StdoutLine: {'line': b'-- Found ament_cmake_ros: 0.10.0 (/opt/ros/humble/share/ament_cmake_ros/cmake)\n'}
+[1.301452] (-) TimerEvent: {}
+[1.307939] (sjtu_drone_description) StdoutLine: {'line': b'-- Found rclcpp: 16.0.15 (/opt/ros/humble/share/rclcpp/cmake)\n'}
+[1.358742] (sjtu_drone_description) StdoutLine: {'line': b'-- Found rosidl_generator_c: 3.1.7 (/opt/ros/humble/share/rosidl_generator_c/cmake)\n'}
+[1.363490] (sjtu_drone_description) StdoutLine: {'line': b'-- Found rosidl_adapter: 3.1.7 (/opt/ros/humble/share/rosidl_adapter/cmake)\n'}
+[1.371542] (sjtu_drone_description) StdoutLine: {'line': b'-- Found rosidl_generator_cpp: 3.1.7 (/opt/ros/humble/share/rosidl_generator_cpp/cmake)\n'}
+[1.383072] (sjtu_drone_description) StdoutLine: {'line': b'-- Using all available rosidl_typesupport_c: rosidl_typesupport_fastrtps_c;rosidl_typesupport_introspection_c\n'}
+[1.398609] (sjtu_drone_description) StdoutLine: {'line': b'-- Using all available rosidl_typesupport_cpp: rosidl_typesupport_fastrtps_cpp;rosidl_typesupport_introspection_cpp\n'}
+[1.401531] (-) TimerEvent: {}
+[1.442746] (sjtu_drone_description) StdoutLine: {'line': b'-- Found rmw_implementation_cmake: 6.1.2 (/opt/ros/humble/share/rmw_implementation_cmake/cmake)\n'}
+[1.445338] (sjtu_drone_description) StdoutLine: {'line': b'-- Found rmw_fastrtps_cpp: 6.2.8 (/opt/ros/humble/share/rmw_fastrtps_cpp/cmake)\n'}
+[1.501671] (-) TimerEvent: {}
+[1.532334] (sjtu_drone_description) StdoutLine: {'line': b'-- Found OpenSSL: /usr/lib/x86_64-linux-gnu/libcrypto.so (found version "3.0.2")  \n'}
+[1.560593] (sjtu_drone_description) StdoutLine: {'line': b'-- Found FastRTPS: /opt/ros/humble/include  \n'}
+[1.601808] (-) TimerEvent: {}
+[1.602750] (sjtu_drone_description) StdoutLine: {'line': b"-- Using RMW implementation 'rmw_fastrtps_cpp' as default\n"}
+[1.613337] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for pthread.h\n'}
+[1.689438] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for pthread.h - found\n'}
+[1.689696] (sjtu_drone_description) StdoutLine: {'line': b'-- Performing Test CMAKE_HAVE_LIBC_PTHREAD\n'}
+[1.701917] (-) TimerEvent: {}
+[1.765113] (sjtu_drone_description) StdoutLine: {'line': b'-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success\n'}
+[1.766157] (sjtu_drone_description) StdoutLine: {'line': b'-- Found Threads: TRUE  \n'}
+[1.802055] (-) TimerEvent: {}
+[1.834219] (sjtu_drone_description) StdoutLine: {'line': b'-- Found gazebo_ros: 3.9.0 (/opt/ros/humble/share/gazebo_ros/cmake)\n'}
+[1.850961] (sjtu_drone_description) StdoutLine: {'line': b"-- Checking for module 'bullet>=2.82'\n"}
+[1.864502] (sjtu_drone_description) StdoutLine: {'line': b'--   Found bullet, version 3.05\n'}
+[1.902262] (-) TimerEvent: {}
+[1.977924] (sjtu_drone_description) StdoutLine: {'line': b'-- Found fcl: /usr/include (found suitable version "0.7.0", minimum required is "0.5.0") \n'}
+[2.002379] (-) TimerEvent: {}
+[2.025363] (sjtu_drone_description) StdoutLine: {'line': b'-- Found assimp: /usr/include (found version "5.2.0") \n'}
+[2.052241] (sjtu_drone_description) StdoutLine: {'line': b'-- Found DART: /usr/include (Required is at least version "6.6") found components: dart \n'}
+[2.092091] (sjtu_drone_description) StdoutLine: {'line': b'-- Found Boost: /usr/lib/x86_64-linux-gnu/cmake/Boost-1.74.0/BoostConfig.cmake (found suitable version "1.74.0", minimum required is "1.40.0") found components: thread system filesystem program_options regex iostreams date_time \n'}
+[2.102462] (-) TimerEvent: {}
+[2.106870] (sjtu_drone_description) StdoutLine: {'line': b'-- Found Protobuf: /usr/lib/x86_64-linux-gnu/libprotobuf.so (found version "3.12.4") \n'}
+[2.113872] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for ignition-math6 -- found version 6.15.1\n'}
+[2.124082] (sjtu_drone_description) StdoutLine: {'line': b'-- Searching for dependencies of ignition-math6\n'}
+[2.126881] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for OGRE...\n'}
+[2.127438] (sjtu_drone_description) StdoutLine: {'line': b'-- OGRE_PREFIX_WATCH changed.\n'}
+[2.132465] (sjtu_drone_description) StdoutLine: {'line': b"-- Checking for module 'OGRE'\n"}
+[2.145585] (sjtu_drone_description) StdoutLine: {'line': b'--   Found OGRE, version 1.9.0\n'}
+[2.176338] (sjtu_drone_description) StdoutLine: {'line': b'-- Found Ogre Ghadamon (1.9.0)\n'}
+[2.190425] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for OGRE_Paging...\n'}
+[2.193627] (sjtu_drone_description) StdoutLine: {'line': b'-- Found OGRE_Paging: optimized;/usr/lib/x86_64-linux-gnu/libOgrePaging.so;debug;/usr/lib/x86_64-linux-gnu/libOgrePaging.so\n'}
+[2.193731] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for OGRE_Terrain...\n'}
+[2.197003] (sjtu_drone_description) StdoutLine: {'line': b'-- Found OGRE_Terrain: optimized;/usr/lib/x86_64-linux-gnu/libOgreTerrain.so;debug;/usr/lib/x86_64-linux-gnu/libOgreTerrain.so\n'}
+[2.197122] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for OGRE_Property...\n'}
+[2.200477] (sjtu_drone_description) StdoutLine: {'line': b'-- Found OGRE_Property: optimized;/usr/lib/x86_64-linux-gnu/libOgreProperty.so;debug;/usr/lib/x86_64-linux-gnu/libOgreProperty.so\n'}
+[2.200584] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for OGRE_RTShaderSystem...\n'}
+[2.202570] (-) TimerEvent: {}
+[2.204522] (sjtu_drone_description) StdoutLine: {'line': b'-- Found OGRE_RTShaderSystem: optimized;/usr/lib/x86_64-linux-gnu/libOgreRTShaderSystem.so;debug;/usr/lib/x86_64-linux-gnu/libOgreRTShaderSystem.so\n'}
+[2.204804] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for OGRE_Volume...\n'}
+[2.210362] (sjtu_drone_description) StdoutLine: {'line': b'-- Found OGRE_Volume: optimized;/usr/lib/x86_64-linux-gnu/libOgreVolume.so;debug;/usr/lib/x86_64-linux-gnu/libOgreVolume.so\n'}
+[2.210532] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for OGRE_Overlay...\n'}
+[2.213589] (sjtu_drone_description) StdoutLine: {'line': b'-- Found OGRE_Overlay: optimized;/usr/lib/x86_64-linux-gnu/libOgreOverlay.so;debug;/usr/lib/x86_64-linux-gnu/libOgreOverlay.so\n'}
+[2.294815] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for ignition-math6 -- found version 6.15.1\n'}
+[2.297799] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for ignition-transport8 -- found version 8.2.1\n'}
+[2.298313] (sjtu_drone_description) StdoutLine: {'line': b'-- Searching for dependencies of ignition-transport8\n'}
+[2.302638] (-) TimerEvent: {}
+[2.318114] (sjtu_drone_description) StdoutLine: {'line': b'-- Found Protobuf: /usr/lib/x86_64-linux-gnu/libprotobuf.so (found suitable version "3.12.4", minimum required is "3") \n'}
+[2.331009] (sjtu_drone_description) StdoutLine: {'line': b'-- Config-file not installed for ZeroMQ -- checking for pkg-config\n'}
+[2.336019] (sjtu_drone_description) StdoutLine: {'line': b"-- Checking for module 'libzmq >= 4'\n"}
+[2.351435] (sjtu_drone_description) StdoutLine: {'line': b'--   Found libzmq , version 4.3.4\n'}
+[2.389371] (sjtu_drone_description) StdoutLine: {'line': b'-- Found ZeroMQ: TRUE (Required is at least version "4") \n'}
+[2.395407] (sjtu_drone_description) StdoutLine: {'line': b"-- Checking for module 'uuid'\n"}
+[2.402762] (-) TimerEvent: {}
+[2.408491] (sjtu_drone_description) StdoutLine: {'line': b'--   Found uuid, version 2.37.2\n'}
+[2.439646] (sjtu_drone_description) StdoutLine: {'line': b'-- Found UUID: TRUE  \n'}
+[2.442863] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for ignition-msgs5 -- found version 5.8.1\n'}
+[2.443354] (sjtu_drone_description) StdoutLine: {'line': b'-- Searching for dependencies of ignition-msgs5\n'}
+[2.464942] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for ignition-math6 -- found version 6.15.1\n'}
+[2.470815] (sjtu_drone_description) StdoutLine: {'line': b"-- Checking for module 'tinyxml2'\n"}
+[2.483917] (sjtu_drone_description) StdoutLine: {'line': b'--   Found tinyxml2, version 9.0.0\n'}
+[2.502862] (-) TimerEvent: {}
+[2.518155] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for ignition-msgs5 -- found version 5.8.1\n'}
+[2.521428] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for ignition-common3 -- found version 3.14.0\n'}
+[2.522121] (sjtu_drone_description) StdoutLine: {'line': b'-- Searching for dependencies of ignition-common3\n'}
+[2.522791] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for dlfcn.h - found\n'}
+[2.523503] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for libdl - found\n'}
+[2.524964] (sjtu_drone_description) StdoutLine: {'line': b'-- Found DL: TRUE  \n'}
+[2.536063] (sjtu_drone_description) StdoutLine: {'line': b'-- Found tinyobjloader: /usr/lib/x86_64-linux-gnu/cmake/tinyobjloader/tinyobjloader-config.cmake (found version "2.0.0") \n'}
+[2.537352] (sjtu_drone_description) StdoutLine: {'line': b'-- Searching for <ignition-common3> component [graphics]\n'}
+[2.541196] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for ignition-common3-graphics -- found version 3.14.0\n'}
+[2.541986] (sjtu_drone_description) StdoutLine: {'line': b'-- Searching for dependencies of ignition-common3-graphics\n'}
+[2.542626] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for ignition-math6 -- found version 6.15.1\n'}
+[2.546719] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for ignition-fuel_tools4 -- found version 4.4.0\n'}
+[2.547360] (sjtu_drone_description) StdoutLine: {'line': b'-- Searching for dependencies of ignition-fuel_tools4\n'}
+[2.602982] (-) TimerEvent: {}
+[2.626512] (sjtu_drone_description) StdoutLine: {'line': b'-- Found CURL: /usr/lib/x86_64-linux-gnu/libcurl.so (found version "7.81.0")  \n'}
+[2.636154] (sjtu_drone_description) StdoutLine: {'line': b"-- Checking for module 'jsoncpp'\n"}
+[2.650475] (sjtu_drone_description) StdoutLine: {'line': b'--   Found jsoncpp, version 1.9.5\n'}
+[2.684046] (sjtu_drone_description) StdoutLine: {'line': b'-- Found JSONCPP: TRUE  \n'}
+[2.691254] (sjtu_drone_description) StdoutLine: {'line': b"-- Checking for module 'libzip'\n"}
+[2.703061] (-) TimerEvent: {}
+[2.704393] (sjtu_drone_description) StdoutLine: {'line': b'--   Found libzip, version 1.7.3\n'}
+[2.736675] (sjtu_drone_description) StdoutLine: {'line': b'-- Found ZIP: TRUE  \n'}
+[2.737133] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for ignition-common3 -- found version 3.14.0\n'}
+[2.737572] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for ignition-math6 -- found version 6.15.1\n'}
+[2.737981] (sjtu_drone_description) StdoutLine: {'line': b'-- Looking for ignition-msgs5 -- found version 5.8.1\n'}
+[2.743058] (sjtu_drone_description) StdoutLine: {'line': b'-- Gazebo version: 11.10\n'}
+[2.743389] (sjtu_drone_description) StdoutLine: {'line': b"-- Checking for module 'tbb'\n"}
+[2.756626] (sjtu_drone_description) StdoutLine: {'line': b'--   Found tbb, version 2021.5.0\n'}
+[2.790072] (sjtu_drone_description) StdoutLine: {'line': b'-- Found gazebo_plugins: 3.9.0 (/opt/ros/humble/share/gazebo_plugins/cmake)\n'}
+[2.803168] (-) TimerEvent: {}
+[2.863556] (sjtu_drone_description) StdoutLine: {'line': b'-- Found sensor_msgs: 4.9.0 (/opt/ros/humble/share/sensor_msgs/cmake)\n'}
+[2.881955] (sjtu_drone_description) StdoutLine: {'line': b'-- Found nav_msgs: 4.9.0 (/opt/ros/humble/share/nav_msgs/cmake)\n'}
+[2.903268] (-) TimerEvent: {}
+[2.905048] (sjtu_drone_description) StdoutLine: {'line': b'-- Found tf2: 0.25.16 (/opt/ros/humble/share/tf2/cmake)\n'}
+[2.916695] (sjtu_drone_description) StdoutLine: {'line': b'-- Found tf2_ros: 0.25.16 (/opt/ros/humble/share/tf2_ros/cmake)\n'}
+[3.003361] (-) TimerEvent: {}
+[3.014702] (sjtu_drone_description) StdoutLine: {'line': b'-- Found tf2_geometry_msgs: 0.25.16 (/opt/ros/humble/share/tf2_geometry_msgs/cmake)\n'}
+[3.025079] (sjtu_drone_description) StdoutLine: {'line': b'-- Found eigen3_cmake_module: 0.1.1 (/opt/ros/humble/share/eigen3_cmake_module/cmake)\n'}
+[3.026726] (sjtu_drone_description) StdoutLine: {'line': b'-- Found Eigen3: TRUE (found version "3.4.0") \n'}
+[3.026885] (sjtu_drone_description) StdoutLine: {'line': b'-- Ensuring Eigen3 include directory is part of orocos-kdl CMake target\n'}
+[3.103550] (sjtu_drone_description) StdoutLine: {'line': b'-- Configuring done\n'}
+[3.103776] (-) TimerEvent: {}
+[3.163048] (sjtu_drone_description) StdoutLine: {'line': b'-- Generating done\n'}
+[3.170024] (sjtu_drone_description) StdoutLine: {'line': b'-- Build files have been written to: /root/sjtu_project/build/sjtu_drone_description\n'}
+[3.181991] (sjtu_drone_description) CommandEnded: {'returncode': 0}
+[3.182714] (sjtu_drone_description) JobProgress: {'identifier': 'sjtu_drone_description', 'progress': 'build'}
+[3.183576] (sjtu_drone_description) Command: {'cmd': ['/usr/bin/cmake', '--build', '/root/sjtu_project/build/sjtu_drone_description', '--', '-j12', '-l12'], 'cwd': '/root/sjtu_project/build/sjtu_drone_description', 'env': OrderedDict([('HOSTNAME', 'LP-Boston-12214'), ('SHLVL', '1'), ('LD_LIBRARY_PATH', '/root/sjtu_project/install/sjtu_drone_description/lib:/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib'), ('HOME', '/root'), ('SKIP_MAP', 'true'), ('OLDPWD', '/ros2_ws'), ('GAZEBO_MASTER_URI', 'http://localhost:11345'), ('ROS_PYTHON_VERSION', '3'), ('COLCON_PREFIX_PATH', '/root/sjtu_project/install'), ('ROS_DISTRO', 'humble'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('TERM', 'xterm'), ('GAZEBO_MODEL_PATH', '/usr/share/gazebo-11/models:/root/sjtu_project/aws-robomaker-hospital-world/models:/root/sjtu_project/sjtu_drone/sjtu_drone_description:/root/sjtu_project/sjtu_drone/models'), ('ROS_LOCALHOST_ONLY', '0'), ('QT_X11_NO_MITSHM', '1'), ('PATH', '/opt/ros/humble/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'), ('GAZEBO_VERBOSE', '1'), ('DISPLAY', ':1'), ('LANG', 'C.UTF-8'), ('RMW_IMPLEMENTATION', 'rmw_fastrtps_cpp'), ('XAUTHORITY', '/home/shirb/.Xauthority'), ('AMENT_PREFIX_PATH', '/root/sjtu_project/install/sjtu_drone_description:/root/sjtu_project/install/sjtu_drone_control:/root/sjtu_project/install/sjtu_drone_bringup:/opt/ros/humble'), ('ALSA_CARD', '0'), ('GAZEBO_RESOURCE_PATH', '/usr/share/gazebo-11:/root/sjtu_project/aws-robomaker-hospital-world/worlds:/root/sjtu_project/aws-robomaker-hospital-world'), ('GAZEBO_MODEL_DATABASE_URI', ''), ('GAZEBO_AUDIO_DEVICE', 'null'), ('PWD', '/root/sjtu_project/build/sjtu_drone_description'), ('LC_ALL', 'C.UTF-8'), ('GAZEBO_PLUGIN_PATH', '/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:'), ('PYTHONPATH', '/root/sjtu_project/install/sjtu_drone_control/lib/python3.10/site-packages:/root/sjtu_project/install/sjtu_drone_bringup/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('NVIDIA_VISIBLE_DEVICES', 'all'), ('COLCON', '1'), ('CMAKE_PREFIX_PATH', '/root/sjtu_project/install/sjtu_drone_description:/root/sjtu_project/install/sjtu_drone_control:/root/sjtu_project/install/sjtu_drone_bringup:/opt/ros/humble')]), 'shell': False}
+[3.203920] (-) TimerEvent: {}
+[3.238514] (sjtu_drone_description) StdoutLine: {'line': b'[ 75%] \x1b[32mBuilding CXX object CMakeFiles/plugin_drone.dir/src/plugin_drone.cpp.o\x1b[0m\n'}
+[3.238808] (sjtu_drone_description) StdoutLine: {'line': b'[ 75%] \x1b[32mBuilding CXX object CMakeFiles/plugin_drone.dir/src/plugin_drone_private.cpp.o\x1b[0m\n'}
+[3.238958] (sjtu_drone_description) StdoutLine: {'line': b'[ 75%] \x1b[32mBuilding CXX object CMakeFiles/plugin_drone.dir/src/pid_controller.cpp.o\x1b[0m\n'}
+[3.304021] (-) TimerEvent: {}
+[3.404346] (-) TimerEvent: {}
+[3.504728] (-) TimerEvent: {}
+[3.605061] (-) TimerEvent: {}
+[3.705398] (-) TimerEvent: {}
+[3.805685] (-) TimerEvent: {}
+[3.906080] (-) TimerEvent: {}
+[4.006378] (-) TimerEvent: {}
+[4.106691] (-) TimerEvent: {}
+[4.206971] (-) TimerEvent: {}
+[4.307246] (-) TimerEvent: {}
+[4.407564] (-) TimerEvent: {}
+[4.507922] (-) TimerEvent: {}
+[4.608373] (-) TimerEvent: {}
+[4.708685] (-) TimerEvent: {}
+[4.809048] (-) TimerEvent: {}
+[4.909283] (-) TimerEvent: {}
+[5.009632] (-) TimerEvent: {}
+[5.109910] (-) TimerEvent: {}
+[5.210199] (-) TimerEvent: {}
+[5.310478] (-) TimerEvent: {}
+[5.410795] (-) TimerEvent: {}
+[5.511076] (-) TimerEvent: {}
+[5.611359] (-) TimerEvent: {}
+[5.713146] (-) TimerEvent: {}
+[5.813502] (-) TimerEvent: {}
+[5.913779] (-) TimerEvent: {}
+[6.014053] (-) TimerEvent: {}
+[6.114318] (-) TimerEvent: {}
+[6.214581] (-) TimerEvent: {}
+[6.314875] (-) TimerEvent: {}
+[6.415120] (-) TimerEvent: {}
+[6.515419] (-) TimerEvent: {}
+[6.615737] (-) TimerEvent: {}
+[6.716008] (-) TimerEvent: {}
+[6.816275] (-) TimerEvent: {}
+[6.916555] (-) TimerEvent: {}
+[7.016841] (-) TimerEvent: {}
+[7.117128] (-) TimerEvent: {}
+[7.217408] (-) TimerEvent: {}
+[7.317683] (-) TimerEvent: {}
+[7.417961] (-) TimerEvent: {}
+[7.518248] (-) TimerEvent: {}
+[7.618596] (-) TimerEvent: {}
+[7.719091] (-) TimerEvent: {}
+[7.819581] (-) TimerEvent: {}
+[7.919926] (-) TimerEvent: {}
+[8.020259] (-) TimerEvent: {}
+[8.120602] (-) TimerEvent: {}
+[8.220940] (-) TimerEvent: {}
+[8.321315] (-) TimerEvent: {}
+[8.421715] (-) TimerEvent: {}
+[8.522089] (-) TimerEvent: {}
+[8.622398] (-) TimerEvent: {}
+[8.722739] (-) TimerEvent: {}
+[8.823058] (-) TimerEvent: {}
+[8.923332] (-) TimerEvent: {}
+[9.023591] (-) TimerEvent: {}
+[9.123875] (-) TimerEvent: {}
+[9.224152] (-) TimerEvent: {}
+[9.324411] (-) TimerEvent: {}
+[9.424687] (-) TimerEvent: {}
+[9.524974] (-) TimerEvent: {}
+[9.625243] (-) TimerEvent: {}
+[9.725551] (-) TimerEvent: {}
+[9.825852] (-) TimerEvent: {}
+[9.926137] (-) TimerEvent: {}
+[10.026484] (-) TimerEvent: {}
+[10.126825] (-) TimerEvent: {}
+[10.227149] (-) TimerEvent: {}
+[10.327457] (-) TimerEvent: {}
+[10.427758] (-) TimerEvent: {}
+[10.528060] (-) TimerEvent: {}
+[10.628373] (-) TimerEvent: {}
+[10.728681] (-) TimerEvent: {}
+[10.828993] (-) TimerEvent: {}
+[10.929313] (-) TimerEvent: {}
+[11.029647] (-) TimerEvent: {}
+[11.129962] (-) TimerEvent: {}
+[11.230246] (-) TimerEvent: {}
+[11.330552] (-) TimerEvent: {}
+[11.430867] (-) TimerEvent: {}
+[11.531198] (-) TimerEvent: {}
+[11.631538] (-) TimerEvent: {}
+[11.731858] (-) TimerEvent: {}
+[11.832220] (-) TimerEvent: {}
+[11.932603] (-) TimerEvent: {}
+[12.032958] (-) TimerEvent: {}
+[12.133352] (-) TimerEvent: {}
+[12.233671] (-) TimerEvent: {}
+[12.333984] (-) TimerEvent: {}
+[12.434312] (-) TimerEvent: {}
+[12.534630] (-) TimerEvent: {}
+[12.634945] (-) TimerEvent: {}
+[12.735434] (-) TimerEvent: {}
+[12.835960] (-) TimerEvent: {}
+[12.936354] (-) TimerEvent: {}
+[13.036703] (-) TimerEvent: {}
+[13.137063] (-) TimerEvent: {}
+[13.237606] (-) TimerEvent: {}
+[13.337947] (-) TimerEvent: {}
+[13.438301] (-) TimerEvent: {}
+[13.538721] (-) TimerEvent: {}
+[13.639088] (-) TimerEvent: {}
+[13.739460] (-) TimerEvent: {}
+[13.839837] (-) TimerEvent: {}
+[13.940201] (-) TimerEvent: {}
+[14.040485] (-) TimerEvent: {}
+[14.140784] (-) TimerEvent: {}
+[14.241090] (-) TimerEvent: {}
+[14.341377] (-) TimerEvent: {}
+[14.441706] (-) TimerEvent: {}
+[14.542032] (-) TimerEvent: {}
+[14.642282] (-) TimerEvent: {}
+[14.742588] (-) TimerEvent: {}
+[14.842890] (-) TimerEvent: {}
+[14.943205] (-) TimerEvent: {}
+[15.043520] (-) TimerEvent: {}
+[15.143828] (-) TimerEvent: {}
+[15.244131] (-) TimerEvent: {}
+[15.344412] (-) TimerEvent: {}
+[15.444724] (-) TimerEvent: {}
+[15.545031] (-) TimerEvent: {}
+[15.645319] (-) TimerEvent: {}
+[15.745627] (-) TimerEvent: {}
+[15.845949] (-) TimerEvent: {}
+[15.946256] (-) TimerEvent: {}
+[16.046547] (-) TimerEvent: {}
+[16.146849] (-) TimerEvent: {}
+[16.247155] (-) TimerEvent: {}
+[16.347435] (-) TimerEvent: {}
+[16.447735] (-) TimerEvent: {}
+[16.548039] (-) TimerEvent: {}
+[16.648333] (-) TimerEvent: {}
+[16.748639] (-) TimerEvent: {}
+[16.848943] (-) TimerEvent: {}
+[16.949252] (-) TimerEvent: {}
+[17.049543] (-) TimerEvent: {}
+[17.149845] (-) TimerEvent: {}
+[17.250151] (-) TimerEvent: {}
+[17.350431] (-) TimerEvent: {}
+[17.450731] (-) TimerEvent: {}
+[17.551034] (-) TimerEvent: {}
+[17.651338] (-) TimerEvent: {}
+[17.751647] (-) TimerEvent: {}
+[17.852007] (-) TimerEvent: {}
+[17.952458] (-) TimerEvent: {}
+[18.052963] (-) TimerEvent: {}
+[18.153231] (-) TimerEvent: {}
+[18.253498] (-) TimerEvent: {}
+[18.353835] (-) TimerEvent: {}
+[18.454108] (-) TimerEvent: {}
+[18.554510] (-) TimerEvent: {}
+[18.654867] (-) TimerEvent: {}
+[18.755241] (-) TimerEvent: {}
+[18.855626] (-) TimerEvent: {}
+[18.956016] (-) TimerEvent: {}
+[19.056290] (-) TimerEvent: {}
+[19.156655] (-) TimerEvent: {}
+[19.256951] (-) TimerEvent: {}
+[19.357266] (-) TimerEvent: {}
+[19.457563] (-) TimerEvent: {}
+[19.557864] (-) TimerEvent: {}
+[19.658130] (-) TimerEvent: {}
+[19.758414] (-) TimerEvent: {}
+[19.858692] (-) TimerEvent: {}
+[19.959008] (-) TimerEvent: {}
+[20.059308] (-) TimerEvent: {}
+[20.159606] (-) TimerEvent: {}
+[20.259918] (-) TimerEvent: {}
+[20.360229] (-) TimerEvent: {}
+[20.460529] (-) TimerEvent: {}
+[20.560817] (-) TimerEvent: {}
+[20.661105] (-) TimerEvent: {}
+[20.761357] (-) TimerEvent: {}
+[20.861626] (-) TimerEvent: {}
+[20.961898] (-) TimerEvent: {}
+[21.062168] (-) TimerEvent: {}
+[21.162411] (-) TimerEvent: {}
+[21.262687] (-) TimerEvent: {}
+[21.362961] (-) TimerEvent: {}
+[21.463281] (-) TimerEvent: {}
+[21.563577] (-) TimerEvent: {}
+[21.663893] (-) TimerEvent: {}
+[21.764172] (-) TimerEvent: {}
+[21.864435] (-) TimerEvent: {}
+[21.964713] (-) TimerEvent: {}
+[22.064994] (-) TimerEvent: {}
+[22.165283] (-) TimerEvent: {}
+[22.265571] (-) TimerEvent: {}
+[22.365844] (-) TimerEvent: {}
+[22.466129] (-) TimerEvent: {}
+[22.566511] (-) TimerEvent: {}
+[22.666803] (-) TimerEvent: {}
+[22.767092] (-) TimerEvent: {}
+[22.867385] (-) TimerEvent: {}
+[22.967791] (-) TimerEvent: {}
+[23.068076] (-) TimerEvent: {}
+[23.168372] (-) TimerEvent: {}
+[23.268678] (-) TimerEvent: {}
+[23.369158] (-) TimerEvent: {}
+[23.469512] (-) TimerEvent: {}
+[23.569801] (-) TimerEvent: {}
+[23.670258] (-) TimerEvent: {}
+[23.770655] (-) TimerEvent: {}
+[23.870992] (-) TimerEvent: {}
+[23.971422] (-) TimerEvent: {}
+[24.071907] (-) TimerEvent: {}
+[24.172305] (-) TimerEvent: {}
+[24.272582] (-) TimerEvent: {}
+[24.372908] (-) TimerEvent: {}
+[24.473170] (-) TimerEvent: {}
+[24.573445] (-) TimerEvent: {}
+[24.673744] (-) TimerEvent: {}
+[24.774030] (-) TimerEvent: {}
+[24.874295] (-) TimerEvent: {}
+[24.974530] (-) TimerEvent: {}
+[25.074899] (-) TimerEvent: {}
+[25.175156] (-) TimerEvent: {}
+[25.275471] (-) TimerEvent: {}
+[25.375696] (-) TimerEvent: {}
+[25.475982] (-) TimerEvent: {}
+[25.576213] (-) TimerEvent: {}
+[25.676441] (-) TimerEvent: {}
+[25.776710] (-) TimerEvent: {}
+[25.876988] (-) TimerEvent: {}
+[25.977240] (-) TimerEvent: {}
+[26.077530] (-) TimerEvent: {}
+[26.177787] (-) TimerEvent: {}
+[26.278045] (-) TimerEvent: {}
+[26.378231] (-) TimerEvent: {}
+[26.478455] (-) TimerEvent: {}
+[26.578709] (-) TimerEvent: {}
+[26.678959] (-) TimerEvent: {}
+[26.779362] (-) TimerEvent: {}
+[26.879752] (-) TimerEvent: {}
+[26.980077] (-) TimerEvent: {}
+[27.080329] (-) TimerEvent: {}
+[27.180579] (-) TimerEvent: {}
+[27.280840] (-) TimerEvent: {}
+[27.381062] (-) TimerEvent: {}
+[27.481290] (-) TimerEvent: {}
+[27.581533] (-) TimerEvent: {}
+[27.681790] (-) TimerEvent: {}
+[27.782052] (-) TimerEvent: {}
+[27.882291] (-) TimerEvent: {}
+[27.982514] (-) TimerEvent: {}
+[28.082771] (-) TimerEvent: {}
+[28.183030] (-) TimerEvent: {}
+[28.283281] (-) TimerEvent: {}
+[28.383614] (-) TimerEvent: {}
+[28.484011] (-) TimerEvent: {}
+[28.584288] (-) TimerEvent: {}
+[28.684553] (-) TimerEvent: {}
+[28.784781] (-) TimerEvent: {}
+[28.885040] (-) TimerEvent: {}
+[28.985290] (-) TimerEvent: {}
+[29.085537] (-) TimerEvent: {}
+[29.185880] (-) TimerEvent: {}
+[29.286210] (-) TimerEvent: {}
+[29.386504] (-) TimerEvent: {}
+[29.487345] (-) TimerEvent: {}
+[29.587986] (-) TimerEvent: {}
+[29.688466] (-) TimerEvent: {}
+[29.788763] (-) TimerEvent: {}
+[29.889154] (-) TimerEvent: {}
+[29.989686] (-) TimerEvent: {}
+[30.090252] (-) TimerEvent: {}
+[30.190548] (-) TimerEvent: {}
+[30.290790] (-) TimerEvent: {}
+[30.391111] (-) TimerEvent: {}
+[30.491346] (-) TimerEvent: {}
+[30.591599] (-) TimerEvent: {}
+[30.691856] (-) TimerEvent: {}
+[30.792112] (-) TimerEvent: {}
+[30.892395] (-) TimerEvent: {}
+[30.992768] (-) TimerEvent: {}
+[31.093167] (-) TimerEvent: {}
+[31.193448] (-) TimerEvent: {}
+[31.293718] (-) TimerEvent: {}
+[31.393985] (-) TimerEvent: {}
+[31.494261] (-) TimerEvent: {}
+[31.594528] (-) TimerEvent: {}
+[31.694765] (-) TimerEvent: {}
+[31.795061] (-) TimerEvent: {}
+[31.895305] (-) TimerEvent: {}
+[31.995594] (-) TimerEvent: {}
+[32.095862] (-) TimerEvent: {}
+[32.196127] (-) TimerEvent: {}
+[32.296399] (-) TimerEvent: {}
+[32.396626] (-) TimerEvent: {}
+[32.496937] (-) TimerEvent: {}
+[32.597391] (-) TimerEvent: {}
+[32.697674] (-) TimerEvent: {}
+[32.797953] (-) TimerEvent: {}
+[32.898297] (-) TimerEvent: {}
+[32.998531] (-) TimerEvent: {}
+[33.098816] (-) TimerEvent: {}
+[33.199082] (-) TimerEvent: {}
+[33.299352] (-) TimerEvent: {}
+[33.399629] (-) TimerEvent: {}
+[33.499901] (-) TimerEvent: {}
+[33.600204] (-) TimerEvent: {}
+[33.698828] (sjtu_drone_description) StdoutLine: {'line': b'[100%] \x1b[32m\x1b[1mLinking CXX shared library /root/sjtu_project/sjtu_drone/sjtu_drone_description/plugins/libplugin_drone.so\x1b[0m\n'}
+[33.700277] (-) TimerEvent: {}
+[33.800505] (-) TimerEvent: {}
+[33.900832] (-) TimerEvent: {}
+[34.001145] (-) TimerEvent: {}
+[34.101488] (-) TimerEvent: {}
+[34.201771] (-) TimerEvent: {}
+[34.302009] (-) TimerEvent: {}
+[34.402273] (-) TimerEvent: {}
+[34.502589] (-) TimerEvent: {}
+[34.603010] (-) TimerEvent: {}
+[34.703531] (-) TimerEvent: {}
+[34.803998] (-) TimerEvent: {}
+[34.904421] (-) TimerEvent: {}
+[35.004751] (-) TimerEvent: {}
+[35.105166] (-) TimerEvent: {}
+[35.205529] (-) TimerEvent: {}
+[35.305855] (-) TimerEvent: {}
+[35.406207] (-) TimerEvent: {}
+[35.506504] (-) TimerEvent: {}
+[35.606837] (-) TimerEvent: {}
+[35.707133] (-) TimerEvent: {}
+[35.807405] (-) TimerEvent: {}
+[35.907679] (-) TimerEvent: {}
+[36.007957] (-) TimerEvent: {}
+[36.082289] (sjtu_drone_description) StdoutLine: {'line': b'[100%] Built target plugin_drone\n'}
+[36.094006] (sjtu_drone_description) CommandEnded: {'returncode': 0}
+[36.094348] (sjtu_drone_description) JobProgress: {'identifier': 'sjtu_drone_description', 'progress': 'install'}
+[36.102769] (sjtu_drone_description) Command: {'cmd': ['/usr/bin/cmake', '--install', '/root/sjtu_project/build/sjtu_drone_description'], 'cwd': '/root/sjtu_project/build/sjtu_drone_description', 'env': OrderedDict([('HOSTNAME', 'LP-Boston-12214'), ('SHLVL', '1'), ('LD_LIBRARY_PATH', '/root/sjtu_project/install/sjtu_drone_description/lib:/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:/opt/ros/humble/opt/rviz_ogre_vendor/lib:/opt/ros/humble/lib/x86_64-linux-gnu:/opt/ros/humble/lib'), ('HOME', '/root'), ('SKIP_MAP', 'true'), ('OLDPWD', '/ros2_ws'), ('GAZEBO_MASTER_URI', 'http://localhost:11345'), ('ROS_PYTHON_VERSION', '3'), ('COLCON_PREFIX_PATH', '/root/sjtu_project/install'), ('ROS_DISTRO', 'humble'), ('_', '/usr/bin/colcon'), ('ROS_VERSION', '2'), ('TERM', 'xterm'), ('GAZEBO_MODEL_PATH', '/usr/share/gazebo-11/models:/root/sjtu_project/aws-robomaker-hospital-world/models:/root/sjtu_project/sjtu_drone/sjtu_drone_description:/root/sjtu_project/sjtu_drone/models'), ('ROS_LOCALHOST_ONLY', '0'), ('QT_X11_NO_MITSHM', '1'), ('PATH', '/opt/ros/humble/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'), ('GAZEBO_VERBOSE', '1'), ('DISPLAY', ':1'), ('LANG', 'C.UTF-8'), ('RMW_IMPLEMENTATION', 'rmw_fastrtps_cpp'), ('XAUTHORITY', '/home/shirb/.Xauthority'), ('AMENT_PREFIX_PATH', '/root/sjtu_project/install/sjtu_drone_description:/root/sjtu_project/install/sjtu_drone_control:/root/sjtu_project/install/sjtu_drone_bringup:/opt/ros/humble'), ('ALSA_CARD', '0'), ('GAZEBO_RESOURCE_PATH', '/usr/share/gazebo-11:/root/sjtu_project/aws-robomaker-hospital-world/worlds:/root/sjtu_project/aws-robomaker-hospital-world'), ('GAZEBO_MODEL_DATABASE_URI', ''), ('GAZEBO_AUDIO_DEVICE', 'null'), ('PWD', '/root/sjtu_project/build/sjtu_drone_description'), ('LC_ALL', 'C.UTF-8'), ('GAZEBO_PLUGIN_PATH', '/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:'), ('PYTHONPATH', '/root/sjtu_project/install/sjtu_drone_control/lib/python3.10/site-packages:/root/sjtu_project/install/sjtu_drone_bringup/lib/python3.10/site-packages:/opt/ros/humble/lib/python3.10/site-packages:/opt/ros/humble/local/lib/python3.10/dist-packages'), ('NVIDIA_VISIBLE_DEVICES', 'all'), ('COLCON', '1'), ('CMAKE_PREFIX_PATH', '/root/sjtu_project/install/sjtu_drone_description:/root/sjtu_project/install/sjtu_drone_control:/root/sjtu_project/install/sjtu_drone_bringup:/opt/ros/humble')]), 'shell': False}
+[36.108031] (-) TimerEvent: {}
+[36.110464] (sjtu_drone_description) StdoutLine: {'line': b'-- Install configuration: ""\n'}
+[36.110669] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/include\n'}
+[36.110811] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/include/sjtu_drone_description\n'}
+[36.110925] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/include/sjtu_drone_description/plugin_drone.h\n'}
+[36.111107] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/include/sjtu_drone_description/pid_controller.h\n'}
+[36.111480] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/include/sjtu_drone_description/plugin_drone_private.h\n'}
+[36.111953] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/lib/libplugin_drone.so\n'}
+[36.140016] (sjtu_drone_description) StdoutLine: {'line': b'-- Set runtime path of "/root/sjtu_project/install/sjtu_drone_description/lib/libplugin_drone.so" to ""\n'}
+[36.140509] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/share/sjtu_drone_description/environment/library_path.sh\n'}
+[36.140779] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/share/sjtu_drone_description/environment/library_path.dsv\n'}
+[36.140924] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/share/sjtu_drone_description/models\n'}
+[36.141057] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/share/sjtu_drone_description/models/sjtu_drone\n'}
+[36.141214] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/share/sjtu_drone_description/models/sjtu_drone/sjtu_drone.sdf\n'}
+[36.141388] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/share/sjtu_drone_description/models/sjtu_drone/model.config\n'}
+[36.141546] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/share/sjtu_drone_description/models/sjtu_drone/quadrotor_4.stl\n'}
+[36.141766] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/share/sjtu_drone_description/models/sjtu_drone/quadrotor_4.dae\n'}
+[36.142043] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/share/sjtu_drone_description/models/database.config\n'}
+[36.142276] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/share/sjtu_drone_description/urdf\n'}
+[36.142448] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/share/sjtu_drone_description/urdf/sjtu_drone.urdf.xacro\n'}
+[36.142867] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/share/sjtu_drone_description/urdf/sjtu_drone.urdf\n'}
+[36.143100] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/share/sjtu_drone_description/worlds\n'}
+[36.143290] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/share/sjtu_drone_description/worlds/playground.world\n'}
+[36.143614] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/share/ament_index/resource_index/package_run_dependencies/sjtu_drone_description\n'}
+[36.143858] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/share/ament_index/resource_index/parent_prefix_path/sjtu_drone_description\n'}
+[36.144366] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/share/sjtu_drone_description/environment/ament_prefix_path.sh\n'}
+[36.144547] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/share/sjtu_drone_description/environment/ament_prefix_path.dsv\n'}
+[36.144727] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/share/sjtu_drone_description/environment/path.sh\n'}
+[36.144911] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/share/sjtu_drone_description/environment/path.dsv\n'}
+[36.145086] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/share/sjtu_drone_description/local_setup.bash\n'}
+[36.145297] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/share/sjtu_drone_description/local_setup.sh\n'}
+[36.145485] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/share/sjtu_drone_description/local_setup.zsh\n'}
+[36.145664] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/share/sjtu_drone_description/local_setup.dsv\n'}
+[36.145848] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/share/sjtu_drone_description/package.dsv\n'}
+[36.146085] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/share/ament_index/resource_index/packages/sjtu_drone_description\n'}
+[36.146355] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/share/sjtu_drone_description/cmake/export_sjtu_drone_descriptionExport.cmake\n'}
+[36.146565] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/share/sjtu_drone_description/cmake/export_sjtu_drone_descriptionExport-noconfig.cmake\n'}
+[36.146749] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/share/sjtu_drone_description/cmake/ament_cmake_export_include_directories-extras.cmake\n'}
+[36.146926] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/share/sjtu_drone_description/cmake/ament_cmake_export_libraries-extras.cmake\n'}
+[36.147134] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/share/sjtu_drone_description/cmake/ament_cmake_export_targets-extras.cmake\n'}
+[36.147330] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/share/sjtu_drone_description/cmake/sjtu_drone_descriptionConfig.cmake\n'}
+[36.147505] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/share/sjtu_drone_description/cmake/sjtu_drone_descriptionConfig-version.cmake\n'}
+[36.147680] (sjtu_drone_description) StdoutLine: {'line': b'-- Installing: /root/sjtu_project/install/sjtu_drone_description/share/sjtu_drone_description/package.xml\n'}
+[36.149999] (sjtu_drone_description) CommandEnded: {'returncode': 0}
+[36.167739] (sjtu_drone_description) JobEnded: {'identifier': 'sjtu_drone_description', 'rc': 0}
+[36.168483] (-) EventReactorShutdown: {}

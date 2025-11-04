@@ -2,7 +2,7 @@
 	"artifacts" : 
 	[
 		{
-			"path" : "/root/april_gazebo/sjtu_drone/sjtu_drone_description/plugins/libplugin_drone.so"
+			"path" : "/root/sjtu_project/sjtu_drone/sjtu_drone_description/plugins/libplugin_drone.so"
 		}
 	],
 	"backtrace" : 1,
@@ -372,7 +372,7 @@
 				},
 				{
 					"backtrace" : 35,
-					"path" : "/root/april_gazebo/sjtu_drone/sjtu_drone_description/include"
+					"path" : "/root/sjtu_project/sjtu_drone/sjtu_drone_description/include"
 				},
 				{
 					"backtrace" : 36,
@@ -654,7 +654,7 @@
 		],
 		"prefix" : 
 		{
-			"path" : "/root/april_gazebo/install/sjtu_drone_description"
+			"path" : "/root/sjtu_project/install/sjtu_drone_description"
 		}
 	},
 	"link" : 
@@ -672,12 +672,12 @@
 			},
 			{
 				"backtrace" : 3,
-				"fragment" : "-L/root/april_gazebo/sjtu_drone/sjtu_drone_description/Boost::thread",
+				"fragment" : "-L/root/sjtu_project/sjtu_drone/sjtu_drone_description/Boost::thread",
 				"role" : "libraryPath"
 			},
 			{
 				"backtrace" : 3,
-				"fragment" : "-L/root/april_gazebo/sjtu_drone/sjtu_drone_description/Boost::date_time",
+				"fragment" : "-L/root/sjtu_project/sjtu_drone/sjtu_drone_description/Boost::date_time",
 				"role" : "libraryPath"
 			},
 			{
@@ -686,7 +686,7 @@
 				"role" : "libraryPath"
 			},
 			{
-				"fragment" : "-Wl,-rpath,/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:/root/april_gazebo/sjtu_drone/sjtu_drone_description/Boost::thread:/root/april_gazebo/sjtu_drone/sjtu_drone_description/Boost::date_time:/usr/lib/x86_64-linux-gnu/libprotobuf.so:/opt/ros/humble/lib:",
+				"fragment" : "-Wl,-rpath,/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:/root/sjtu_project/sjtu_drone/sjtu_drone_description/Boost::thread:/root/sjtu_project/sjtu_drone/sjtu_drone_description/Boost::date_time:/usr/lib/x86_64-linux-gnu/libprotobuf.so:/opt/ros/humble/lib:",
 				"role" : "libraries"
 			},
 			{

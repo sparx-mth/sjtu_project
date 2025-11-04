@@ -53,10 +53,10 @@ RM = /usr/bin/cmake -E rm -f
 EQUALS = =
 
 # The top-level source directory on which CMake was run.
-CMAKE_SOURCE_DIR = /root/april_gazebo/sjtu_drone/sjtu_drone_description
+CMAKE_SOURCE_DIR = /root/sjtu_project/sjtu_drone/sjtu_drone_description
 
 # The top-level build directory on which CMake was run.
-CMAKE_BINARY_DIR = /root/april_gazebo/build/sjtu_drone_description
+CMAKE_BINARY_DIR = /root/sjtu_project/build/sjtu_drone_description
 
 # Utility rule file for uninstall.
 
@@ -78,6 +78,6 @@ CMakeFiles/uninstall.dir/clean:
 .PHONY : CMakeFiles/uninstall.dir/clean
 
 CMakeFiles/uninstall.dir/depend:
-	cd /root/april_gazebo/build/sjtu_drone_description && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" /root/april_gazebo/sjtu_drone/sjtu_drone_description /root/april_gazebo/sjtu_drone/sjtu_drone_description /root/april_gazebo/build/sjtu_drone_description /root/april_gazebo/build/sjtu_drone_description /root/april_gazebo/build/sjtu_drone_description/CMakeFiles/uninstall.dir/DependInfo.cmake --color=$(COLOR)
+	cd /root/sjtu_project/build/sjtu_drone_description && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" /root/sjtu_project/sjtu_drone/sjtu_drone_description /root/sjtu_project/sjtu_drone/sjtu_drone_description /root/sjtu_project/build/sjtu_drone_description /root/sjtu_project/build/sjtu_drone_description /root/sjtu_project/build/sjtu_drone_description/CMakeFiles/uninstall.dir/DependInfo.cmake --color=$(COLOR)
 .PHONY : CMakeFiles/uninstall.dir/depend
 

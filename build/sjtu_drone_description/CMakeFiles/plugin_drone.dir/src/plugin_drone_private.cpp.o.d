@@ -1,5 +1,5 @@
 CMakeFiles/plugin_drone.dir/src/plugin_drone_private.cpp.o: \
- /root/april_gazebo/sjtu_drone/sjtu_drone_description/src/plugin_drone_private.cpp \
+ /root/sjtu_project/sjtu_drone/sjtu_drone_description/src/plugin_drone_private.cpp \
  /usr/include/stdc-predef.h \
  /opt/ros/humble/include/gazebo_ros/conversions/builtin_interfaces.hpp \
  /usr/include/gazebo-11/gazebo/msgs/time.pb.h /usr/include/c++/11/limits \
@@ -531,7 +531,7 @@ CMakeFiles/plugin_drone.dir/src/plugin_drone_private.cpp.o: \
  /opt/ros/humble/include/geometry_msgs/geometry_msgs/msg/vector3.hpp \
  /opt/ros/humble/include/geometry_msgs/geometry_msgs/msg/detail/vector3__builder.hpp \
  /opt/ros/humble/include/geometry_msgs/geometry_msgs/msg/detail/vector3__type_support.hpp \
- /root/april_gazebo/sjtu_drone/sjtu_drone_description/include/sjtu_drone_description/plugin_drone_private.h \
+ /root/sjtu_project/sjtu_drone/sjtu_drone_description/include/sjtu_drone_description/plugin_drone_private.h \
  /opt/ros/humble/include/gazebo_ros/node.hpp \
  /opt/ros/humble/include/rclcpp/rclcpp/rclcpp.hpp \
  /usr/include/c++/11/csignal \
@@ -2241,7 +2241,7 @@ CMakeFiles/plugin_drone.dir/src/plugin_drone_private.cpp.o: \
  /opt/ros/humble/include/tf2_msgs/tf2_msgs/msg/detail/tf_message__type_support.hpp \
  /opt/ros/humble/include/tf2_msgs/tf2_msgs/msg/rosidl_generator_cpp__visibility_control.hpp \
  /opt/ros/humble/include/tf2_ros/tf2_ros/qos.hpp \
- /root/april_gazebo/sjtu_drone/sjtu_drone_description/include/sjtu_drone_description/pid_controller.h \
+ /root/sjtu_project/sjtu_drone/sjtu_drone_description/include/sjtu_drone_description/pid_controller.h \
  /usr/include/gazebo-11/gazebo/gazebo.hh \
  /usr/include/gazebo-11/gazebo/gazebo_core.hh \
  /usr/include/gazebo-11/gazebo/common/common.hh \
