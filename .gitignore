@@ -16,3 +16,7 @@ __pycache__/
 *.log
 *.tmp
 *.swp
+
+# Allow hospital world models to be tracked
+!aws-robomaker-hospital-world/
+!aws-robomaker-hospital-world/fuel_models/
