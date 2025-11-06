@@ -1,0 +1,10 @@
+plugins/
+bin/
+__pycache__/
+*.pyc
+build/
+install/
+log/
+*.log
+*.bag
+*.db
