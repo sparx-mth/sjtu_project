@@ -1,6 +1,0 @@
-Invoking command in '/root/april_gazebo/build/sjtu_drone_description': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake /root/april_gazebo/sjtu_drone/sjtu_drone_description -DBUILD_TESTING=OFF -DRMW_IMPLEMENTATION=rmw_fastrtps_cpp -DCMAKE_INSTALL_PREFIX=/root/april_gazebo/install/sjtu_drone_description
-Invoked command in '/root/april_gazebo/build/sjtu_drone_description' returned '0': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake /root/april_gazebo/sjtu_drone/sjtu_drone_description -DBUILD_TESTING=OFF -DRMW_IMPLEMENTATION=rmw_fastrtps_cpp -DCMAKE_INSTALL_PREFIX=/root/april_gazebo/install/sjtu_drone_description
-Invoking command in '/root/april_gazebo/build/sjtu_drone_description': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --build /root/april_gazebo/build/sjtu_drone_description -- -j12 -l12
-Invoked command in '/root/april_gazebo/build/sjtu_drone_description' returned '0': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --build /root/april_gazebo/build/sjtu_drone_description -- -j12 -l12
-Invoking command in '/root/april_gazebo/build/sjtu_drone_description': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --install /root/april_gazebo/build/sjtu_drone_description
-Invoked command in '/root/april_gazebo/build/sjtu_drone_description' returned '0': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --install /root/april_gazebo/build/sjtu_drone_description

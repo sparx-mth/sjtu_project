@@ -41,3 +41,34 @@ CMD ["/bin/bash"]
 
 # Note: The apriltag_node will be run manually by the user once the Gazebo/Drone environment is launched.
 
+
+
+
+
+cd src
+git clone https://github.com/christianrauch/apriltag_ros.git
+cd /ros2_ws
+rosdep update
+rosdep install --from-paths src --ignore-src -r -y
+colcon build --symlink-install
+source install/setup.bash
+ros2 run apriltag_ros apriltag_node --ros-args \
+  -r image_rect:=/simple_drone/front/image_raw \
+  -r camera_info:=/simple_drone/front/camera_info \
+  -p image_transport:=raw \
+  -p family:=36h11 \
+  -p size:=0.348 \
+  -p max_hamming:=1 \
+  -p pose_estimation_method:=pnp \
+  -p detector.threads:=2 \
+  -p detector.decimate:=1.0 \
+  -p detector.blur:=0.0 \
+  -p detector.refine:=True \
+  -p detector.sharpening:=0.25 \
+  --log-level debug
+ 
+apt-get update
+apt-get install -y ros-humble-tf2-tools ros-humble-rviz2
+ros2 run tf2_tools view_frames
+ros2 run tf2_ros tf2_echo simple_drone/front_cam_link tag36h11:14
+
