@@ -109,7 +109,7 @@ class Triang(Node):
 
         # Tag2
         self.tag2_est = os.environ.get('TAG2_EST_FRAME', 'tag36h11:15')
-        self.tag2_gt  = os.environ.get('TAG2_GT_ALIGNED',  'tag36h11:15_gt')
+        self.tag2_gt  = os.environ.get('TAG2_GT_ALIGEND',  'tag36h11:15_gt')
 
         self.buf = Buffer()
         self.lst = TransformListener(self.buf, self)

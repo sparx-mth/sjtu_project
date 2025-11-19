@@ -1,75 +1,117 @@
-AprilTag Detector for Simple Drone Simulation (ROS 2 Humble)
+# AprilTag Detection – SJTU Drone + Hospital World
 
-This project provides a portable Docker environment configured with the apriltag_ros package, ready to detect AprilTags (specifically tag36h11) from a Gazebo-simulated drone camera feed.
+This guide explains how to launch the hospital world simulation and run AprilTag detection using `apriltag_ros` inside the ROS2 Docker container.
 
-Prerequisites
+---
 
-Docker: Docker must be installed and running on your system.
+## 1. Launch the Hospital World
 
-ROS 2 Humble Environment: A separate ROS 2 environment (or another container) must be running the Gazebo simulation and publishing the drone's camera data on the required topics.
+From your host machine:
 
-Network Setup: This AprilTag container must be run with host networking (--network host) to communicate with the Gazebo and drone nodes.
+```bash
+cd /sjtu_project/sjtu_drone
+chmod +x run.sh
+./run.sh --no-map hospital.world
+```
 
-1. Setup and Build
+This will:
+- Start Gazebo with the `hospital.world`
+- Launch the simple_drone and its front camera
 
-First, build the Docker image using the provided Dockerfile. This step only needs to be performed once.
+### Change the Docker Image (optional)
 
-# Place the Dockerfile in a new folder (e.g., april_tag_detector)
-docker build -t simple-drone-apriltag:latest .
+If you want to use a different Docker image, edit the `run.sh` script:
 
+```bash
+nano run.sh
+```
 
-2. Usage: Running the Detector Node
+Look for the line that runs `docker run ... IMAGE_NAME ...` and replace the image name with the one you want.
 
-After ensuring your Gazebo drone simulation is running and publishing camera topics (e.g., /simple_drone/front/image_raw), run a container from the image.
+---
 
-Important: Use --network host to enable ROS 2 topic communication.
+## 2. Enter the ROS2 Docker Container
 
-# Run the container interactively
-docker run -it --rm --network host simple-drone-apriltag:latest
+In a new terminal on the host:
 
+```bash
+docker exec -it <container_name> bash
+```
 
-Once inside the container's shell, source the workspace and run the AprilTag node.
+> Replace `<container_name>` with the actual container name (for example: `sjtu_drone_ros2` or whatever appears in `docker ps`).
 
-Running the AprilTag Node
+---
 
-The following command launches the detector, subscribing to the drone's front camera topics and setting the parameters for tag36h11 (size 0.348m).
+## 3. Clone `apriltag_ros` Inside the Workspace
 
-# Inside the container's shell:
+Inside the container:
+
+```bash
+cd /ros2_ws/src
+git clone https://github.com/christianrauch/apriltag_ros.git
+```
+
+---
+
+## 4. Resolve Dependencies and Build
+
+Still inside the container:
+
+```bash
+cd /ros2_ws
+rosdep update
+rosdep install --from-paths src --ignore-src -r -y
+colcon build --symlink-install
 source install/setup.bash
+```
 
-ros2 run apriltag_ros apriltag_node --ros-args \
-  -r image_rect:=/simple_drone/front/image_raw \
-  -r camera_info:=/simple_drone/front/camera_info \
-  -p image_transport:=raw \
-  -p family:=36h11 \
-  -p size:=0.348 \
-  -p max_hamming:=1 \
-  -p pose_estimation_method:=pnp \
-  -p detector.threads:=2 \
-  -p detector.decimate:=1.0 \
-  -p detector.blur:=0.0 \
-  -p detector.refine:=True \
-  -p detector.sharpening:=0.25 \
-  --log-level debug
+---
 
+## 5. Run the AprilTag Node
 
-3. Verification
+Run the AprilTag detector node with the camera topics from the drone:
 
-While the apriltag_node is running in one terminal, open a second terminal (also connected to the same ROS 2 network, either the host machine or another container with --network host) to verify that the spatial transform (TF) has been successfully published.
+```bash
+ros2 run apriltag_ros apriltag_node --ros-args   -r image_rect:=/simple_drone/front/image_raw   -r camera_info:=/simple_drone/front/camera_info   -p camera_frame:=simple_drone/front_cam_optical   -p family:=36h11   -p size:=1.0   -p publish_tf:=true   --log-level debug
+```
 
-A. Check the TF Tree (Optional)
+Parameters:
+- `family`: Tag family (here `36h11`)
+- `size`: Physical size of the tag in **meters** (here `1.0`)
+- `camera_frame`: Camera frame name used for TF (`simple_drone/front_cam_optical`)
+- `publish_tf`: Whether to publish TF transforms for detected tags
 
-This command installs the necessary tool and generates a PDF of the current TF tree, verifying the tag's frame exists.
+---
 
-# This tool was installed in the Dockerfile, but can be run on the host as well
-ros2 run tf2_tools view_frames
+## 6. View AprilTag Detections
 
+Open another terminal **inside the same container** (or use `tmux`/`screen`) and run:
 
-B. Echo the Transformation
+```bash
+ros2 topic echo /detections
+```
 
-This is the most direct way to check the pose. If the tag (ID 14) is visible to the camera, this command will output the constantly updated translation (x, y, z) and rotation (quaternion) of the tag relative to the camera link.
+You should now see messages like:
 
-ros2 run tf2_ros tf2_echo simple_drone/front_cam_link tag36h11:14
+```yaml
+detections:
+- family: tag36h11
+  id: 14
+  ...
+```
 
+indicating that the node is detecting AprilTags in the camera stream.
 
-Expected Output: If the tag is detected, you will see a stream of translation and rotation data, confirming that the AprilTag node is correctly calculating the 3D pose of the tag.
+---
+
+## Notes
+
+- Make sure the drone camera is pointing at a visible AprilTag in the `hospital.world`.
+- If you change topic names or camera frames, update the arguments in the `ros2 run apriltag_ros apriltag_node` command accordingly.
+- If you rebuild the workspace after changes, don’t forget to:
+
+  ```bash
+  cd /ros2_ws
+  colcon build --symlink-install
+  source install/setup.bash
+  ```

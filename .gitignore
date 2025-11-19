@@ -8,3 +8,4 @@ log/
 *.log
 *.bag
 *.db
+*.sqlite
