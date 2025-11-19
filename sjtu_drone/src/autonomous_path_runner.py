@@ -83,18 +83,36 @@ class AStarPlanner:
         return [(x+dx, y+dy) for dx, dy in moves if self.is_free(x+dx, y+dy)]
 
     def plan(self, start, goal):
-        open_set = [(0, start)]
-        came_from, g, f = {}, {start: 0}, {start: self.heuristic(start, goal)}
+        open_set = [(0, start, None)]  # third item = prev_direction
+        came_from = {}
+        g = {start: 0}
+        f = {start: self.heuristic(start, goal)}
+
         while open_set:
-            _, cur = heapq.heappop(open_set)
-            if cur == goal:
-                return self._reconstruct(came_from, cur)
-            for n in self.neighbors(cur):
-                ng = g[cur] + 1
-                if n not in g or ng < g[n]:
-                    came_from[n], g[n] = cur, ng
-                    f[n] = ng + self.heuristic(n, goal)
-                    heapq.heappush(open_set, (f[n], n))
+            _, current, prev_dir = heapq.heappop(open_set)
+
+            if current == goal:
+                return self._reconstruct(came_from, current)
+
+            for neighbor in self.neighbors(current):
+                dx = neighbor[0] - current[0]
+                dy = neighbor[1] - current[1]
+                cur_dir = (dx, dy)
+
+                # add 1 cost if direction changes
+                turn_penalty = 0
+                if prev_dir is not None and cur_dir != prev_dir:
+                    turn_penalty = 1.0  # try tuning this
+
+                tentative_g = g[current] + 1 + turn_penalty
+
+                if neighbor not in g or tentative_g < g[neighbor]:
+                    came_from[neighbor] = current
+                    g[neighbor] = tentative_g
+                    f_score = tentative_g + self.heuristic(neighbor, goal)
+                    f[neighbor] = f_score
+                    heapq.heappush(open_set, (f_score, neighbor, cur_dir))
+
         print("No path found!")
         return []
 
@@ -190,7 +208,7 @@ class WaypointNavigator(Node):
 
 # === Main orchestrator ===
 def main():
-    map_yaml = "/root/drone_workspace/sjtu_drone/maps/hospital_map_cropped.yaml"
+    map_yaml = "/root/sjtu_project/sjtu_drone/maps/hospital_map_cropped.yaml"
     planner = AStarPlanner(map_yaml)
 
     # Get current pose and target (grid coords)

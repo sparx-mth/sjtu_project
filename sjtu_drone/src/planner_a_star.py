@@ -88,7 +88,7 @@ class AStarPlanner:
 
 
 def main():
-    map_yaml = "/root/drone_workspace/sjtu_drone/maps/hospital_map_cropped.yaml"
+    map_yaml = "/root/sjtu_project/sjtu_drone/maps/hospital_map_cropped.yaml"
     planner = AStarPlanner(map_yaml)
     start, goal = (346, 900), (355, 593)
 

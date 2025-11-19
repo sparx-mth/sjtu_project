@@ -5,7 +5,7 @@ set -eo pipefail
 # Config
 # -----------------------------
 ROS_DISTRO=humble
-IMAGE_NAME="sjtu_drone_clean:humble_ros2"
+IMAGE_NAME="sjtu_drone_nadav:humble_ros2"
 XSOCK=/tmp/.X11-unix
 XAUTH=$HOME/.Xauthority
 
