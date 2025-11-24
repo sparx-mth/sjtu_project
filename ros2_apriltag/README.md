@@ -72,7 +72,7 @@ source install/setup.bash
 Run the AprilTag detector node with the camera topics from the drone:
 
 ```bash
-ros2 run apriltag_ros apriltag_node --ros-args   -r image_rect:=/simple_drone/front/image_raw   -r camera_info:=/simple_drone/front/camera_info   -p camera_frame:=simple_drone/front_cam_optical   -p family:=36h11   -p size:=1.0   -p publish_tf:=true   --log-level debug
+ros2 run apriltag_ros apriltag_node --ros-args   -r image_rect:=/simple_drone/front/image_raw   -r camera_info:=/simple_drone/front/camera_info   -p camera_frame:=simple_drone/front_cam_optical   -p family:=36h11   -p size:=0.348   -p publish_tf:=true   --log-level debug
 ```
 
 Parameters:
