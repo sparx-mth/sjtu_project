@@ -9,6 +9,7 @@ from tf2_ros import Buffer, TransformListener
 from geometry_msgs.msg import TransformStamped, PoseStamped
 from apriltag_msgs.msg import AprilTagDetectionArray
 
+from std_msgs.msg import Int32MultiArray
 
 # ===================  UTILS  =================== #
 
@@ -115,6 +116,7 @@ class TagTriangulationNode(Node):
 
         # Publisher
         self.pose_pub = self.create_publisher(PoseStamped, "/tag_pose", 10)
+        self.ids_pub = self.create_publisher(Int32MultiArray, "/tag_pose_ids", 10)
 
         # Subscriber to detections
         self.tag_sub = self.create_subscription(
@@ -197,6 +199,9 @@ class TagTriangulationNode(Node):
         # New tag event = tag that was not seen before
         new_ids = current_ids - self.last_seen_ids
         if not new_ids:
+            ids_msg = Int32MultiArray()
+            ids_msg.data = sorted(list(current_ids))
+            self.ids_pub.publish(ids_msg)
             self.last_seen_ids = current_ids
             return
 
