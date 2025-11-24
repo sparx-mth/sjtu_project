@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>autonomous_system</name>
+  <version>0.1.0</version>
+  <description>Autonomous multi-agent navigation and control framework for a drone.</description>
+
+  <maintainer email="you@example.com">Nadav</maintainer>
+  <license>MIT</license>
+
+  <!-- Build system for mixed C++/Python packages with interfaces -->
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
+
+  <!-- For generating services -->
+  <build_depend>rosidl_default_generators</build_depend>
+  <exec_depend>rosidl_default_runtime</exec_depend>
+  <member_of_group>rosidl_interface_packages</member_of_group>
+
+  <!-- Python + ROS dependencies -->
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+
+  <!-- Map loading + CV -->
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

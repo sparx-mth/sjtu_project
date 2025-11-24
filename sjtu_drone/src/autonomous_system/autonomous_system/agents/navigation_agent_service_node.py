@@ -12,7 +12,7 @@ When finished, returns success/failure to the caller.
 from typing import List, Tuple
 
 import rclpy
-from rclpy.node import Node
+from rclpy.executors import MultiThreadedExecutor
 
 from autonomous_system.srv import NavigateToPose
 from autonomous_system.control.waypoint_controller import WaypointController
@@ -151,8 +151,18 @@ class NavigationAgentService(WaypointController):
 def main():
     rclpy.init()
     node = NavigationAgentService()
-    rclpy.spin(node)
-    rclpy.shutdown()
+
+    # Use MultiThreadedExecutor so service callback and pose callbacks
+    # can run concurrently while goto() is blocking.
+    executor = MultiThreadedExecutor()
+    executor.add_node(node)
+
+    try:
+        executor.spin()
+    finally:
+        executor.shutdown()
+        node.destroy_node()
+        rclpy.shutdown()
 
 
 if __name__ == "__main__":

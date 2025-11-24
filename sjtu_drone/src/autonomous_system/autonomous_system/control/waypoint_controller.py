@@ -13,7 +13,6 @@ Responsibilities:
 import math
 import time
 
-import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Pose, Twist
 
@@ -34,6 +33,7 @@ class WaypointController(Node):
 
         # Internal state
         self.pose = Pose()
+        self.pose_received = False
 
         # ROS interfaces
         self.pose_sub = self.create_subscription(
@@ -53,25 +53,14 @@ class WaypointController(Node):
         self.tol = 0.05        # arrival threshold (meters)
         self.z_fixed = 1.5     # default altitude (meters)
 
-        self.get_logger().info("Waiting for initial pose data...")
-
-        # Wait until pose is available (blocking inside __init__)
-        # This is OK because we instantiate this node once before spinning.
-        while (
-            rclpy.ok()
-            and self.pose.position.x == 0.0
-            and self.pose.position.y == 0.0
-        ):
-            rclpy.spin_once(self, timeout_sec=0.1)
-            time.sleep(0.1)
-
-        self.get_logger().info("Pose received. Controller ready.")
+        self.get_logger().info("WaypointController initialized, waiting for pose in goto().")
 
     # ------------------------------------------------------------------ #
 
     def pose_cb(self, msg: Pose) -> None:
         """Callback for receiving drone pose updates."""
         self.pose = msg
+        self.pose_received = True
 
     # ------------------------------------------------------------------ #
 
@@ -88,6 +77,14 @@ class WaypointController(Node):
         if tz is None:
             tz = self.z_fixed
 
+        # Ensure we have at least one pose before starting motion
+        while not self.pose_received and self.context.ok():
+            self.get_logger().info("Waiting for initial pose in goto()...")
+            time.sleep(0.1)
+
+        if not self.context.ok():
+            return
+
         self.get_logger().info(
             f"Navigating to ({tx:.2f}, {ty:.2f}, {tz:.2f})"
         )
@@ -95,8 +92,7 @@ class WaypointController(Node):
         stable_counter = 0
         rate = 0.02  # 50 Hz
 
-        while rclpy.ok():
-            rclpy.spin_once(self)
+        while self.context.ok():
             x = self.pose.position.x
             y = self.pose.position.y
             z = self.pose.position.z

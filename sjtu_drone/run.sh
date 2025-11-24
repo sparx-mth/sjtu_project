@@ -156,44 +156,6 @@ docker run \
       exit 1
     fi
 
-    # --- Optional deps (only if missing) ---
-    if ! ros2 pkg list | grep -q rmw_fastrtps_cpp; then
-      apt-get update -qq && apt-get install -y -qq ros-${ROS_DISTRO}-rmw-fastrtps-cpp
-      source /opt/ros/${ROS_DISTRO}/setup.bash
-    fi
-
-    if [[ \"${SKIP_MAP}\" != 'true' ]]; then
-      if ! ros2 pkg list | grep -q nav2_costmap_2d; then
-        echo '[INFO] Installing Nav2 bits required by 2D map plugin...'
-        apt-get update -qq && apt-get install -y -qq \
-          ros-${ROS_DISTRO}-nav2-costmap-2d \
-          ros-${ROS_DISTRO}-nav2-map-server \
-          ros-${ROS_DISTRO}-nav-msgs
-        source /opt/ros/${ROS_DISTRO}/setup.bash
-      fi
-    else
-      echo '[INFO] --no-map: skipping Nav2 installation.'
-    fi
-    # --- Python visualization deps ---
-    # --- Python visualization & analysis dependencies ---
-    echo '[INFO] Installing Python dependencies for visualization, image I/O, and math...'
-    apt-get update -qq && apt-get install -y -qq \
-        python3-pip \
-        python3-opencv \
-        python3-matplotlib \
-        python3-tk \
-        python3-yaml \
-        python3-numpy \
-        python3-scipy \
-        libgl1 \
-        libglib2.0-0 \
-        && apt-get clean
-
-    # Fix NumPy / OpenCV compatibility (force reinstall older NumPy)
-    pip3 install --no-cache-dir --force-reinstall 'numpy<2' Pillow==10.3.0
-    pip3 install --no-cache-dir --upgrade matplotlib==3.9.2 pyyaml==6.0.2
-
-
     # --- Build ---
     echo '[INFO] Building workspace...'
     cd '${CONTAINER_WS}'

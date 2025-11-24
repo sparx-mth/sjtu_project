@@ -20,6 +20,16 @@ RUN echo "deb http://packages.osrfoundation.org/gazebo/ubuntu `lsb_release -cs` 
     && apt-get clean
 RUN rosdep init && rosdep update
 
+# Nav2 + rmw + python deps required for planners & mapping
+RUN apt-get update && apt-get install -y \
+        ros-${ROS_DISTRO}-rmw-fastrtps-cpp \
+        ros-${ROS_DISTRO}-nav-msgs \
+        ros-${ROS_DISTRO}-nav2-costmap-2d \
+        ros-${ROS_DISTRO}-nav2-map-server \
+        python3-opencv python3-yaml python3-numpy python3-scipy \
+        libgl1 libglib2.0-0 \
+    && apt-get clean
+
 RUN mkdir -p /ros2_ws/src
 COPY ./sjtu_drone_description /ros2_ws/src/sjtu_drone_description
 COPY ./sjtu_drone_bringup /ros2_ws/src/sjtu_drone_bringup
