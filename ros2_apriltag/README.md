@@ -102,6 +102,38 @@ detections:
 
 indicating that the node is detecting AprilTags in the camera stream.
 
+## 7. Run the Tag Triangulation Node
+
+This node listens to /detections and TF, and publishes the estimated camera/drone pose in the world frame to /tag_pose.
+It only publishes when a new AprilTag appears (to avoid spam).
+Run it from inside the container:
+```bash
+cd /ros2_ws/src/apriltag_ros
+python3 tag_triangulation_node_new.py
+```
+Output:
+
+- Publishes: /tag_pose (geometry_msgs/PoseStamped)
+
+- Publishes: /tag_pose_ids (std_msgs/Int32MultiArray) — the tag IDs used for the pose estimation
+
+-  Logs in terminal whenever a new tag event triggers a publish
+
+8. Run the Pose Logger Node
+This node subscribes to /tag_pose and /tag_pose_ids and writes every pose measurement to a CSV file, including: timestamp, position (x, y, z), orientation (qx, qy, qz, qw)
+
+which AprilTag IDs participated in the estimate
+
+Run it in another terminal inside the same container:
+```bash
+cd /ros2_ws/src/apriltag_ros
+python3 tag_pose_logger.py
+```
+Output:
+CSV log file saved by default to:
+```bash
+/ros2_ws/tag_pose_log.csv
+```
 ---
 
 ## Notes
