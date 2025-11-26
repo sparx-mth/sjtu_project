@@ -12,6 +12,9 @@ WORLD_FILE="hospital.world"
 LOCAL_ROS2_APRILTAG_DIR="$HOME/sjtu_project/ros2_apriltag"
 CONTAINER_APRILTAG_DIR="/ros2_ws/src/apriltag_ros"
 TRIANGULATION_FILE_NAME="tag_triangulation_node_new.py"
+LOGGER_FILE_NAME="tag_pose_logger.py"
+IMU_FILE_NAME="tag_and_imu_logger.py"
+
 
 ########################################
 # FUNCTIONS
@@ -30,7 +33,6 @@ run_apriltag_node() {
     set -e
 
     echo 'Sourcing ROS distro...'
-    # אם אתה על foxy/galactic – תחליף humble לשם המתאים
     source /opt/ros/humble/setup.bash
 
     cd /ros2_ws/src
@@ -106,6 +108,75 @@ run_triangulation_node() {
   "
 }
 
+
+run_pose_logger() {
+  echo ">>> Running tag_pose_logger.py inside container: $CONTAINER_NAME"
+
+  if [ ! -d "$LOCAL_ROS2_APRILTAG_DIR" ]; then
+    echo "ERROR: Local directory not found: $LOCAL_ROS2_APRILTAG_DIR"
+    return 1
+  fi
+
+  echo ">>> Syncing local ros2_apriltag directory into container..."
+  docker cp "$LOCAL_ROS2_APRILTAG_DIR/." "$CONTAINER_NAME:$CONTAINER_APRILTAG_DIR/"
+
+  docker exec -it "$CONTAINER_NAME" bash -lc "
+    set -e
+    echo 'Sourcing ROS...'
+    source /opt/ros/\$ROS_DISTRO/setup.bash
+
+    cd /ros2_ws
+    if [ -f install/setup.bash ]; then
+      source install/setup.bash
+    fi
+
+    cd $CONTAINER_APRILTAG_DIR
+
+    if [ ! -f $LOGGER_FILE_NAME ]; then
+      echo 'ERROR: file $LOGGER_FILE_NAME not found in $CONTAINER_APRILTAG_DIR'
+      ls -la
+      exit 1
+    fi
+
+    echo 'Running $LOGGER_FILE_NAME...'
+    python3 $LOGGER_FILE_NAME
+  "
+}
+
+run_imu_logger(){
+  echo ">>> Running tag_pose_logger.py inside container: $CONTAINER_NAME"
+
+  if [ ! -d "$LOCAL_ROS2_APRILTAG_DIR" ]; then
+    echo "ERROR: Local directory not found: $LOCAL_ROS2_APRILTAG_DIR"
+    return 1
+  fi
+
+  echo ">>> Syncing local ros2_apriltag directory into container..."
+  docker cp "$LOCAL_ROS2_APRILTAG_DIR/." "$CONTAINER_NAME:$CONTAINER_APRILTAG_DIR/"
+
+  docker exec -it "$CONTAINER_NAME" bash -lc "
+    set -e
+    echo 'Sourcing ROS...'
+    source /opt/ros/\$ROS_DISTRO/setup.bash
+
+    cd /ros2_ws
+    if [ -f install/setup.bash ]; then
+      source install/setup.bash
+    fi
+
+    cd $CONTAINER_APRILTAG_DIR
+
+    if [ ! -f $IMU_FILE_NAME ]; then
+      echo 'ERROR: file $IMU_FILE_NAME not found in $CONTAINER_APRILTAG_DIR'
+      ls -la
+      exit 1
+    fi
+
+    echo 'Running $IMU_FILE_NAME...'
+    python3 $IMU_FILE_NAME
+  "
+}
+
 ########################################
 # MENU
 ########################################
@@ -118,7 +189,8 @@ show_menu() {
   echo "1) Start world (run.sh --no-map hospital.world)"
   echo "2) Setup & run AprilTag node (step 2)"
   echo "3) Run triangulation node (step 3)"
-  echo "4) Open shell in container (step 4)"
+  echo "4) Run tag_pose_logger.py (step 4)"
+  echo "5) Run tag_imu_logger.py (step 5)"
   echo "q) Quit"
   echo "=============================="
   echo ""
@@ -139,7 +211,7 @@ main() {
       exit $?
       ;;
     shell)
-      open_container_shell
+      run_pose_logger
       exit $?
       ;;
   esac
@@ -158,7 +230,9 @@ main() {
         run_triangulation_node
         ;;
       4)
-        open_container_shell
+        run_pose_logger
+        ;;
+      5) run_imu_logger
         ;;
       q|Q)
         echo "Bye :)"

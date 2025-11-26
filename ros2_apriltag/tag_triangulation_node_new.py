@@ -199,9 +199,6 @@ class TagTriangulationNode(Node):
         # New tag event = tag that was not seen before
         new_ids = current_ids - self.last_seen_ids
         if not new_ids:
-            ids_msg = Int32MultiArray()
-            ids_msg.data = sorted(list(current_ids))
-            self.ids_pub.publish(ids_msg)
             self.last_seen_ids = current_ids
             return
 
@@ -276,6 +273,10 @@ class TagTriangulationNode(Node):
         pose_msg.pose.orientation.w = float(qw)
 
         self.pose_pub.publish(pose_msg)
+        ids_msg = Int32MultiArray()
+        ids_msg.data = sorted(list(current_ids))
+        self.ids_pub.publish(ids_msg)
+
 
         self.get_logger().info(
             f"[PUBLISH] pose=({x:.2f}, {y:.2f}, {z:.2f}), ids={current_ids}"
