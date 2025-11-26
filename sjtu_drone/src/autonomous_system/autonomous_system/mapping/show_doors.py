@@ -36,7 +36,7 @@ def show_doors_on_map(pgm_path: str, doors):
 # ---------------------- RUN EXAMPLE ----------------------
 
 if __name__ == "__main__":
-    pgm_path = "/home/user/PycharmProjects/sjtu_project/sjtu_drone/maps/hospital_map_cropped.pgm"
+    pgm_path = "/root/sjtu_project/sjtu_drone/maps/hospital_map_cropped.pgm"
 
     # ---------------- INSERT YOUR DOOR LIST HERE ----------------
     doors = [
