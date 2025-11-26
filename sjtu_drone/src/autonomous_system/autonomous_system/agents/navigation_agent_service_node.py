@@ -4,14 +4,11 @@ Navigation Agent (Service-based)
 --------------------------------
 Receives a navigation request (target pose in world coordinates),
 plans a path using A* with turn penalty, simplifies it,
-then executes the path using the WaypointController.
+then executes the path using the advanced PID WaypointController.
 
 Coordinate Convention:
     - World coordinates: (wx, wy) in meters
     - Grid coordinates: (gx, gy) with origin at bottom-left
-
-IMPORTANT: Uses MultiThreadedExecutor with proper callback groups
-to allow pose updates while navigation is in progress.
 """
 
 import time
@@ -19,7 +16,7 @@ from typing import List, Tuple
 
 import rclpy
 from rclpy.executors import MultiThreadedExecutor
-from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 
 from autonomous_system.srv import NavigateToPose
 from autonomous_system.control.waypoint_controller import WaypointController
@@ -42,13 +39,8 @@ class NavigationAgentService(WaypointController):
         2. Reads current pose (from WaypointController)
         3. Runs A* with turn penalty
         4. Applies RDP + turn-based simplification
-        5. Executes waypoints using goto()
+        5. Executes waypoints using PID-controlled goto()
         6. Returns success/failure to caller
-
-    Threading Model:
-        - Pose subscription: ReentrantCallbackGroup (inherited from WaypointController)
-        - Service: MutuallyExclusiveCallbackGroup (can block without affecting pose)
-        - MultiThreadedExecutor ensures both can run concurrently
     """
 
     def __init__(self):
@@ -72,7 +64,7 @@ class NavigationAgentService(WaypointController):
 
         self.planner = AStarPlanner(map_yaml_path=map_yaml, turn_penalty=turn_penalty)
 
-        # Service uses its own callback group so it doesn't block pose updates
+        # Service uses its own callback group
         self.service_cb_group = MutuallyExclusiveCallbackGroup()
         self.srv = self.create_service(
             NavigateToPose,
@@ -82,7 +74,7 @@ class NavigationAgentService(WaypointController):
         )
 
         self.busy = False
-        self.get_logger().info("NavigationAgentService ready.")
+        self.get_logger().info("NavigationAgentService ready (PID controller).")
 
     def handle_navigation_request(
             self,
@@ -96,9 +88,7 @@ class NavigationAgentService(WaypointController):
             return response
 
         self.busy = True
-
-        # Wait briefly to ensure we have fresh pose data
-        time.sleep(0.1)
+        time.sleep(0.1)  # Brief wait for fresh pose
 
         # Current pose (world coordinates)
         current = self.pose
@@ -111,48 +101,49 @@ class NavigationAgentService(WaypointController):
         goal_wz = float(request.z)
 
         self.get_logger().info(
-            f"New navigation task: "
-            f"from=({start_wx:.2f}, {start_wy:.2f}) "
-            f"to=({goal_wx:.2f}, {goal_wy:.2f}, {goal_wz:.2f})"
+            f"Navigation: ({start_wx:.2f}, {start_wy:.2f}) → "
+            f"({goal_wx:.2f}, {goal_wy:.2f}, {goal_wz:.2f})"
         )
 
         # Convert world -> grid
         start_grid: GridPoint = self.planner.world_to_map(start_wx, start_wy)
         goal_grid: GridPoint = self.planner.world_to_map(goal_wx, goal_wy)
 
-        self.get_logger().info(f"Planning: start={start_grid}, goal={goal_grid}")
-
-        # A* planning (grid coordinates)
+        # A* planning
         path: List[GridPoint] = self.planner.plan(start_grid, goal_grid)
         if not path:
             response.success = False
             response.message = "No path found."
             self.busy = False
-            self.get_logger().error("No path found for navigation request.")
+            self.get_logger().error("No path found.")
             return response
 
-        # Simplify path (grid coordinates)
+        # Simplify path
         simplified = rdp_simplify(path, eps=self.rdp_eps)
         waypoints_grid = extract_turn_points(simplified, min_dist=self.min_turn_dist)
 
         self.get_logger().info(
-            f"Path: raw={len(path)}, simplified={len(simplified)}, "
-            f"waypoints={len(waypoints_grid)}"
+            f"Path: {len(path)} cells → {len(waypoints_grid)} waypoints"
         )
 
-        # Convert to world coordinates and execute
+        # Execute waypoints
         for i, (gx, gy) in enumerate(waypoints_grid):
             wx, wy = self.planner.map_to_world(gx, gy)
             self.get_logger().info(
-                f"→ Waypoint {i + 1}/{len(waypoints_grid)}: "
-                f"({wx:.2f}, {wy:.2f}, {self.cruise_altitude:.2f})"
+                f"→ Waypoint {i + 1}/{len(waypoints_grid)}: ({wx:.2f}, {wy:.2f})"
             )
-            self.goto(wx, wy, tz=self.cruise_altitude)
 
-            # Settling time between waypoints (from old working code)
-            time.sleep(1.0)
+            success = self.goto(wx, wy, tz=self.cruise_altitude)
+            if not success:
+                response.success = False
+                response.message = f"Failed to reach waypoint {i + 1}"
+                self.busy = False
+                return response
 
-        self.get_logger().info("Navigation task completed ✓")
+            # Brief settling time between waypoints
+            time.sleep(0.5)
+
+        self.get_logger().info("Navigation completed ✓")
         response.success = True
         response.message = "Reached target."
         self.busy = False
@@ -163,16 +154,13 @@ def main():
     rclpy.init()
     node = NavigationAgentService()
 
-    # MultiThreadedExecutor with explicit thread count
-    # This ensures pose callbacks can run while service is blocking in goto()
     executor = MultiThreadedExecutor(num_threads=4)
     executor.add_node(node)
 
     try:
-        node.get_logger().info("Starting executor with 4 threads...")
         executor.spin()
     except KeyboardInterrupt:
-        node.get_logger().info("Shutting down...")
+        pass
     finally:
         executor.shutdown()
         node.destroy_node()
