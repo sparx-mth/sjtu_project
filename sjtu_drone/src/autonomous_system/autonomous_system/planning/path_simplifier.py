@@ -3,8 +3,10 @@
 Path Simplification Utilities
 -----------------------------
 Provides:
- - Ramer–Douglas–Peucker (RDP) simplification for noisy grid paths
+ - Ramer-Douglas-Peucker (RDP) simplification for noisy grid paths
  - Turn-based waypoint extraction with minimum spacing
+
+All functions operate on grid coordinates (gx, gy) where origin is at bottom-left.
 """
 
 import math

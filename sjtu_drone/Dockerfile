@@ -7,6 +7,9 @@ RUN apt-get update \
     lsb-release \
     mesa-utils \
     build-essential \
+    python3-pip \
+    python3-pyqt5 \
+    python3-tk \
     && apt-get clean
 
 # Get gazebo binaries
@@ -29,6 +32,13 @@ RUN apt-get update && apt-get install -y \
         python3-opencv python3-yaml python3-numpy python3-scipy \
         libgl1 libglib2.0-0 \
     && apt-get clean
+
+# ---------------------------------------------------------
+# Python packages for mapping, plotting & visualization
+# ---------------------------------------------------------
+RUN pip3 install --upgrade pip \
+    && pip3 install numpy==1.24.4 \
+    && pip3 install matplotlib imageio pillow
 
 RUN mkdir -p /ros2_ws/src
 COPY ./sjtu_drone_description /ros2_ws/src/sjtu_drone_description

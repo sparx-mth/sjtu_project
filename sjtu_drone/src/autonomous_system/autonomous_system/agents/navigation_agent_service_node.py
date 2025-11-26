@@ -6,22 +6,25 @@ Receives a navigation request (target pose in world coordinates),
 plans a path using A* with turn penalty, simplifies it,
 then executes the path using the WaypointController.
 
-When finished, returns success/failure to the caller.
+Coordinate Convention:
+    - World coordinates: (wx, wy) in meters
+    - Grid coordinates: (gx, gy) with origin at bottom-left
+
+IMPORTANT: Uses MultiThreadedExecutor with proper callback groups
+to allow pose updates while navigation is in progress.
 """
 
+import time
 from typing import List, Tuple
 
 import rclpy
 from rclpy.executors import MultiThreadedExecutor
+from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
 
 from autonomous_system.srv import NavigateToPose
 from autonomous_system.control.waypoint_controller import WaypointController
 from autonomous_system.planning.astar_planner import AStarPlanner
-from autonomous_system.planning.path_simplifier import (
-    rdp_simplify,
-    extract_turn_points,
-)
-
+from autonomous_system.planning.path_simplifier import rdp_simplify, extract_turn_points
 
 GridPoint = Tuple[int, int]
 WorldPoint = Tuple[float, float]
@@ -41,6 +44,11 @@ class NavigationAgentService(WaypointController):
         4. Applies RDP + turn-based simplification
         5. Executes waypoints using goto()
         6. Returns success/failure to caller
+
+    Threading Model:
+        - Pose subscription: ReentrantCallbackGroup (inherited from WaypointController)
+        - Service: MutuallyExclusiveCallbackGroup (can block without affecting pose)
+        - MultiThreadedExecutor ensures both can run concurrently
     """
 
     def __init__(self):
@@ -64,21 +72,22 @@ class NavigationAgentService(WaypointController):
 
         self.planner = AStarPlanner(map_yaml_path=map_yaml, turn_penalty=turn_penalty)
 
+        # Service uses its own callback group so it doesn't block pose updates
+        self.service_cb_group = MutuallyExclusiveCallbackGroup()
         self.srv = self.create_service(
             NavigateToPose,
             "/navigate_to_pose",
             self.handle_navigation_request,
+            callback_group=self.service_cb_group,
         )
 
         self.busy = False
         self.get_logger().info("NavigationAgentService ready.")
 
-    # ------------------------------------------------------------------ #
-
     def handle_navigation_request(
-        self,
-        request: NavigateToPose.Request,
-        response: NavigateToPose.Response,
+            self,
+            request: NavigateToPose.Request,
+            response: NavigateToPose.Response,
     ) -> NavigateToPose.Response:
         """Main navigation logic."""
         if self.busy:
@@ -88,27 +97,33 @@ class NavigationAgentService(WaypointController):
 
         self.busy = True
 
-        # Current pose (world)
-        sx = float(self.pose.position.x)
-        sy = float(self.pose.position.y)
+        # Wait briefly to ensure we have fresh pose data
+        time.sleep(0.1)
 
-        # Goal pose (world)
-        gx = float(request.x)
-        gy = float(request.y)
-        gz = float(request.z)
+        # Current pose (world coordinates)
+        current = self.pose
+        start_wx = float(current.position.x)
+        start_wy = float(current.position.y)
+
+        # Goal pose (world coordinates)
+        goal_wx = float(request.x)
+        goal_wy = float(request.y)
+        goal_wz = float(request.z)
 
         self.get_logger().info(
-            f"New navigation task: target=({gx:.2f}, {gy:.2f}, {gz:.2f})"
+            f"New navigation task: "
+            f"from=({start_wx:.2f}, {start_wy:.2f}) "
+            f"to=({goal_wx:.2f}, {goal_wy:.2f}, {goal_wz:.2f})"
         )
 
         # Convert world -> grid
-        start: GridPoint = self.planner.world_to_map(sx, sy)
-        goal: GridPoint = self.planner.world_to_map(gx, gy)
+        start_grid: GridPoint = self.planner.world_to_map(start_wx, start_wy)
+        goal_grid: GridPoint = self.planner.world_to_map(goal_wx, goal_wy)
 
-        self.get_logger().info(f"Planning in grid: start={start}, goal={goal}")
+        self.get_logger().info(f"Planning: start={start_grid}, goal={goal_grid}")
 
-        # A* planning
-        path: List[GridPoint] = self.planner.plan(start, goal)
+        # A* planning (grid coordinates)
+        path: List[GridPoint] = self.planner.plan(start_grid, goal_grid)
         if not path:
             response.success = False
             response.message = "No path found."
@@ -116,30 +131,26 @@ class NavigationAgentService(WaypointController):
             self.get_logger().error("No path found for navigation request.")
             return response
 
-        # Simplify path
+        # Simplify path (grid coordinates)
         simplified = rdp_simplify(path, eps=self.rdp_eps)
-        waypoints_grid = extract_turn_points(
-            simplified,
-            min_dist=self.min_turn_dist,
-        )
+        waypoints_grid = extract_turn_points(simplified, min_dist=self.min_turn_dist)
 
         self.get_logger().info(
             f"Path: raw={len(path)}, simplified={len(simplified)}, "
             f"waypoints={len(waypoints_grid)}"
         )
 
-        # Convert to world waypoints
-        waypoints_world: List[WorldPoint] = [
-            self.planner.map_to_world(gx, gy) for gx, gy in waypoints_grid
-        ]
-
-        # Execute waypoints
-        for i, (wx, wy) in enumerate(waypoints_world):
+        # Convert to world coordinates and execute
+        for i, (gx, gy) in enumerate(waypoints_grid):
+            wx, wy = self.planner.map_to_world(gx, gy)
             self.get_logger().info(
-                f"→ Executing waypoint {i+1}/{len(waypoints_world)}: "
+                f"→ Waypoint {i + 1}/{len(waypoints_grid)}: "
                 f"({wx:.2f}, {wy:.2f}, {self.cruise_altitude:.2f})"
             )
             self.goto(wx, wy, tz=self.cruise_altitude)
+
+            # Settling time between waypoints (from old working code)
+            time.sleep(1.0)
 
         self.get_logger().info("Navigation task completed ✓")
         response.success = True
@@ -152,13 +163,16 @@ def main():
     rclpy.init()
     node = NavigationAgentService()
 
-    # Use MultiThreadedExecutor so service callback and pose callbacks
-    # can run concurrently while goto() is blocking.
-    executor = MultiThreadedExecutor()
+    # MultiThreadedExecutor with explicit thread count
+    # This ensures pose callbacks can run while service is blocking in goto()
+    executor = MultiThreadedExecutor(num_threads=4)
     executor.add_node(node)
 
     try:
+        node.get_logger().info("Starting executor with 4 threads...")
         executor.spin()
+    except KeyboardInterrupt:
+        node.get_logger().info("Shutting down...")
     finally:
         executor.shutdown()
         node.destroy_node()

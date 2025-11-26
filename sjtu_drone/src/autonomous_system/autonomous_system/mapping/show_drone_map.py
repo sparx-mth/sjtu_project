@@ -64,6 +64,13 @@ class MapPositionViewer(Node):
         self.im = self.ax.imshow(self.map_data, cmap='gray', origin='lower')
         self.point, = self.ax.plot([], [], 'ro', markersize=5)
 
+        # Text for coordinates display
+        self.coord_text = self.ax.text(
+            0.02, 0.02, '', transform=self.ax.transAxes,
+            fontsize=9, verticalalignment='bottom',
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8)
+        )
+
         # connect keyboard + mouse handlers
         self.fig.canvas.mpl_connect('key_press_event', self.on_key)
         self.fig.canvas.mpl_connect('button_press_event', self.on_click)
@@ -73,6 +80,11 @@ class MapPositionViewer(Node):
         self.ax.set_title("Drone position on occupancy map")
         plt.show(block=False)
 
+        # === Timer for non-blocking updates ===
+        self.create_timer(0.1, self.update_display)
+
+        self.get_logger().info("Waiting for /simple_drone/gt_pose messages...")
+
     # === ROS pose callback ===
     def pose_callback(self, msg):
         self.drone_pose = (msg.position.x, msg.position.y)
@@ -80,7 +92,11 @@ class MapPositionViewer(Node):
     # === Conversions ===
     def world_to_map(self, x_world, y_world):
         ox, oy, _ = self.origin
-        return int((x_world - ox) / self.resolution), int((y_world - oy) / self.resolution)
+        return int(round((x_world - ox) / self.resolution)), int(round((y_world - oy) / self.resolution))
+
+    def map_to_world(self, x_map, y_map):
+        ox, oy, _ = self.origin
+        return x_map * self.resolution + ox, y_map * self.resolution + oy
 
     # === Update target rectangle ===
     def draw_target_rectangle(self):
@@ -97,19 +113,30 @@ class MapPositionViewer(Node):
         self.ax.add_patch(self.target_rect)
 
         self.get_logger().info(f"Target updated → map=({x_t}, {y_t})")
-        plt.draw()
+        self.fig.canvas.draw_idle()
 
     # === Update drone marker ===
     def update_display(self):
         if self.drone_pose is None:
+            self.fig.canvas.flush_events()
             return
 
         x_map, y_map = self.world_to_map(*self.drone_pose)
+        x_world, y_world = self.drone_pose
+
+        tx_map, ty_map = self.target_map
+        tx_world, ty_world = self.map_to_world(tx_map, ty_map)
+
         self.point.set_data([x_map], [y_map])
-        self.ax.set_title(
-            f"Drone Position: map=({x_map}, {y_map})  Target=({self.target_map[0]},{self.target_map[1]})"
+        self.ax.set_title(f"Drone: grid=({x_map}, {y_map})  Target: grid=({tx_map}, {ty_map})")
+
+        self.coord_text.set_text(
+            f"Drone:  world=({x_world:.2f}, {y_world:.2f})\n"
+            f"Target: world=({tx_world:.2f}, {ty_world:.2f})"
         )
-        plt.pause(0.05)
+
+        self.fig.canvas.draw_idle()
+        self.fig.canvas.flush_events()
 
     # === Keyboard event ('t' to change target) ===
     def on_key(self, event):
@@ -136,28 +163,20 @@ class MapPositionViewer(Node):
         if event.inaxes != self.ax:
             return
 
-        x = int(event.xdata)
-        y = int(event.ydata)
+        x = int(round(event.xdata))
+        y = int(round(event.ydata))
 
         self.target_map = (x, y)
         self.draw_target_rectangle()
 
         print(f"[CLICK] New target = ({x}, {y})")
 
-    # === Loop ===
-    def spin(self):
-        self.get_logger().info("Waiting for /simple_drone/gt_pose messages...")
-
-        while rclpy.ok():
-            rclpy.spin_once(self, timeout_sec=0.1)
-            self.update_display()
-
 
 def main():
     rclpy.init()
     node = MapPositionViewer()
     try:
-        node.spin()
+        rclpy.spin(node)
     except KeyboardInterrupt:
         pass
     node.destroy_node()
