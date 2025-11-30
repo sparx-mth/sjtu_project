@@ -166,7 +166,7 @@ docker run \
       rm -rf build/gazebo_ros_2d_map install/gazebo_ros_2d_map 2>/dev/null || true
     fi
 
-    colcon build --packages-select sjtu_drone_bringup sjtu_drone_description sjtu_drone_control \
+    colcon build --packages-select sjtu_drone_bringup sjtu_drone_description sjtu_drone_control autonomous_system \
       --cmake-args -DBUILD_TESTING=OFF -DRMW_IMPLEMENTATION=rmw_fastrtps_cpp
 
     if [[ \"${SKIP_MAP}\" != 'true' && -d '${CONTAINER_WS}/src/gazebo_ros_2d_map' ]]; then
