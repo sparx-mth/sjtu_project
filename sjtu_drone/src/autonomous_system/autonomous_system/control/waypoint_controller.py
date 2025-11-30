@@ -375,7 +375,7 @@ class WaypointController(Node):
                 )
 
             # Timeout check (60 seconds max per waypoint)
-            if time.time() - start_time > 60.0:
+            if time.time() - start_time > 120.0:
                 self.get_logger().warn("[PID] Timeout reaching waypoint!")
                 self.stop()
                 return False

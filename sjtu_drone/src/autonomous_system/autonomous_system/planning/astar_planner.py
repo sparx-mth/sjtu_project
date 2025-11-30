@@ -47,7 +47,7 @@ class AStarPlanner:
             map_yaml_path: str,
             turn_penalty: float = 1.0,
             wall_cost_weight: float = 0.7,
-            safety_margin: int = 20,
+            safety_margin: int = 10,
             preferred_clearance: int = 25,
     ):
         """

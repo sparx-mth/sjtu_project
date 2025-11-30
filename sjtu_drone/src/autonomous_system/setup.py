@@ -23,7 +23,9 @@ setup(
     entry_points={
         'console_scripts': [
             'navigation_agent_service = autonomous_system.agents.navigation_agent_service_node:main',
+            'doorway_traversal_agent = autonomous_system.agents.doorway_traversal_agent:main',
             'meta_agent = autonomous_system.agents.meta_agent_node:main',
+            'show_drone_map = autonomous_system.mapping.show_drone_map:main',
         ],
     },
 )

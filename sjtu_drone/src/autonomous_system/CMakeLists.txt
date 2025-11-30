@@ -45,6 +45,18 @@ install(PROGRAMS
   RENAME meta_agent
 )
 
+install(PROGRAMS
+  autonomous_system/agents/doorway_traversal_agent.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME doorway_traversal_agent
+)
+
+install(PROGRAMS
+  autonomous_system/mapping/show_drone_map.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME show_drone_map
+)
+
 # Export dependencies
 ament_export_dependencies(rosidl_default_runtime)
 
