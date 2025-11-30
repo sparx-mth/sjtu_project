@@ -26,6 +26,7 @@ setup(
             'doorway_traversal_agent = autonomous_system.agents.doorway_traversal_agent:main',
             'meta_agent = autonomous_system.agents.meta_agent_node:main',
             'show_drone_map = autonomous_system.mapping.show_drone_map:main',
+            'show_drone_map_exploration = autonomous_system.mapping.show_drone_map_with_exploration:main',
         ],
     },
 )

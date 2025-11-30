@@ -57,6 +57,12 @@ install(PROGRAMS
   RENAME show_drone_map
 )
 
+install(PROGRAMS
+  autonomous_system/mapping/show_drone_map_with_exploration.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME show_drone_map_exploration
+)
+
 # Export dependencies
 ament_export_dependencies(rosidl_default_runtime)
 

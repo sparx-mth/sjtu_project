@@ -39,11 +39,16 @@ def generate_launch_description():
             output='screen'
         ),
 
-        # Map visualization tool
+        # Map visualization with exploration (fog of war)
+        # Use 'show_drone_map' for original, 'show_drone_map_exploration' for fog of war
         Node(
             package='autonomous_system',
-            executable='show_drone_map',
-            name='show_drone_map',
-            output='screen'
+            executable='show_drone_map_exploration',
+            name='show_drone_map_exploration',
+            output='screen',
+            parameters=[{
+                'exploration_radius': 300,  # pixels
+                # 'exploration_radius_meters': 3.0,  # alternative: specify in meters
+            }]
         ),
     ])

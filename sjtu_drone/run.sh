@@ -104,6 +104,7 @@ docker run \
   -v "${WORKSPACE_DIR}:${CONTAINER_WS}:rw" \
   -v "${WORKSPACE_DIR}/sjtu_drone/models/april_tag_36h11_0:/root/.gazebo/models/april_tag_36h11_0:ro" \
   -e DISPLAY="${DISPLAY}" \
+  -e ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-20}" \
   -e XAUTHORITY="${XAUTH}" \
   -e QT_X11_NO_MITSHM=1 \
   -e SKIP_MAP="${SKIP_MAP}" \
