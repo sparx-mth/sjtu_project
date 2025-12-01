@@ -4,7 +4,9 @@ Launch file for the autonomous drone system.
 Starts:
     - NavigationAgentService
     - DoorwayTraversalAgent
-    - Optionally: MetaAgent (can be enabled/disabled)
+    - FrontierExplorationService
+    - MetaAgent
+    - Map visualization
 """
 
 from launch import LaunchDescription
@@ -30,8 +32,19 @@ def generate_launch_description():
             output='screen'
         ),
 
-        # Optional: Run the Meta-Agent
-        # (uncomment to enable user-driven missions)
+        # Frontier exploration agent (explores map using frontiers)
+        Node(
+            package='autonomous_system',
+            executable='frontier_exploration_service',
+            name='frontier_exploration_service',
+            output='screen',
+            parameters=[{
+                'exploration_radius': 3.0,  # meters
+                'exploration_timeout': 60.0,  # seconds
+            }]
+        ),
+
+        # Meta-Agent (user-driven mission control)
         Node(
             package='autonomous_system',
             executable='meta_agent',
@@ -40,7 +53,6 @@ def generate_launch_description():
         ),
 
         # Map visualization with exploration (fog of war)
-        # Use 'show_drone_map' for original, 'show_drone_map_exploration' for fog of war
         Node(
             package='autonomous_system',
             executable='show_drone_map_exploration',
@@ -48,7 +60,6 @@ def generate_launch_description():
             output='screen',
             parameters=[{
                 'exploration_radius': 300,  # pixels
-                # 'exploration_radius_meters': 3.0,  # alternative: specify in meters
             }]
         ),
     ])

@@ -7,19 +7,7 @@ A high-level agent that interacts with multiple navigation services.
 Available agents:
     1. NavigationAgentService - Navigate to specific coordinates
     2. DoorwayTraversalAgent - Find and traverse the nearest door
-
-For now:
-    - Asks user which agent to activate
-    - Collects required inputs
-    - Sends request to the appropriate service
-    - Waits for the result
-    - Prints success/failure
-
-Later this Meta-Agent can be upgraded into:
-    - Behavior tree
-    - Mission planner
-    - RL/MCTS agent
-    - Multi-agent coordinator
+    3. FrontierExplorationService - Autonomous frontier exploration
 """
 
 import rclpy
@@ -34,18 +22,7 @@ class MetaAgent(Node):
     Available Services:
         - /navigate_to_pose : Navigate to specific world coordinates
         - /traverse_doorway : Find and traverse the nearest door
-
-    Responsibilities:
-        - Present menu of available agents
-        - Collect required inputs from user
-        - Call appropriate service
-        - Wait for result
-        - Print outcome
-
-    Future responsibilities will include:
-        - Decision making
-        - Task sequencing
-        - Room scanning, door navigation, exploration, etc.
+        - /explore_frontiers : Autonomous frontier-based exploration
     """
 
     def __init__(self):
@@ -57,6 +34,9 @@ class MetaAgent(Node):
         # Client to the doorway traversal service
         self.door_client = self.create_client(NavigateToPose, "/traverse_doorway")
 
+        # Client to the frontier exploration service
+        self.explore_client = self.create_client(NavigateToPose, "/explore_frontiers")
+
         self.get_logger().info("Waiting for services...")
 
         # Wait for navigation service
@@ -64,12 +44,20 @@ class MetaAgent(Node):
         while not self.nav_client.wait_for_service(timeout_sec=1.0):
             self.get_logger().info("    Service not available yet, waiting...")
 
-        # Wait for doorway traversal service
-        self.get_logger().info("  Waiting for /traverse_doorway...")
-        while not self.door_client.wait_for_service(timeout_sec=1.0):
-            self.get_logger().info("    Service not available yet, waiting...")
+        # Check for optional services (don't block on them)
+        self.door_available = self.door_client.wait_for_service(timeout_sec=2.0)
+        if self.door_available:
+            self.get_logger().info("  /traverse_doorway available")
+        else:
+            self.get_logger().info("  /traverse_doorway not available (optional)")
 
-        self.get_logger().info("Meta-Agent ready. All services available.")
+        self.explore_available = self.explore_client.wait_for_service(timeout_sec=2.0)
+        if self.explore_available:
+            self.get_logger().info("  /explore_frontiers available")
+        else:
+            self.get_logger().info("  /explore_frontiers not available (optional)")
+
+        self.get_logger().info("Meta-Agent ready.")
 
         # Start interactive loop
         self.main_loop()
@@ -82,8 +70,15 @@ class MetaAgent(Node):
         print("           AUTONOMOUS DRONE CONTROL")
         print("=" * 50)
         print("  1. Navigate to coordinates (x, y, z)")
-        print("  2. Traverse nearest doorway")
-        print("  3. Exit")
+        if self.door_available:
+            print("  2. Traverse nearest doorway")
+        else:
+            print("  2. [Unavailable] Traverse nearest doorway")
+        if self.explore_available:
+            print("  3. Frontier exploration (autonomous)")
+        else:
+            print("  3. [Unavailable] Frontier exploration")
+        print("  4. Exit")
         print("=" * 50)
 
     def main_loop(self):
@@ -92,19 +87,27 @@ class MetaAgent(Node):
             self.print_menu()
 
             try:
-                choice = input("Select agent (1-3): ").strip()
+                choice = input("Select agent (1-4): ").strip()
             except EOFError:
                 break
 
             if choice == "1":
                 self.handle_navigation()
             elif choice == "2":
-                self.handle_doorway_traversal()
+                if self.door_available:
+                    self.handle_doorway_traversal()
+                else:
+                    print("Doorway traversal service not available.")
             elif choice == "3":
+                if self.explore_available:
+                    self.handle_frontier_exploration()
+                else:
+                    print("Frontier exploration service not available.")
+            elif choice == "4":
                 print("Exiting Meta-Agent...")
                 break
             else:
-                print("Invalid choice. Please enter 1, 2, or 3.")
+                print("Invalid choice. Please enter 1-4.")
 
     # ---------------------------------------------------------------------
 
@@ -135,7 +138,6 @@ class MetaAgent(Node):
             print("Cancelled.")
             return
 
-        # Get current altitude preference
         try:
             z = float(input("Enter cruise altitude (meters) [default=1.5]: ") or "1.5")
         except ValueError:
@@ -143,6 +145,28 @@ class MetaAgent(Node):
 
         print(f"\nSending doorway traversal request (altitude={z:.2f}m) ...")
         success, message = self.call_doorway_service(z)
+
+        self.print_result(success, message)
+
+    def handle_frontier_exploration(self):
+        """Handle frontier exploration request."""
+        print("\n--- Frontier Exploration ---")
+        print("The drone will autonomously explore unknown areas.")
+        print("It will navigate to frontiers (boundaries between known and unknown).")
+
+        confirm = input("Proceed? (y/n) [default=y]: ").strip().lower() or "y"
+        if confirm != "y":
+            print("Cancelled.")
+            return
+
+        try:
+            z = float(input("Enter cruise altitude (meters) [default=1.5]: ") or "1.5")
+        except ValueError:
+            z = 1.5
+
+        print(f"\nStarting frontier exploration (altitude={z:.2f}m) ...")
+        print("This may take a while. Press Ctrl+C to interrupt.")
+        success, message = self.call_exploration_service(z)
 
         self.print_result(success, message)
 
@@ -162,7 +186,6 @@ class MetaAgent(Node):
 
         future = self.nav_client.call_async(req)
 
-        # Wait for answer
         rclpy.spin_until_future_complete(self, future)
         if future.result() is None:
             return False, "Service call failed or interrupted."
@@ -173,20 +196,36 @@ class MetaAgent(Node):
         """
         Send a traversal request to the DoorwayTraversalAgent.
 
-        The x, y coordinates are ignored by the service - it finds
-        the nearest door automatically.
+        Returns:
+            (success: bool, message: str)
+        """
+        req = NavigateToPose.Request()
+        req.x = 0.0
+        req.y = 0.0
+        req.z = z
+
+        future = self.door_client.call_async(req)
+
+        rclpy.spin_until_future_complete(self, future)
+        if future.result() is None:
+            return False, "Service call failed or interrupted."
+
+        return future.result().success, future.result().message
+
+    def call_exploration_service(self, z: float = 1.5):
+        """
+        Send an exploration request to the FrontierExplorationService.
 
         Returns:
             (success: bool, message: str)
         """
         req = NavigateToPose.Request()
-        req.x = 0.0  # Ignored - agent finds nearest door
-        req.y = 0.0  # Ignored - agent finds nearest door
+        req.x = 0.0  # Ignored
+        req.y = 0.0  # Ignored
         req.z = z    # Cruise altitude
 
-        future = self.door_client.call_async(req)
+        future = self.explore_client.call_async(req)
 
-        # Wait for answer
         rclpy.spin_until_future_complete(self, future)
         if future.result() is None:
             return False, "Service call failed or interrupted."
@@ -201,9 +240,9 @@ class MetaAgent(Node):
         print("                   RESULT")
         print("=" * 50)
         if success:
-            print(f"  ✓ SUCCESS: {message}")
+            print(f"  SUCCESS: {message}")
         else:
-            print(f"  ✗ FAILED: {message}")
+            print(f"  FAILED: {message}")
         print("=" * 50)
 
 

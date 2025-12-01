@@ -52,6 +52,12 @@ install(PROGRAMS
 )
 
 install(PROGRAMS
+  autonomous_system/agents/frontier_exploration_service_node.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME frontier_exploration_service
+)
+
+install(PROGRAMS
   autonomous_system/mapping/show_drone_map.py
   DESTINATION lib/${PROJECT_NAME}
   RENAME show_drone_map
