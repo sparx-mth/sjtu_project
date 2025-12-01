@@ -4,14 +4,13 @@ show_drone_map_with_exploration.py
 -----------------------------------
 Live 2D map viewer for a drone in Gazebo with FOG OF WAR exploration.
 
-Now with LINE-OF-SIGHT: The drone cannot see through walls.
-Only cells that have a clear line from the drone are revealed.
+Publishes the observed map for navigation agents to use.
 """
 
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Pose
-from std_msgs.msg import Float32MultiArray
+from std_msgs.msg import Int8MultiArray, MultiArrayDimension
 import yaml
 import cv2
 import numpy as np
@@ -31,13 +30,13 @@ class ExplorationMapViewer(Node):
         self.declare_parameter('exploration_radius', 60)
         self.declare_parameter('exploration_radius_meters', -1.0)
         self.declare_parameter('map_yaml', '/root/sjtu_project/sjtu_drone/maps/hospital_map_cropped.yaml')
-        self.declare_parameter('publish_explored_map', True)
-        self.declare_parameter('num_rays', 360)  # Number of rays for raycasting
+        self.declare_parameter('publish_rate', 10.0)  # Hz - faster for navigation
+        self.declare_parameter('num_rays', 360)
 
         self.exploration_radius = self.get_parameter('exploration_radius').value
         self.exploration_radius_meters = self.get_parameter('exploration_radius_meters').value
         map_yaml_path = self.get_parameter('map_yaml').value
-        self.publish_explored = self.get_parameter('publish_explored_map').value
+        self.publish_rate = self.get_parameter('publish_rate').value
         self.num_rays = self.get_parameter('num_rays').value
 
         with open(map_yaml_path, 'r') as f:
@@ -64,10 +63,6 @@ class ExplorationMapViewer(Node):
 
         if self.exploration_radius_meters > 0:
             self.exploration_radius = int(self.exploration_radius_meters / self.resolution)
-            self.get_logger().info(
-                f"Exploration radius: {self.exploration_radius_meters}m = {self.exploration_radius} pixels")
-        else:
-            self.get_logger().info(f"Exploration radius: {self.exploration_radius} pixels")
 
         self.exploration_mask = np.zeros((self.map_height, self.map_width), dtype=np.uint8)
 
@@ -84,10 +79,15 @@ class ExplorationMapViewer(Node):
             Pose, '/simple_drone/gt_pose', self.pose_callback, 10
         )
 
-        if self.publish_explored:
-            self.explored_map_pub = self.create_publisher(
-                Float32MultiArray, '/exploration/observed_map', 10
-            )
+        # Publisher for observed map (Int8MultiArray with metadata)
+        self.observed_map_pub = self.create_publisher(
+            Int8MultiArray, '/exploration/observed_map', 10
+        )
+
+        # Faster publish timer for navigation
+        self.publish_timer = self.create_timer(
+            1.0 / self.publish_rate, self.publish_observed_map
+        )
 
         self.total_cells = self.map_height * self.map_width
         self.explored_cells = 0
@@ -130,8 +130,8 @@ class ExplorationMapViewer(Node):
 
         self.create_timer(0.1, self.update_display)
 
-        self.get_logger().info("Exploration Map Viewer ready (with line-of-sight).")
-        self.get_logger().info("Controls: 't'=set target, '+/-'=change radius, 'r'=reset, 's'=save")
+        self.get_logger().info("Exploration Map Viewer ready.")
+        self.get_logger().info(f"Publishing observed map at {self.publish_rate} Hz")
 
     def pose_callback(self, msg):
         self.drone_pose = (msg.position.x, msg.position.y)
@@ -145,10 +145,7 @@ class ExplorationMapViewer(Node):
         return x_map * self.resolution + ox, y_map * self.resolution + oy
 
     def bresenham_line(self, x0, y0, x1, y1):
-        """
-        Bresenham's line algorithm - returns all cells along a line.
-        Used for raycasting to check line-of-sight.
-        """
+        """Bresenham's line algorithm for raycasting."""
         cells = []
         dx = abs(x1 - x0)
         dy = abs(y1 - y0)
@@ -179,48 +176,58 @@ class ExplorationMapViewer(Node):
         return cells
 
     def raycast_reveal(self, center_x, center_y):
-        """
-        Reveal visible cells using raycasting.
-        Casts rays in all directions and stops each ray when it hits a wall.
-        """
+        """Reveal visible cells using raycasting."""
         new_cells_revealed = 0
         radius = self.exploration_radius
 
-        # Cast rays in all directions
         for i in range(self.num_rays):
             angle = 2 * np.pi * i / self.num_rays
-
-            # End point of ray at maximum radius
             end_x = int(center_x + radius * np.cos(angle))
             end_y = int(center_y + radius * np.sin(angle))
-
-            # Get all cells along the ray
             ray_cells = self.bresenham_line(center_x, center_y, end_x, end_y)
 
-            # Walk along the ray
             for px, py in ray_cells:
-                # Check bounds
                 if not (0 <= px < self.map_width and 0 <= py < self.map_height):
-                    break  # Out of bounds, stop this ray
+                    break
 
-                # Check if within radius
                 dist_sq = (px - center_x) ** 2 + (py - center_y) ** 2
                 if dist_sq > radius * radius:
-                    break  # Beyond radius, stop this ray
+                    break
 
-                # Reveal this cell if not already explored
                 if self.exploration_mask[py, px] == 0:
                     self.exploration_mask[py, px] = 1
                     self.display_map[py, px] = self.ground_truth_map[py, px]
                     new_cells_revealed += 1
 
-                # If this cell is a wall, stop the ray (can see the wall but not beyond)
                 if self.ground_truth_map[py, px] == 1:
                     break
 
         if new_cells_revealed > 0:
             self.explored_cells += new_cells_revealed
             self.exploration_percentage = (self.explored_cells / self.total_cells) * 100
+
+    def publish_observed_map(self):
+        """Publish the current observed map for navigation agents."""
+        msg = Int8MultiArray()
+
+        # Store metadata in dimension labels: "resolution,origin_x,origin_y"
+        dim0 = MultiArrayDimension()
+        dim0.label = f"{self.resolution},{self.origin[0]},{self.origin[1]}"
+        dim0.size = self.map_height
+        dim0.stride = self.map_height * self.map_width
+
+        dim1 = MultiArrayDimension()
+        dim1.label = "width"
+        dim1.size = self.map_width
+        dim1.stride = self.map_width
+
+        msg.layout.dim = [dim0, dim1]
+        msg.layout.data_offset = 0
+
+        # Flatten the display_map (-1=unknown, 0=free, 1=wall)
+        msg.data = self.display_map.flatten().tolist()
+
+        self.observed_map_pub.publish(msg)
 
     def reset_exploration(self):
         self.exploration_mask.fill(0)
@@ -232,7 +239,6 @@ class ExplorationMapViewer(Node):
 
     def save_exploration_map(self):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
         mask_path = f"/tmp/exploration_mask_{timestamp}.png"
         cv2.imwrite(mask_path, (self.exploration_mask * 255).astype(np.uint8))
 
@@ -244,8 +250,6 @@ class ExplorationMapViewer(Node):
         cv2.imwrite(display_path, np.flipud(display_img))
 
         self.get_logger().info(f"Saved exploration maps to /tmp/")
-        self.get_logger().info(f"  Mask: {mask_path}")
-        self.get_logger().info(f"  Display: {display_path}")
 
     def draw_target_rectangle(self):
         if self.target_rect is not None:
@@ -259,8 +263,6 @@ class ExplorationMapViewer(Node):
             linewidth=2, edgecolor='lime', facecolor='none'
         )
         self.ax.add_patch(self.target_rect)
-
-        self.get_logger().info(f"Target updated -> map=({x_t}, {y_t})")
         self.fig.canvas.draw_idle()
 
     def update_display(self):
@@ -271,24 +273,21 @@ class ExplorationMapViewer(Node):
         x_map, y_map = self.world_to_map(*self.drone_pose)
         x_world, y_world = self.drone_pose
 
-        # Only update if drone moved
         if self.prev_drone_grid is None or \
                 abs(x_map - self.prev_drone_grid[0]) > 0 or \
                 abs(y_map - self.prev_drone_grid[1]) > 0:
-            # Use raycasting to reveal only visible cells
             self.raycast_reveal(x_map, y_map)
             self.prev_drone_grid = (x_map, y_map)
             self.im.set_data(self.display_map)
 
         self.drone_point.set_data([x_map], [y_map])
-
         self.radius_circle.center = (x_map, y_map)
         self.radius_circle.radius = self.exploration_radius
 
         tx_map, ty_map = self.target_map
         tx_world, ty_world = self.map_to_world(tx_map, ty_map)
 
-        self.ax.set_title(f"Drone Exploration (Line-of-Sight) | Radius: {self.exploration_radius}px")
+        self.ax.set_title(f"Drone Exploration | Radius: {self.exploration_radius}px")
 
         self.coord_text.set_text(
             f"Drone:  world=({x_world:.2f}, {y_world:.2f}) grid=({x_map}, {y_map})\n"
@@ -307,7 +306,6 @@ class ExplorationMapViewer(Node):
         if event.key == 't':
             root = tk.Tk()
             root.withdraw()
-
             try:
                 x = simpledialog.askinteger("New Target X", "Enter target X (map pixel):", parent=root)
                 if x is None:
@@ -315,20 +313,16 @@ class ExplorationMapViewer(Node):
                 y = simpledialog.askinteger("New Target Y", "Enter target Y (map pixel):", parent=root)
                 if y is None:
                     return
-
                 self.target_map = (x, y)
                 self.draw_target_rectangle()
-
             finally:
                 root.destroy()
 
         elif event.key == '+' or event.key == '=':
             self.exploration_radius = min(self.exploration_radius + 5, 200)
-            self.get_logger().info(f"Exploration radius: {self.exploration_radius} pixels")
 
         elif event.key == '-':
             self.exploration_radius = max(self.exploration_radius - 5, 5)
-            self.get_logger().info(f"Exploration radius: {self.exploration_radius} pixels")
 
         elif event.key == 'r':
             self.reset_exploration()
@@ -339,22 +333,13 @@ class ExplorationMapViewer(Node):
     def on_click(self, event):
         if event.inaxes != self.ax:
             return
-
         x = int(round(event.xdata))
         y = int(round(event.ydata))
-
         self.target_map = (x, y)
         self.draw_target_rectangle()
 
-        print(f"[CLICK] New target = ({x}, {y})")
-
-    def get_exploration_mask(self):
-        return self.exploration_mask.copy()
-
     def get_observed_map(self):
-        observed = np.full_like(self.ground_truth_map, -1, dtype=np.int8)
-        observed[self.exploration_mask == 1] = self.ground_truth_map[self.exploration_mask == 1]
-        return observed
+        return self.display_map.copy()
 
 
 def main():
