@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-WaypointController (Advanced PID Version with Abort Support)
--------------------------------------------------------------
+WaypointController (High Precision Version)
+--------------------------------------------
 A professional-grade waypoint navigator using PID control with velocity profiling.
 
 Features:
@@ -10,15 +10,17 @@ Features:
  - Anti-windup for integral term
  - Derivative filtering (low-pass) to reduce noise
  - Separate tuning for XY (horizontal) and Z (vertical)
- - Configurable arrival detection
+ - HIGH PRECISION arrival detection (3cm tolerance)
+ - TWO-PHASE APPROACH: normal + fine adjustment
  - ABORT MECHANISM for immediate stopping
+ - CLEARANCE-BASED SPEED CONTROL for safe navigation near walls
 """
 
 import math
 import time
 import threading
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Callable
 
 from rclpy.node import Node
 from rclpy.callback_groups import ReentrantCallbackGroup
@@ -101,9 +103,13 @@ class PIDController:
 
 class WaypointController(Node):
     """
-    Advanced waypoint controller using PID with velocity profiling.
+    High-precision waypoint controller using PID with velocity profiling.
 
-    Now includes ABORT mechanism for immediate stopping during navigation.
+    Precision features:
+    - 3cm position tolerance (configurable)
+    - Two-phase approach: coarse then fine
+    - Increased integral gain for zero steady-state error
+    - Longer stability check for confirmed arrival
     """
 
     def __init__(self, name: str = "waypoint_controller"):
@@ -115,10 +121,18 @@ class WaypointController(Node):
         self._pose_received = False
 
         # ============================================================
-        # ABORT MECHANISM - allows external code to stop goto() immediately
+        # ABORT MECHANISM
         # ============================================================
         self._abort_lock = threading.Lock()
         self._abort_flag = False
+
+        # ============================================================
+        # CLEARANCE-BASED SPEED CONTROL
+        # ============================================================
+        self._clearance_lock = threading.Lock()
+        self._clearance_callback: Optional[Callable[[float, float], float]] = None
+        self._min_clearance_for_full_speed = 1.0
+        self._min_clearance_threshold = 0.15
 
         # Callback group for concurrent pose updates
         self.pose_cb_group = ReentrantCallbackGroup()
@@ -137,54 +151,113 @@ class WaypointController(Node):
             10,
         )
 
-        # XY (horizontal) PID gains
+        # ============================================================
+        # IMPROVED PID GAINS FOR HIGH PRECISION
+        # ============================================================
+
+        # XY (horizontal) PID gains - tuned for precision
+        # Higher Ki eliminates steady-state error
+        # Higher Kd provides damping for smooth approach
         self.pid_xy = PIDController(
-            kp=0.8,
-            ki=0.02,
-            kd=0.3,
-            integral_limit=0.5,
+            kp=1.0,  # Increased from 0.8 for faster response
+            ki=0.08,  # Increased from 0.02 to eliminate steady-state error
+            kd=0.4,  # Increased from 0.3 for better damping
+            integral_limit=0.3,
             output_limit=0.5,
-            derivative_filter_alpha=0.3,
+            derivative_filter_alpha=0.25,
         )
 
         # Z (vertical) PID gains
         self.pid_z = PIDController(
-            kp=1.0,
-            ki=0.05,
-            kd=0.4,
+            kp=1.2,
+            ki=0.08,
+            kd=0.5,
             integral_limit=0.3,
             output_limit=0.4,
-            derivative_filter_alpha=0.3,
+            derivative_filter_alpha=0.25,
         )
 
-        # Velocity profiling parameters
-        self.max_velocity_xy = 0.4
+        # ============================================================
+        # VELOCITY PROFILING - PRECISION APPROACH
+        # ============================================================
+        self.max_velocity_xy = 0.4  # Full speed in open areas
+        self.min_velocity_xy = 0.08  # Minimum speed near walls
         self.max_velocity_z = 0.3
-        self.decel_radius = 0.8
-        self.min_velocity = 0.05
 
-        # Arrival detection
-        self.position_tolerance = 0.08
-        self.velocity_tolerance = 0.05
-        self.stable_count_required = 15
+        # Two-phase approach radii
+        self.coarse_decel_radius = 1.0  # Start slowing at 1m
+        self.fine_approach_radius = 0.15  # Fine control within 15cm
+        self.min_velocity = 0.03  # Very slow for fine approach
+
+        # ============================================================
+        # HIGH PRECISION ARRIVAL DETECTION
+        # ============================================================
+        self.position_tolerance = 0.03  # 3cm tolerance (was 8cm)
+        self.fine_position_tolerance = 0.02  # 2cm for final check
+        self.stable_count_required = 25  # More checks for stability (was 15)
+        self.fine_stable_count = 15  # Additional fine stability checks
 
         # Control loop rate
         self.control_rate = 50
         self.control_period = 1.0 / self.control_rate
 
         self.get_logger().info(
-            f"WaypointController initialized with PID control and abort support."
+            f"WaypointController initialized - HIGH PRECISION MODE"
         )
+        self.get_logger().info(
+            f"  Position tolerance: {self.position_tolerance * 100:.1f}cm, "
+            f"Fine tolerance: {self.fine_position_tolerance * 100:.1f}cm"
+        )
+
+    # ------------------------------------------------------------------ #
+    # CLEARANCE-BASED SPEED CONTROL
+    # ------------------------------------------------------------------ #
+
+    def set_clearance_callback(
+            self,
+            callback: Callable[[float, float], float],
+            min_clearance_for_full_speed: float = 1.0,
+            min_clearance_threshold: float = 0.15,
+    ):
+        """Set a callback function that returns clearance at a given position."""
+        with self._clearance_lock:
+            self._clearance_callback = callback
+            self._min_clearance_for_full_speed = min_clearance_for_full_speed
+            self._min_clearance_threshold = min_clearance_threshold
+
+    def clear_clearance_callback(self):
+        """Remove the clearance callback."""
+        with self._clearance_lock:
+            self._clearance_callback = None
+
+    def get_clearance_speed_factor(self, wx: float, wy: float) -> float:
+        """Get speed scaling factor based on clearance at position."""
+        with self._clearance_lock:
+            if self._clearance_callback is None:
+                return 1.0
+
+            try:
+                clearance = self._clearance_callback(wx, wy)
+            except Exception:
+                return 1.0
+
+            if clearance >= self._min_clearance_for_full_speed:
+                return 1.0
+
+            if clearance <= self._min_clearance_threshold:
+                return 0.2
+
+            ratio = (clearance - self._min_clearance_threshold) / (
+                    self._min_clearance_for_full_speed - self._min_clearance_threshold
+            )
+            return 0.2 + 0.8 * ratio
 
     # ------------------------------------------------------------------ #
     # ABORT MECHANISM
     # ------------------------------------------------------------------ #
 
     def trigger_abort(self):
-        """
-        Signal the controller to abort current navigation immediately.
-        Call this from external code (e.g., path monitor) to stop the drone.
-        """
+        """Signal the controller to abort current navigation immediately."""
         with self._abort_lock:
             self._abort_flag = True
 
@@ -218,25 +291,46 @@ class WaypointController(Node):
             self._pose_received = True
 
     # ------------------------------------------------------------------ #
-    # Velocity Profiling
+    # IMPROVED Velocity Profiling
     # ------------------------------------------------------------------ #
 
     def compute_velocity_limit(self, distance: float, max_vel: float) -> float:
-        """Compute velocity limit based on distance to target."""
-        if distance > self.decel_radius:
+        """
+        Compute velocity limit with two-phase approach.
+
+        Phase 1 (distance > fine_approach_radius): Normal deceleration
+        Phase 2 (distance <= fine_approach_radius): Fine slow approach
+        """
+        # Phase 2: Fine approach - very slow for precision
+        if distance <= self.fine_approach_radius:
+            # Linear from min_velocity at 0 to slightly higher at fine_approach_radius
+            ratio = distance / self.fine_approach_radius
+            return self.min_velocity + (0.08 - self.min_velocity) * ratio
+
+        # Phase 1: Coarse approach with deceleration
+        if distance > self.coarse_decel_radius:
             return max_vel
 
-        ratio = distance / self.decel_radius
-        velocity = self.min_velocity + (max_vel - self.min_velocity) * ratio
-        return max(velocity, self.min_velocity)
+        # Smooth deceleration from coarse_decel_radius to fine_approach_radius
+        range_dist = self.coarse_decel_radius - self.fine_approach_radius
+        dist_in_range = distance - self.fine_approach_radius
+        ratio = dist_in_range / range_dist
+
+        min_for_phase1 = 0.08  # Speed at fine_approach_radius boundary
+        velocity = min_for_phase1 + (max_vel - min_for_phase1) * ratio
+        return max(velocity, min_for_phase1)
 
     # ------------------------------------------------------------------ #
-    # Main Navigation Method
+    # Main Navigation Method - HIGH PRECISION
     # ------------------------------------------------------------------ #
 
     def goto(self, tx: float, ty: float, tz: float | None = None) -> Tuple[bool, bool]:
         """
-        Navigate to target position using PID control with velocity profiling.
+        Navigate to target position with high precision.
+
+        Uses two-phase approach:
+        1. Coarse approach: Fast navigation to get close
+        2. Fine approach: Slow, precise positioning
 
         Args:
             tx: Target X coordinate (world frame, meters)
@@ -262,25 +356,28 @@ class WaypointController(Node):
 
         # Get starting position
         start = self.pose
+        initial_dist = math.hypot(tx - start.position.x, ty - start.position.y)
+
         self.get_logger().info(
-            f"[PID] Navigating to ({tx:.2f}, {ty:.2f}, {tz:.2f}) "
-            f"from ({start.position.x:.2f}, {start.position.y:.2f}, {start.position.z:.2f})"
+            f"[PRECISION] Target: ({tx:.3f}, {ty:.3f}, {tz:.2f}) "
+            f"from ({start.position.x:.3f}, {start.position.y:.3f}, {start.position.z:.2f}) "
+            f"dist={initial_dist:.3f}m"
         )
 
         stable_counter = 0
+        fine_stable_counter = 0
         loop_count = 0
         start_time = time.time()
+        in_fine_approach = False
 
         while True:
             loop_start = time.time()
 
-            # ============================================================
-            # CHECK ABORT FLAG - stop immediately if triggered
-            # ============================================================
+            # Check abort
             if self.is_aborted():
                 self.stop()
-                self.get_logger().warn("[PID] Navigation ABORTED by external signal!")
-                return False, True  # (not reached, was aborted)
+                self.get_logger().warn("[PRECISION] Navigation ABORTED!")
+                return False, True
 
             # Get current pose
             current = self.pose
@@ -292,8 +389,24 @@ class WaypointController(Node):
             error_z = tz - z
             dist_xy = math.hypot(error_x, error_y)
 
-            # Compute velocity limits based on distance
-            vel_limit_xy = self.compute_velocity_limit(dist_xy, self.max_velocity_xy)
+            # Detect phase transition
+            if not in_fine_approach and dist_xy < self.fine_approach_radius:
+                in_fine_approach = True
+                self.get_logger().info(
+                    f"[PRECISION] Entering fine approach at dist={dist_xy:.3f}m"
+                )
+                # Reset integral to avoid overshoot
+                self.pid_xy.integral *= 0.5
+                self._y_integral *= 0.5
+
+            # Clearance-based speed scaling
+            clearance_factor = self.get_clearance_speed_factor(x, y)
+            effective_max_vel_xy = self.min_velocity_xy + (
+                    self.max_velocity_xy - self.min_velocity_xy
+            ) * clearance_factor
+
+            # Compute velocity limits based on distance AND clearance
+            vel_limit_xy = self.compute_velocity_limit(dist_xy, effective_max_vel_xy)
             vel_limit_z = self.compute_velocity_limit(abs(error_z), self.max_velocity_z)
 
             self.pid_xy.output_limit = vel_limit_xy
@@ -323,31 +436,50 @@ class WaypointController(Node):
             twist.linear.z = vel_z
             self.cmd_pub.publish(twist)
 
-            # Arrival detection
+            # ============================================================
+            # HIGH PRECISION ARRIVAL DETECTION
+            # ============================================================
+
+            # Coarse arrival check
             if dist_xy < self.position_tolerance and abs(error_z) < self.position_tolerance:
                 stable_counter += 1
-                if stable_counter >= self.stable_count_required:
+
+                # Fine arrival check (tighter tolerance)
+                if dist_xy < self.fine_position_tolerance and abs(error_z) < self.fine_position_tolerance:
+                    fine_stable_counter += 1
+                else:
+                    fine_stable_counter = 0
+
+                # Success conditions:
+                # 1. Within coarse tolerance for stable_count_required cycles, OR
+                # 2. Within fine tolerance for fine_stable_count cycles
+                if stable_counter >= self.stable_count_required or fine_stable_counter >= self.fine_stable_count:
                     self.stop()
                     elapsed = time.time() - start_time
+                    final_error = math.hypot(tx - x, ty - y)
                     self.get_logger().info(
-                        f"[PID] Reached target at ({x:.2f}, {y:.2f}, {z:.2f}) "
-                        f"in {elapsed:.1f}s"
+                        f"[PRECISION] REACHED ({x:.3f}, {y:.3f}, {z:.2f}) "
+                        f"error={final_error * 100:.1f}cm in {elapsed:.1f}s"
                     )
-                    return True, False  # (reached, not aborted)
+                    return True, False
             else:
                 stable_counter = 0
+                fine_stable_counter = 0
 
-            # Periodic logging
+            # Periodic logging (more detail in fine approach)
             loop_count += 1
-            if loop_count % self.control_rate == 0:
+            log_interval = 25 if in_fine_approach else 50
+            if loop_count % log_interval == 0:
+                phase = "FINE" if in_fine_approach else "COARSE"
                 self.get_logger().info(
-                    f"  pos=({x:.2f}, {y:.2f}, {z:.2f}) "
-                    f"err_xy={dist_xy:.3f} err_z={error_z:.3f}"
+                    f"  [{phase}] pos=({x:.3f}, {y:.3f}) "
+                    f"err={dist_xy * 100:.1f}cm vel_lim={vel_limit_xy:.3f} "
+                    f"stable={stable_counter}/{self.stable_count_required}"
                 )
 
             # Timeout check
             if time.time() - start_time > 120.0:
-                self.get_logger().warn("[PID] Timeout reaching waypoint!")
+                self.get_logger().warn("[PRECISION] Timeout!")
                 self.stop()
                 return False, False
 
@@ -366,7 +498,7 @@ class WaypointController(Node):
             self._y_prev_error = 0.0
             self._y_prev_time = current_time
             self._y_filtered_deriv = 0.0
-            return self.pid_xy.kp * error_y  # Just P term on first call
+            return self.pid_xy.kp * error_y
 
         dt = current_time - self._y_prev_time
         dt = max(dt, 0.001)

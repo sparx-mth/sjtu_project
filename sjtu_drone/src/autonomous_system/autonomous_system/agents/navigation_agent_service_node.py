@@ -9,6 +9,7 @@ Key behavior:
     - Unknown cells (-1) treated as free for planning
     - Continuously monitors path for newly discovered walls
     - Stops immediately and re-plans when path is blocked
+    - ADAPTIVE SPEED based on wall clearance (slower near walls/doors)
 """
 
 import time
@@ -38,6 +39,11 @@ class NavigationAgentService(WaypointController):
     - trigger_abort() stops the drone immediately during goto()
     - clear_abort() resets for new navigation
     - goto() returns (reached, aborted) tuple
+
+    Enhanced with:
+    - Adaptive safety margin (can pass through doors)
+    - Wall proximity cost (prefers staying centered in corridors)
+    - Clearance-based speed control (slower near walls)
     """
 
     def __init__(self):
@@ -48,15 +54,31 @@ class NavigationAgentService(WaypointController):
         self.declare_parameter("rdp_eps", 1.5)
         self.declare_parameter("min_turn_dist", 6.0)
         self.declare_parameter("cruise_altitude", 1.5)
-        self.declare_parameter("safety_margin", 15)
         self.declare_parameter("path_check_rate", 10.0)  # Hz
+
+        # NEW: Adaptive safety margin parameters
+        self.declare_parameter("min_safety_margin", 8)  # Hard boundary (drone size) ~
+        self.declare_parameter("preferred_clearance", 20)  # Soft preference ~1.0m
+        self.declare_parameter("wall_cost_weight", 0.8)  # How much to penalize wall proximity
+
+        # Legacy parameter for compatibility (maps to min_safety_margin if new params not set)
+        self.declare_parameter("safety_margin", 10)
 
         self.turn_penalty = float(self.get_parameter("turn_penalty").value)
         self.rdp_eps = float(self.get_parameter("rdp_eps").value)
         self.min_turn_dist = float(self.get_parameter("min_turn_dist").value)
         self.cruise_altitude = float(self.get_parameter("cruise_altitude").value)
-        self.safety_margin = int(self.get_parameter("safety_margin").value)
         self.path_check_rate = float(self.get_parameter("path_check_rate").value)
+
+        # Get safety parameters
+        self.min_safety_margin = int(self.get_parameter("min_safety_margin").value)
+        self.preferred_clearance = int(self.get_parameter("preferred_clearance").value)
+        self.wall_cost_weight = float(self.get_parameter("wall_cost_weight").value)
+
+        # Legacy fallback
+        legacy_margin = int(self.get_parameter("safety_margin").value)
+        if self.min_safety_margin == 3 and legacy_margin != 3:
+            self.min_safety_margin = legacy_margin
 
         # Planner (will be configured when map received)
         self.planner: Optional[ExplorationPlanner] = None
@@ -94,7 +116,11 @@ class NavigationAgentService(WaypointController):
         )
 
         self.busy = False
+
         self.get_logger().info("NavigationAgentService ready (exploration mode).")
+        self.get_logger().info(f"  Min safety margin: {self.min_safety_margin} cells (hard boundary)")
+        self.get_logger().info(f"  Preferred clearance: {self.preferred_clearance} cells (soft preference)")
+        self.get_logger().info(f"  Wall cost weight: {self.wall_cost_weight}")
         self.get_logger().info("Waiting for exploration map on /exploration/observed_map...")
 
     def map_callback(self, msg: Int8MultiArray):
@@ -121,19 +147,66 @@ class NavigationAgentService(WaypointController):
                 origin_x, origin_y = -25.0, -30.0
                 self.get_logger().warn("Using default map metadata")
 
+            # Create planner with adaptive safety margin
             self.planner = ExplorationPlanner(
                 resolution=resolution,
                 origin=(origin_x, origin_y, 0.0),
                 turn_penalty=self.turn_penalty,
-                safety_margin=self.safety_margin,
+                min_safety_margin=self.min_safety_margin,
+                preferred_clearance=self.preferred_clearance,
+                wall_cost_weight=self.wall_cost_weight,
             )
-            self.get_logger().info(f"Planner initialized: res={resolution}, origin=({origin_x}, {origin_y})")
+
+            # Set up clearance-based speed control callback
+            self._setup_clearance_speed_control(resolution)
+
+            self.get_logger().info(
+                f"Planner initialized: res={resolution}, origin=({origin_x}, {origin_y})"
+            )
+            self.get_logger().info(
+                f"  Can pass through openings > {2 * self.min_safety_margin * resolution:.2f}m"
+            )
+            self.get_logger().info(
+                f"  Full speed when clearance > {self.preferred_clearance * resolution:.2f}m"
+            )
 
         self.planner.update_map(observed_map)
 
         if not self.map_received:
             self.map_received = True
             self.get_logger().info("First exploration map received!")
+
+    def _setup_clearance_speed_control(self, resolution: float):
+        """
+        Configure the waypoint controller to use clearance-based speed.
+
+        Speed scaling:
+        - Full speed when clearance >= preferred_clearance
+        - Minimum speed when clearance <= min_safety_margin
+        - Linear interpolation in between
+        """
+        # Convert cell counts to meters
+        min_clearance_for_full_speed = self.preferred_clearance * resolution
+        min_clearance_threshold = self.min_safety_margin * resolution
+
+        # Create clearance callback that queries the planner
+        def get_clearance(wx: float, wy: float) -> float:
+            if self.planner is None:
+                return min_clearance_for_full_speed
+            return self.planner.get_clearance_world(wx, wy)
+
+        # Register callback with waypoint controller
+        self.set_clearance_callback(
+            callback=get_clearance,
+            min_clearance_for_full_speed=min_clearance_for_full_speed,
+            min_clearance_threshold=min_clearance_threshold,
+        )
+
+        self.get_logger().info(
+            f"Clearance-based speed control enabled: "
+            f"slow below {min_clearance_threshold:.2f}m, "
+            f"full above {min_clearance_for_full_speed:.2f}m"
+        )
 
     def check_path_blocked(self):
         """
@@ -203,12 +276,26 @@ class NavigationAgentService(WaypointController):
             start_grid = self.planner.world_to_map(start_wx, start_wy)
             goal_grid = self.planner.world_to_map(goal_wx, goal_wy)
 
+            self.get_logger().info(
+                f"Grid coordinates: start={start_grid}, goal={goal_grid}"
+            )
+            self.get_logger().info(
+                f"Map bounds: width={self.planner.width}, height={self.planner.height}"
+            )
+
             path = self.planner.plan(start_grid, goal_grid)
             if not path:
+                self.get_logger().error(
+                    f"Planner returned empty path! Check terminal output for details."
+                )
                 response.success = False
-                response.message = "No path found."
+                response.message = f"No path found from {start_grid} to {goal_grid}."
                 self.busy = False
                 return response
+
+            # Get path statistics
+            min_clearance = self.planner.get_path_min_clearance(path)
+            min_clearance_m = min_clearance * self.planner.resolution
 
             # Simplify
             simplified = rdp_simplify(path, eps=self.rdp_eps)
@@ -219,7 +306,16 @@ class NavigationAgentService(WaypointController):
                 self._current_path = path
                 self._current_waypoint_idx = 0
 
-            self.get_logger().info(f"Path: {len(path)} cells -> {len(waypoints_grid)} waypoints")
+            self.get_logger().info(
+                f"Path: {len(path)} cells -> {len(waypoints_grid)} waypoints, "
+                f"min clearance: {min_clearance_m:.2f}m"
+            )
+
+            if min_clearance_m < self.preferred_clearance * self.planner.resolution:
+                self.get_logger().info(
+                    f"  Note: Path goes through narrow section (clearance {min_clearance_m:.2f}m), "
+                    f"speed will be reduced"
+                )
 
             # Execute waypoints
             navigation_complete = True
@@ -232,7 +328,15 @@ class NavigationAgentService(WaypointController):
                     )
 
                 wx, wy = self.planner.map_to_world(gx, gy)
-                self.get_logger().info(f"-> Waypoint {i + 1}/{len(waypoints_grid)}: ({wx:.2f}, {wy:.2f})")
+
+                # Get clearance at waypoint for logging
+                wp_clearance = self.planner.get_clearance(gx, gy)
+                wp_clearance_m = wp_clearance * self.planner.resolution
+
+                self.get_logger().info(
+                    f"-> Waypoint {i + 1}/{len(waypoints_grid)}: "
+                    f"({wx:.2f}, {wy:.2f}), clearance: {wp_clearance_m:.2f}m"
+                )
 
                 # Use WaypointController's goto() which now returns (reached, aborted)
                 reached, aborted = self.goto(wx, wy, goal_wz)
