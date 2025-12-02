@@ -28,6 +28,15 @@ start_world() {
 }
 
 run_apriltag_node() {
+
+  LOG_LEVEL_ARG=""
+  if [ "$1" == "debug" ]; then
+    LOG_LEVEL_ARG="--log-level debug"
+    echo ">>> Starting in DEBUG mode."
+  else
+    echo ">>> Starting in INFO mode (default)."
+  fi
+
   echo ">>> Running AprilTag node inside container: $CONTAINER_NAME"
   docker exec -it "$CONTAINER_NAME" bash -lc "
     set -e
@@ -69,7 +78,8 @@ run_apriltag_node() {
       -p family:=36h11 \
       -p size:=0.348 \
       -p publish_tf:=true \
-      --log-level debug
+      -p use_sim_time:=true \
+      $LOG_LEVEL_ARG
   "
 }
 
@@ -188,6 +198,7 @@ show_menu() {
   echo "=============================="
   echo "1) Start world (run.sh --no-map hospital.world)"
   echo "2) Setup & run AprilTag node (step 2)"
+  echo "2d) Setup & run AprilTag node (step 2) [DEBUG mode]" 
   echo "3) Run triangulation node (step 3)"
   echo "4) Run tag_pose_logger.py (step 4)"
   echo "5) Run tag_imu_logger.py (step 5)"
@@ -225,6 +236,9 @@ main() {
         ;;
       2)
         run_apriltag_node
+        ;;
+      2d)
+        run_apriltag_node debug # "debug"
         ;;
       3)
         run_triangulation_node

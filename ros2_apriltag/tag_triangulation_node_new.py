@@ -100,6 +100,9 @@ class TagTriangulationNode(Node):
 
     def __init__(self):
         super().__init__("tag_triangulation_node")
+        self.set_parameters([rclpy.parameter.Parameter(
+            'use_sim_time', rclpy.parameter.Parameter.Type.BOOL, True
+        )])
 
         self.world_frame = "world"
         self.camera_frame = "simple_drone/front_cam_link"  # must exist in /tf
@@ -118,6 +121,8 @@ class TagTriangulationNode(Node):
         self.pose_pub = self.create_publisher(PoseStamped, "/tag_pose", 10)
         self.ids_pub = self.create_publisher(Int32MultiArray, "/tag_pose_ids", 10)
 
+        self.time_pub = self.create_publisher(Int32MultiArray, "/pose_publish_time", 10)
+        
         # Subscriber to detections
         self.tag_sub = self.create_subscription(
             AprilTagDetectionArray,
@@ -277,6 +282,23 @@ class TagTriangulationNode(Node):
         ids_msg.data = sorted(list(current_ids))
         self.ids_pub.publish(ids_msg)
 
+
+        publish_time = self.get_clock().now().to_msg()
+        publish_sec = publish_time.sec
+        publish_ns = publish_time.nanosec
+
+
+        measurement_sec = detection_stamp.sec
+        measurement_ns = detection_stamp.nanosec
+
+        time_msg = Int32MultiArray()
+        time_msg.data = [
+            measurement_sec, 
+            measurement_ns,
+            publish_sec, 
+            publish_ns
+        ]
+        self.time_pub.publish(time_msg)
 
         self.get_logger().info(
             f"[PUBLISH] pose=({x:.2f}, {y:.2f}, {z:.2f}), ids={current_ids}"
