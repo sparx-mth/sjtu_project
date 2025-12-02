@@ -5,6 +5,7 @@ Starts:
     - NavigationAgentService
     - DoorwayTraversalAgent
     - FrontierExplorationService
+    - RoomExplorationAgent
     - MetaAgent
     - Map visualization
 """
@@ -41,6 +42,20 @@ def generate_launch_description():
             parameters=[{
                 'exploration_radius': 3.0,  # meters
                 'exploration_timeout': 60.0,  # seconds
+            }]
+        ),
+
+        # Room exploration agent (explores current room without crossing doors)
+        Node(
+            package='autonomous_system',
+            executable='room_exploration_agent',
+            name='room_exploration_agent',
+            output='screen',
+            parameters=[{
+                'cruise_altitude': 1.5,
+                'exploration_timeout': 120.0,
+                'min_door_width': 0.6,
+                'max_door_width': 2.0,
             }]
         ),
 

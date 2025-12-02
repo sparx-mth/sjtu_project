@@ -58,6 +58,12 @@ install(PROGRAMS
 )
 
 install(PROGRAMS
+  autonomous_system/agents/room_exploration_agent.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME room_exploration_agent
+)
+
+install(PROGRAMS
   autonomous_system/mapping/show_drone_map.py
   DESTINATION lib/${PROJECT_NAME}
   RENAME show_drone_map
