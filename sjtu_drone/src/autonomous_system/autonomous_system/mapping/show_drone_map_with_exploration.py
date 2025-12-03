@@ -30,7 +30,7 @@ class ExplorationMapViewer(Node):
         self.declare_parameter('exploration_radius', 60)
         self.declare_parameter('exploration_radius_meters', -1.0)
         self.declare_parameter('map_yaml', '/root/sjtu_project/sjtu_drone/maps/hospital_map_cropped.yaml')
-        self.declare_parameter('publish_rate', 10.0)  # Hz - faster for navigation
+        self.declare_parameter('publish_rate', 15.0)  # Hz - faster for navigation
         self.declare_parameter('num_rays', 360)
 
         self.exploration_radius = self.get_parameter('exploration_radius').value
