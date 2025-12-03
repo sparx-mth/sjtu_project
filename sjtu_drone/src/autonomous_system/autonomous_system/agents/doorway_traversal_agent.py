@@ -1,22 +1,10 @@
 #!/usr/bin/env python3
 """
-Doorway Traversal Agent (Partial Map / Exploration-based)
------------------------------------------------------------
-Receives a request to traverse through the nearest door.
-
-Unlike the full-map version, this agent:
- - Uses the partial/exploration map (fog of war)
- - Does NOT know all door positions upfront
- - Detects doors dynamically as "visible slots" (narrow passages in the known map)
- - Uses ExplorationPlanner for navigation (treats unknown as free)
-
-A "door" in this context is any narrow passage that has been discovered:
- - Known free cells flanked by known walls on opposite sides
- - Width roughly matching expected door size
-
-Coordinate Convention:
-    - World coordinates: (wx, wy) in meters
-    - Grid coordinates: (gx, gy) with origin at bottom-left
+Doorway Traversal Agent
+-----------------------------------------
+Uses known door positions from DOOR_POSITIONS_GRID.
+Only considers doors that are VISIBLE (observed_map != -1).
+Uses ExplorationPlanner for path planning with observed_map.
 """
 
 import math
@@ -39,21 +27,39 @@ from autonomous_system.planning.path_simplifier import rdp_simplify, extract_tur
 GridPoint = Tuple[int, int]
 WorldPoint = Tuple[float, float]
 
+# Known door positions in grid coordinates
+DOOR_POSITIONS_GRID: List[GridPoint] = [
+    (133, 75),
+    (256, 75),
+    (157, 252),
+    (457, 225),
+    (157, 299),
+    (157, 649),
+    (482, 298),
+    (249, 475),
+    (390, 475),
+    (249, 624),
+    (390, 624),
+    (482, 649),
+    (390, 875),
+    (249, 875),
+    (140, 862),
+    (500, 862),
+    (93, 996),
+    (93, 1156),
+    (150, 1175),
+    (188, 1250),
+    (545, 996),
+    (545, 1156),
+    (488, 1175),
+    (448, 1250),
+]
+
 
 class DoorwayTraversalAgent(WaypointController):
     """
-    Doorway traversal agent using partial/exploration map.
-
-    Service:
-        /traverse_doorway : NavigateToPose (reusing the same service type)
-
-    Behavior:
-        1. Receives traversal request
-        2. Scans the known map to find visible door-like passages
-        3. Finds the closest detected door to current position
-        4. Determines which side of the door the drone is on
-        5. Plans and executes path through the door using ExplorationPlanner
-        6. Returns success/failure to caller
+    Simple doorway traversal using known door positions.
+    Only traverses doors that are visible in observed_map.
     """
 
     def __init__(self):
@@ -64,18 +70,11 @@ class DoorwayTraversalAgent(WaypointController):
         self.declare_parameter("rdp_eps", 1.5)
         self.declare_parameter("min_turn_dist", 4.0)
         self.declare_parameter("cruise_altitude", 1.5)
-        self.declare_parameter("door_traverse_distance", 0.8)  # How far past door to go (meters)
-        self.declare_parameter("door_approach_distance", 0.8)  # Approach point before door (meters)
-
-        # Safety margin parameters (matching navigation agent)
-        self.declare_parameter("min_safety_margin", 8)
+        self.declare_parameter("door_traverse_distance", 0.6)
+        self.declare_parameter("door_approach_distance", 0.6)
+        self.declare_parameter("min_safety_margin", 10)
         self.declare_parameter("preferred_clearance", 20)
         self.declare_parameter("wall_cost_weight", 0.8)
-
-        # Door detection parameters
-        self.declare_parameter("min_door_width", 0.6)  # Minimum door width in meters
-        self.declare_parameter("max_door_width", 2.0)  # Maximum door width in meters
-        self.declare_parameter("door_search_radius", 5.0)  # How far to search for doors (meters)
 
         self.turn_penalty = float(self.get_parameter("turn_penalty").value)
         self.rdp_eps = float(self.get_parameter("rdp_eps").value)
@@ -83,40 +82,25 @@ class DoorwayTraversalAgent(WaypointController):
         self.cruise_altitude = float(self.get_parameter("cruise_altitude").value)
         self.door_traverse_distance = float(self.get_parameter("door_traverse_distance").value)
         self.door_approach_distance = float(self.get_parameter("door_approach_distance").value)
-
         self.min_safety_margin = int(self.get_parameter("min_safety_margin").value)
         self.preferred_clearance = int(self.get_parameter("preferred_clearance").value)
         self.wall_cost_weight = float(self.get_parameter("wall_cost_weight").value)
 
-        self.min_door_width = float(self.get_parameter("min_door_width").value)
-        self.max_door_width = float(self.get_parameter("max_door_width").value)
-        self.door_search_radius = float(self.get_parameter("door_search_radius").value)
-
-        # Planner (will be configured when map received)
+        # Planner (initialized on first map)
         self.planner: Optional[ExplorationPlanner] = None
         self.map_received = False
-        self._map_lock = threading.Lock()
 
-        # Current path being executed
-        self._current_path: List[GridPoint] = []
-        self._path_lock = threading.Lock()
+        # Door positions (will be converted to world coords after planner init)
+        self.doors_grid: List[GridPoint] = DOOR_POSITIONS_GRID.copy()
+        self.doors_world: List[WorldPoint] = []
 
-        # Subscribe to exploration map
+        # Subscribe to observed map
         self.map_cb_group = ReentrantCallbackGroup()
         self.map_sub = self.create_subscription(
             Int8MultiArray,
             "/exploration/observed_map",
             self.map_callback,
             10,
-            callback_group=self.map_cb_group,
-        )
-
-        # Path monitoring timer
-        self.declare_parameter("path_check_rate", 10.0)
-        self.path_check_rate = float(self.get_parameter("path_check_rate").value)
-        self.monitor_timer = self.create_timer(
-            1.0 / self.path_check_rate,
-            self.check_path_blocked,
             callback_group=self.map_cb_group,
         )
 
@@ -130,9 +114,9 @@ class DoorwayTraversalAgent(WaypointController):
         )
 
         self.busy = False
-        self.get_logger().info("DoorwayTraversalAgent ready (exploration mode).")
-        self.get_logger().info("  Doors detected dynamically from visible map.")
-        self.get_logger().info("Waiting for exploration map on /exploration/observed_map...")
+        self.get_logger().info(
+            f"DoorwayTraversalAgent ready. Tracking {len(self.doors_grid)} known doors."
+        )
 
     def map_callback(self, msg: Int8MultiArray):
         """Receive and update the exploration map."""
@@ -141,313 +125,123 @@ class DoorwayTraversalAgent(WaypointController):
 
         height = msg.layout.dim[0].size
         width = msg.layout.dim[1].size
-
-        # Reconstruct 2D array
         observed_map = np.array(msg.data, dtype=np.int8).reshape((height, width))
 
-        with self._map_lock:
-            # Initialize planner on first map
-            if self.planner is None:
-                try:
-                    parts = msg.layout.dim[0].label.split(",")
-                    resolution = float(parts[0])
-                    origin_x = float(parts[1])
-                    origin_y = float(parts[2])
-                except (IndexError, ValueError):
-                    resolution = 0.05
-                    origin_x, origin_y = -25.0, -30.0
-                    self.get_logger().warn("Using default map metadata")
+        if self.planner is None:
+            try:
+                parts = msg.layout.dim[0].label.split(",")
+                resolution = float(parts[0])
+                origin_x = float(parts[1])
+                origin_y = float(parts[2])
+            except (IndexError, ValueError):
+                resolution = 0.05
+                origin_x, origin_y = -25.0, -30.0
+                self.get_logger().warn("Using default map metadata")
 
-                self.planner = ExplorationPlanner(
-                    resolution=resolution,
-                    origin=(origin_x, origin_y, 0.0),
-                    turn_penalty=self.turn_penalty,
-                    min_safety_margin=self.min_safety_margin,
-                    preferred_clearance=self.preferred_clearance,
-                    wall_cost_weight=self.wall_cost_weight,
-                )
+            self.planner = ExplorationPlanner(
+                resolution=resolution,
+                origin=(origin_x, origin_y, 0.0),
+                turn_penalty=self.turn_penalty,
+                min_safety_margin=self.min_safety_margin,
+                preferred_clearance=self.preferred_clearance,
+                wall_cost_weight=self.wall_cost_weight,
+            )
 
-                self.get_logger().info(
-                    f"Planner initialized: res={resolution}, origin=({origin_x}, {origin_y})"
-                )
+            # Convert door grid coords to world coords
+            self.doors_world = []
+            for gx, gy in self.doors_grid:
+                wx, wy = self.planner.map_to_world(gx, gy)
+                self.doors_world.append((wx, wy))
 
-            self.planner.update_map(observed_map)
+            self.get_logger().info(
+                f"Planner initialized. Doors converted to world coordinates."
+            )
 
-            if not self.map_received:
-                self.map_received = True
-                self.get_logger().info("First exploration map received!")
+        self.planner.update_map(observed_map)
 
-    def check_path_blocked(self):
-        """Check if current path is blocked by newly discovered walls."""
-        if not self.map_received or self.planner is None:
-            return
+        if not self.map_received:
+            self.map_received = True
+            self.get_logger().info("First exploration map received!")
 
-        with self._path_lock:
-            if not self._current_path:
-                return
-            blocked_idx = self.planner.check_path_blocked(self._current_path)
-
-        if blocked_idx is not None:
-            self.get_logger().warn(f"Path blocked at index {blocked_idx}! Triggering abort...")
-            self.trigger_abort()
-
-    def detect_doors_near_position(
-        self,
-        wx: float,
-        wy: float,
-    ) -> List[Tuple[GridPoint, str]]:
+    def is_door_visible(self, door_idx: int) -> bool:
         """
-        Detect door-like passages in the known map near the given position.
-
-        A door is detected as a narrow passage between known walls.
-        We scan the area around the drone looking for:
-        - Horizontal doors: known walls above and below, passage left-right
-        - Vertical doors: known walls left and right, passage up-down
-
-        Returns:
-            List of (grid_position, orientation) tuples where orientation is 'horizontal' or 'vertical'
+        Check if a door is visible (observed) in the map.
+        Returns True if observed_map at door position is NOT -1.
         """
         if self.planner is None or self.planner.observed_map is None:
-            return []
-
-        doors: List[Tuple[GridPoint, str]] = []
-
-        # Convert search radius to grid cells
-        search_cells = int(self.door_search_radius / self.planner.resolution)
-        center_gx, center_gy = self.planner.world_to_map(wx, wy)
-
-        # Door width in grid cells
-        min_door_cells = int(self.min_door_width / self.planner.resolution)
-        max_door_cells = int(self.max_door_width / self.planner.resolution)
-
-        # Wall check distance
-        wall_check = 15  # cells to check for walls on each side
-
-        observed = self.planner.observed_map
-
-        # Search in the area around the drone
-        for gx in range(center_gx - search_cells, center_gx + search_cells + 1):
-            for gy in range(center_gy - search_cells, center_gy + search_cells + 1):
-                if not self.planner.in_bounds(gx, gy):
-                    continue
-
-                # Must be a known free cell
-                if observed[gy, gx] != 0:
-                    continue
-
-                # Check for horizontal door (walls above/below, passage left/right)
-                if self._is_horizontal_door(gx, gy, wall_check, min_door_cells, max_door_cells):
-                    doors.append(((gx, gy), 'horizontal'))
-                    continue
-
-                # Check for vertical door (walls left/right, passage up/down)
-                if self._is_vertical_door(gx, gy, wall_check, min_door_cells, max_door_cells):
-                    doors.append(((gx, gy), 'vertical'))
-
-        # Remove duplicates (keep one representative per cluster)
-        doors = self._cluster_doors(doors)
-
-        return doors
-
-    def _is_horizontal_door(
-        self,
-        gx: int,
-        gy: int,
-        wall_check: int,
-        min_width: int,
-        max_width: int,
-    ) -> bool:
-        """Check if position is part of a horizontal door (passage is left-right)."""
-        if self.planner is None or self.planner.observed_map is None:
             return False
 
-        observed = self.planner.observed_map
+        gx, gy = self.doors_grid[door_idx]
 
-        # Check for walls above
-        above_wall = False
-        for dy in range(1, wall_check + 1):
-            check_y = gy + dy
-            if not self.planner.in_bounds(gx, check_y):
-                break
-            if observed[check_y, gx] == 1:  # Known wall
-                above_wall = True
-                break
-            if observed[check_y, gx] == 0:  # Known free, no wall yet
-                continue
-            # Unknown - can't confirm
-
-        # Check for walls below
-        below_wall = False
-        for dy in range(1, wall_check + 1):
-            check_y = gy - dy
-            if not self.planner.in_bounds(gx, check_y):
-                break
-            if observed[check_y, gx] == 1:  # Known wall
-                below_wall = True
-                break
-            if observed[check_y, gx] == 0:  # Known free
-                continue
-
-        if not (above_wall and below_wall):
+        # Check bounds
+        h, w = self.planner.observed_map.shape
+        if gx < 0 or gx >= w or gy < 0 or gy >= h:
             return False
 
-        # Count passage width (free cells in vertical direction)
-        passage_height = 1
-        for dy in range(1, max_width + 1):
-            if self.planner.in_bounds(gx, gy + dy) and observed[gy + dy, gx] == 0:
-                passage_height += 1
-            else:
-                break
-        for dy in range(1, max_width + 1):
-            if self.planner.in_bounds(gx, gy - dy) and observed[gy - dy, gx] == 0:
-                passage_height += 1
-            else:
-                break
+        # -1 means unknown/unexplored
+        return self.planner.observed_map[gy, gx] != -1
 
-        # Check if passage width is door-like
-        return min_width <= passage_height <= max_width
+    def get_visible_doors(self) -> List[int]:
+        """Get indices of all visible doors."""
+        return [i for i in range(len(self.doors_grid)) if self.is_door_visible(i)]
 
-    def _is_vertical_door(
-        self,
-        gx: int,
-        gy: int,
-        wall_check: int,
-        min_width: int,
-        max_width: int,
-    ) -> bool:
-        """Check if position is part of a vertical door (passage is up-down)."""
-        if self.planner is None or self.planner.observed_map is None:
-            return False
-
-        observed = self.planner.observed_map
-
-        # Check for walls to the left
-        left_wall = False
-        for dx in range(1, wall_check + 1):
-            check_x = gx - dx
-            if not self.planner.in_bounds(check_x, gy):
-                break
-            if observed[gy, check_x] == 1:  # Known wall
-                left_wall = True
-                break
-            if observed[gy, check_x] == 0:  # Known free
-                continue
-
-        # Check for walls to the right
-        right_wall = False
-        for dx in range(1, wall_check + 1):
-            check_x = gx + dx
-            if not self.planner.in_bounds(check_x, gy):
-                break
-            if observed[gy, check_x] == 1:  # Known wall
-                right_wall = True
-                break
-            if observed[gy, check_x] == 0:  # Known free
-                continue
-
-        if not (left_wall and right_wall):
-            return False
-
-        # Count passage width (free cells in horizontal direction)
-        passage_width = 1
-        for dx in range(1, max_width + 1):
-            if self.planner.in_bounds(gx + dx, gy) and observed[gy, gx + dx] == 0:
-                passage_width += 1
-            else:
-                break
-        for dx in range(1, max_width + 1):
-            if self.planner.in_bounds(gx - dx, gy) and observed[gy, gx - dx] == 0:
-                passage_width += 1
-            else:
-                break
-
-        return min_width <= passage_width <= max_width
-
-    def _cluster_doors(
-        self,
-        doors: List[Tuple[GridPoint, str]],
-        cluster_radius: int = 10,
-    ) -> List[Tuple[GridPoint, str]]:
-        """Cluster nearby door detections and return one representative per cluster."""
-        if not doors:
-            return []
-
-        clustered = []
-        used = set()
-
-        for i, (pos_i, orient_i) in enumerate(doors):
-            if i in used:
-                continue
-
-            # Find all doors in same cluster
-            cluster_positions = [pos_i]
-            used.add(i)
-
-            for j, (pos_j, orient_j) in enumerate(doors):
-                if j in used:
-                    continue
-                if orient_j != orient_i:
-                    continue
-
-                dist = math.hypot(pos_i[0] - pos_j[0], pos_i[1] - pos_j[1])
-                if dist < cluster_radius:
-                    cluster_positions.append(pos_j)
-                    used.add(j)
-
-            # Use center of cluster as representative
-            avg_x = int(sum(p[0] for p in cluster_positions) / len(cluster_positions))
-            avg_y = int(sum(p[1] for p in cluster_positions) / len(cluster_positions))
-            clustered.append(((avg_x, avg_y), orient_i))
-
-        return clustered
-
-    def find_nearest_door(
-        self,
-        wx: float,
-        wy: float,
-    ) -> Optional[Tuple[GridPoint, str, float]]:
+    def find_nearest_visible_door(self, wx: float, wy: float) -> Tuple[Optional[int], float]:
         """
-        Find the nearest detected door to the given world position.
-
-        Returns:
-            (grid_position, orientation, distance) or None if no door found
+        Find the nearest VISIBLE door to the given position.
+        Returns (door_index, distance) or (None, inf) if no visible doors.
         """
-        doors = self.detect_doors_near_position(wx, wy)
-
-        if not doors:
-            return None
-
         min_dist = float('inf')
-        nearest = None
+        nearest_idx = None
 
-        gx_drone, gy_drone = self.planner.world_to_map(wx, wy)
+        for i, (door_wx, door_wy) in enumerate(self.doors_world):
+            if not self.is_door_visible(i):
+                continue
 
-        for door_pos, orient in doors:
-            dist = math.hypot(door_pos[0] - gx_drone, door_pos[1] - gy_drone)
+            dist = math.hypot(door_wx - wx, door_wy - wy)
             if dist < min_dist:
                 min_dist = dist
-                nearest = (door_pos, orient, dist * self.planner.resolution)
+                nearest_idx = i
 
-        return nearest
+        return nearest_idx, min_dist
+
+    def determine_door_orientation(self, door_gx: int, door_gy: int) -> str:
+        """
+        Determine door orientation by checking walls around it.
+        Returns 'horizontal' or 'vertical'.
+        """
+        if self.planner is None:
+            return 'horizontal'
+
+        check_distance = 15  # grid cells
+
+        # Check walls above/below vs left/right
+        above_blocked = not self.planner.is_passable(door_gx, door_gy + check_distance)
+        below_blocked = not self.planner.is_passable(door_gx, door_gy - check_distance)
+        left_blocked = not self.planner.is_passable(door_gx - check_distance, door_gy)
+        right_blocked = not self.planner.is_passable(door_gx + check_distance, door_gy)
+
+        horizontal_score = int(above_blocked) + int(below_blocked)
+        vertical_score = int(left_blocked) + int(right_blocked)
+
+        return 'horizontal' if horizontal_score >= vertical_score else 'vertical'
 
     def compute_traversal_points(
-        self,
-        drone_wx: float,
-        drone_wy: float,
-        door_gx: int,
-        door_gy: int,
-        orientation: str,
+            self,
+            drone_wx: float,
+            drone_wy: float,
+            door_wx: float,
+            door_wy: float,
+            door_gx: int,
+            door_gy: int,
     ) -> Tuple[WorldPoint, WorldPoint, WorldPoint]:
         """
-        Compute the approach point, door center, and exit point for traversal.
-
-        Returns:
-            (approach_point, door_center, exit_point) in world coordinates
+        Compute approach, door center, and exit points.
         """
-        door_wx, door_wy = self.planner.map_to_world(door_gx, door_gy)
+        orientation = self.determine_door_orientation(door_gx, door_gy)
+        self.get_logger().info(f"Door orientation: {orientation}")
 
         if orientation == 'horizontal':
-            # Door passage is left-right
+            # Passage is left-right
             if drone_wx < door_wx:
                 approach_wx = door_wx - self.door_approach_distance
                 exit_wx = door_wx + self.door_traverse_distance
@@ -457,7 +251,7 @@ class DoorwayTraversalAgent(WaypointController):
             approach_wy = door_wy
             exit_wy = door_wy
         else:
-            # Door passage is up-down (vertical)
+            # Passage is up-down
             if drone_wy < door_wy:
                 approach_wy = door_wy - self.door_approach_distance
                 exit_wy = door_wy + self.door_traverse_distance
@@ -467,174 +261,129 @@ class DoorwayTraversalAgent(WaypointController):
             approach_wx = door_wx
             exit_wx = door_wx
 
-        approach_point = (approach_wx, approach_wy)
-        door_center = (door_wx, door_wy)
-        exit_point = (exit_wx, exit_wy)
+        return (approach_wx, approach_wy), (door_wx, door_wy), (exit_wx, exit_wy)
 
-        return approach_point, door_center, exit_point
-
-    def plan_path_to_point(
-        self,
-        start_wx: float,
-        start_wy: float,
-        goal_wx: float,
-        goal_wy: float,
-    ) -> Optional[List[GridPoint]]:
-        """Plan a path using the exploration planner."""
+    def plan_and_execute(self, start_wx: float, start_wy: float,
+                         goal_wx: float, goal_wy: float) -> bool:
+        """Plan path and execute waypoints. Returns True on success."""
         if self.planner is None:
-            return None
+            return False
 
         start_grid = self.planner.world_to_map(start_wx, start_wy)
         goal_grid = self.planner.world_to_map(goal_wx, goal_wy)
 
         path = self.planner.plan(start_grid, goal_grid)
         if not path:
-            return None
+            self.get_logger().warn("No path found, trying direct goto")
+            success, _ = self.goto(goal_wx, goal_wy, self.cruise_altitude)
+            return success
 
         # Simplify path
         simplified = rdp_simplify(path, eps=self.rdp_eps)
         waypoints = extract_turn_points(simplified, min_dist=self.min_turn_dist)
 
-        return waypoints
-
-    def execute_waypoints(self, waypoints_grid: List[GridPoint]) -> bool:
-        """Execute a sequence of waypoints."""
-        with self._path_lock:
-            self._current_path = waypoints_grid[:]
-
-        for i, (gx, gy) in enumerate(waypoints_grid):
+        # Execute waypoints
+        for i, (gx, gy) in enumerate(waypoints):
             wx, wy = self.planner.map_to_world(gx, gy)
-            self.get_logger().info(
-                f"→ Waypoint {i + 1}/{len(waypoints_grid)}: ({wx:.2f}, {wy:.2f})"
-            )
+            self.get_logger().info(f"  Waypoint {i + 1}/{len(waypoints)}: ({wx:.2f}, {wy:.2f})")
 
-            reached, aborted = self.goto(wx, wy, tz=self.cruise_altitude)
-
-            if aborted:
-                self.get_logger().warn("Path aborted during execution!")
-                with self._path_lock:
-                    self._current_path = []
+            success, _ = self.goto(wx, wy, self.cruise_altitude)
+            if not success:
                 return False
-
-            if not reached:
-                with self._path_lock:
-                    self._current_path = []
-                return False
-
             time.sleep(0.2)
 
-        with self._path_lock:
-            self._current_path = []
         return True
 
     def handle_traversal_request(
-        self,
-        request: NavigateToPose.Request,
-        response: NavigateToPose.Response,
+            self,
+            request: NavigateToPose.Request,
+            response: NavigateToPose.Response,
     ) -> NavigateToPose.Response:
-        """Main traversal logic using partial map."""
+        """Handle doorway traversal request."""
+
         if self.busy:
             response.success = False
-            response.message = "Doorway traversal agent is busy."
+            response.message = "Agent is busy"
             return response
 
         if not self.map_received or self.planner is None:
             response.success = False
-            response.message = "No exploration map received yet."
+            response.message = "No map received yet"
             return response
 
         self.busy = True
-        self.clear_abort()
         time.sleep(0.1)
 
-        # Get current drone position
+        # Get drone position
         current = self.pose
         drone_wx = float(current.position.x)
         drone_wy = float(current.position.y)
 
-        self.get_logger().info(
-            f"Doorway traversal requested. Drone at ({drone_wx:.2f}, {drone_wy:.2f})"
-        )
+        self.get_logger().info(f"Traversal requested. Drone at ({drone_wx:.2f}, {drone_wy:.2f})")
 
-        # Find nearest door from visible map
-        door_info = self.find_nearest_door(drone_wx, drone_wy)
+        # Find nearest visible door
+        door_idx, door_dist = self.find_nearest_visible_door(drone_wx, drone_wy)
 
-        if door_info is None:
-            self.get_logger().error("No visible doors detected nearby!")
+        if door_idx is None:
+            # Log which doors are visible for debugging
+            visible = self.get_visible_doors()
+            self.get_logger().warn(f"No visible doors! Visible door indices: {visible}")
             response.success = False
-            response.message = "No visible doors found in the explored area."
+            response.message = "No visible doors found"
             self.busy = False
             return response
 
-        door_grid, orientation, door_dist = door_info
-        door_gx, door_gy = door_grid
-        door_wx, door_wy = self.planner.map_to_world(door_gx, door_gy)
+        door_gx, door_gy = self.doors_grid[door_idx]
+        door_wx, door_wy = self.doors_world[door_idx]
 
         self.get_logger().info(
-            f"Nearest door: grid=({door_gx}, {door_gy}), "
-            f"world=({door_wx:.2f}, {door_wy:.2f}), "
-            f"orientation={orientation}, dist={door_dist:.2f}m"
+            f"Nearest visible door #{door_idx}: "
+            f"grid=({door_gx}, {door_gy}), world=({door_wx:.2f}, {door_wy:.2f}), "
+            f"dist={door_dist:.2f}m"
         )
 
         # Compute traversal points
-        approach_point, door_center, exit_point = self.compute_traversal_points(
-            drone_wx, drone_wy, door_gx, door_gy, orientation
+        approach, door_center, exit_pt = self.compute_traversal_points(
+            drone_wx, drone_wy, door_wx, door_wy, door_gx, door_gy
         )
 
         self.get_logger().info(
-            f"Traversal plan:\n"
-            f"  Approach: ({approach_point[0]:.2f}, {approach_point[1]:.2f})\n"
-            f"  Door:     ({door_center[0]:.2f}, {door_center[1]:.2f})\n"
-            f"  Exit:     ({exit_point[0]:.2f}, {exit_point[1]:.2f})"
+            f"Plan: approach=({approach[0]:.2f}, {approach[1]:.2f}) -> "
+            f"door=({door_center[0]:.2f}, {door_center[1]:.2f}) -> "
+            f"exit=({exit_pt[0]:.2f}, {exit_pt[1]:.2f})"
         )
 
-        # Phase 1: Navigate to approach point (if far from door)
+        # Phase 1: Navigate to approach point (if not already close)
         if door_dist > self.door_approach_distance * 1.5:
-            self.get_logger().info("Phase 1: Navigating to approach point...")
-            waypoints = self.plan_path_to_point(
-                drone_wx, drone_wy, approach_point[0], approach_point[1]
-            )
-            if waypoints:
-                if not self.execute_waypoints(waypoints):
-                    response.success = False
-                    response.message = "Failed to reach approach point"
-                    self.busy = False
-                    return response
-            else:
-                # No path found, try direct approach
-                self.get_logger().warn("No path to approach point, trying direct")
-                reached, aborted = self.goto(
-                    approach_point[0], approach_point[1], tz=self.cruise_altitude
-                )
-                if aborted or not reached:
-                    response.success = False
-                    response.message = "Failed to reach approach point (direct)"
-                    self.busy = False
-                    return response
+            self.get_logger().info("Phase 1: Going to approach point...")
+            if not self.plan_and_execute(drone_wx, drone_wy, approach[0], approach[1]):
+                response.success = False
+                response.message = "Failed to reach approach point"
+                self.busy = False
+                return response
 
-        # Phase 2: Go through door center
+        # Phase 2: Through door center
         self.get_logger().info("Phase 2: Passing through door...")
-        reached, aborted = self.goto(door_center[0], door_center[1], tz=self.cruise_altitude)
-        if aborted or not reached:
+        success, _ = self.goto(door_center[0], door_center[1], self.cruise_altitude)
+        if not success:
             response.success = False
-            response.message = "Failed to pass through door center"
+            response.message = "Failed at door center"
             self.busy = False
             return response
-
         time.sleep(0.2)
 
-        # Phase 3: Continue to exit point
-        self.get_logger().info("Phase 3: Exiting through door...")
-        reached, aborted = self.goto(exit_point[0], exit_point[1], tz=self.cruise_altitude)
-        if aborted or not reached:
+        # Phase 3: Exit
+        self.get_logger().info("Phase 3: Exiting...")
+        success, _ = self.goto(exit_pt[0], exit_pt[1], self.cruise_altitude)
+        if not success:
             response.success = False
-            response.message = "Failed to reach exit point"
+            response.message = "Failed to exit"
             self.busy = False
             return response
 
-        self.get_logger().info("Doorway traversal completed ✓")
+        self.get_logger().info("Doorway traversal complete!")
         response.success = True
-        response.message = f"Successfully traversed door at ({door_gx}, {door_gy})"
+        response.message = f"Traversed door #{door_idx}"
         self.busy = False
         return response
 
