@@ -14,7 +14,7 @@ CONTAINER_APRILTAG_DIR="/ros2_ws/src/apriltag_ros"
 TRIANGULATION_FILE_NAME="tag_triangulation_node_new.py"
 LOGGER_FILE_NAME="tag_pose_logger.py"
 IMU_FILE_NAME="tag_and_imu_logger.py"
-
+OPTICAL_FILE_NAME="optical_flow_node.py"
 
 ########################################
 # FUNCTIONS
@@ -187,6 +187,41 @@ run_imu_logger(){
   "
 }
 
+run_optical_flow_node() {
+  echo ">>> Running optical_flow_node.py inside container: $CONTAINER_NAME"
+
+  if [ ! -d "$LOCAL_ROS2_APRILTAG_DIR" ]; then
+    echo "ERROR: Local directory not found: $LOCAL_ROS2_APRILTAG_DIR"
+    return 1
+  fi
+
+  echo ">>> Syncing local ros2_apriltag directory into container..."
+  docker cp "$LOCAL_ROS2_APRILTAG_DIR/." "$CONTAINER_NAME:$CONTAINER_APRILTAG_DIR/"
+
+  docker exec -it "$CONTAINER_NAME" bash -lc "
+    set -e
+    echo 'Sourcing ROS...'
+    source /opt/ros/\$ROS_DISTRO/setup.bash
+
+    cd /ros2_ws
+    if [ -f install/setup.bash ]; then
+      source install/setup.bash
+    fi
+
+    cd $CONTAINER_APRILTAG_DIR
+
+    if [ ! -f $OPTICAL_FILE_NAME ]; then
+      echo 'ERROR: file $OPTICAL_FILE_NAME not found in $CONTAINER_APRILTAG_DIR'
+      ls -la
+      exit 1
+    fi
+
+    echo 'Running $OPTICAL_FILE_NAME...'
+    python3 $OPTICAL_FILE_NAME
+  "
+}
+
+
 ########################################
 # MENU
 ########################################
@@ -202,6 +237,7 @@ show_menu() {
   echo "3) Run triangulation node (step 3)"
   echo "4) Run tag_pose_logger.py (step 4)"
   echo "5) Run tag_imu_logger.py (step 5)"
+  echo "6) Run optical_flow_node.py (Optical Flow)"
   echo "q) Quit"
   echo "=============================="
   echo ""
@@ -247,6 +283,9 @@ main() {
         run_pose_logger
         ;;
       5) run_imu_logger
+        ;;
+      6)
+        run_optical_flow_node
         ;;
       q|Q)
         echo "Bye :)"
