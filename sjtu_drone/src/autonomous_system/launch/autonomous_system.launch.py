@@ -6,6 +6,9 @@ Starts:
     - DoorwayTraversalAgent
     - FrontierExplorationService
     - RoomExplorationAgent
+    - TurnRightAgent
+    - TurnLeftAgent
+    - MoveForwardAgent
     - MetaAgent
     - Map visualization
 """
@@ -58,6 +61,30 @@ def generate_launch_description():
         #         'max_door_width': 2.0,
         #     }]
         # ),
+
+        # Turn right agent (90° clockwise rotation)
+        Node(
+            package='autonomous_system',
+            executable='turn_right_agent',
+            name='turn_right_agent',
+            output='screen'
+        ),
+
+        # Turn left agent (90° counter-clockwise rotation)
+        Node(
+            package='autonomous_system',
+            executable='turn_left_agent',
+            name='turn_left_agent',
+            output='screen'
+        ),
+
+        # Move forward agent (1m forward)
+        Node(
+            package='autonomous_system',
+            executable='move_forward_agent',
+            name='move_forward_agent',
+            output='screen'
+        ),
 
         # Meta-Agent (user-driven mission control)
         Node(

@@ -64,6 +64,24 @@ install(PROGRAMS
 )
 
 install(PROGRAMS
+  autonomous_system/agents/turn_right_agent_node.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME turn_right_agent
+)
+
+install(PROGRAMS
+  autonomous_system/agents/turn_left_agent_node.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME turn_left_agent
+)
+
+install(PROGRAMS
+  autonomous_system/agents/move_forward_agent_node.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME move_forward_agent
+)
+
+install(PROGRAMS
   autonomous_system/mapping/show_drone_map.py
   DESTINATION lib/${PROJECT_NAME}
   RENAME show_drone_map
