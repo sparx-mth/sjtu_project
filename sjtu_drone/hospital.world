@@ -1287,7 +1287,7 @@
       </include>
     </model>
 
-    <model name="Apriltag36h11_00014">
+    <model name="Apriltag36h11_00014_A">
       <include>
         <uri>model://Apriltag36h11_00014</uri>
         <static>true</static>
@@ -1296,50 +1296,14 @@
       </include>
     </model>
 
-    <model name="Apriltag36h11_00015">
+    <model name="Apriltag36h11_00014_B">
       <include>
-        <uri>model://Apriltag36_11_00015</uri>
+        <uri>model://Apriltag36h11_00014</uri>
         <static>true</static>
         <pose>11.195  0.00  1.50   0   -1.5708   0</pose>
       </include>
     </model>
-
-    <!--  – yaw = 0° -->
-    <model name="Apriltag36h11_00012">
-      <include>
-        <uri>model://Apriltag36_11_00012</uri>
-        <static>true</static>
-        <pose>9.0  -1.0  1.50   0   -1.5708   0.0</pose>
-      </include>
-    </model>
-
-    <!--  – yaw = 180° -->
-    <model name="Apriltag36h11_00013">
-      <include>
-        <uri>model://Apriltag36_11_00013</uri>
-        <static>true</static>
-        <pose>13.0  -1.0  1.50   0   -1.5708   3.14159</pose>
-      </include>
-    </model>
-
-    <!--  – yaw = -90° (270°) -->
-    <model name="Apriltag36h11_00011">
-      <include>
-        <uri>model://Apriltag36_11_00011</uri>
-        <static>true</static>
-        <pose>11.0  1.0  1.50   0   -1.5708   -1.5708</pose>
-      </include>
-    </model>
-
-    <!--  – yaw = +90° -->
-    <model name="Apriltag36h11_00010">
-      <include>
-        <uri>model://Apriltag36_11_00010</uri>
-        <static>true</static>
-        <pose>11.0  -3.0  1.50   0   -1.5708   1.5708</pose>
-      </include>
-    </model>
-
+  
     <model name="Apriltag36_11_00015_B1">
       <include>
         <uri>model://Apriltag36_11_00015</uri>

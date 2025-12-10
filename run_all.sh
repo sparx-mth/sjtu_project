@@ -6,13 +6,13 @@
 
 CONTAINER_NAME="sjtu_drone_hospital"
 
-#PROJECT_ROOT="$HOME/sjtu_project/sjtu_drone"
-PROJECT_ROOT="/home/user/PycharmProjects/sjtu_project/sjtu_drone"
+PROJECT_ROOT="$HOME/sjtu_project/sjtu_drone"
+#PROJECT_ROOT="/home/user/PycharmProjects/sjtu_project/sjtu_drone"
 
 WORLD_FILE="hospital.world"
 
-#LOCAL_ROS2_APRILTAG_DIR="$HOME/sjtu_project/ros2_apriltag"
-LOCAL_ROS2_APRILTAG_DIR="/home/user/PycharmProjects/sjtu_project/ros2_apriltag"
+LOCAL_ROS2_APRILTAG_DIR="$HOME/sjtu_project/ros2_apriltag"
+#LOCAL_ROS2_APRILTAG_DIR="/home/user/PycharmProjects/sjtu_project/ros2_apriltag"
 
 CONTAINER_APRILTAG_DIR="/ros2_ws/src/apriltag_ros"
 TRIANGULATION_FILE_NAME="tag_triangulation_node_new.py"
@@ -20,6 +20,7 @@ LOGGER_FILE_NAME="tag_pose_logger.py"
 IMU_FILE_NAME="tag_and_imu_logger.py"
 OPTICAL_FILE_NAME="optical_flow_node.py"
 OBJECT_SIZE_FILE_NAME="object_size_from_json.py"
+TAG_BASED_AZIMUTH_FILE_NAME="tag_based_azimuth_continuous.py"
 
 ########################################
 # FUNCTIONS
@@ -247,7 +248,6 @@ run_object_size() {
       source install/setup.bash
     fi
 
-    # לוודא שיש numpy
     echo 'Checking for numpy...'
     python3 -c 'import numpy' 2>/dev/null || {
       echo 'numpy not found, installing python3-numpy...'
@@ -266,10 +266,49 @@ run_object_size() {
     echo 'Running $OBJECT_SIZE_FILE_NAME...'
     python3 $OBJECT_SIZE_FILE_NAME --ros-args \\
       -p bbox_json_path:=/ros2_ws/bboxes.json \\
-      -p tag_id:=15
   "
 }
 
+run_tag_based_azimuth_continuous() {
+  echo ">>> Running tag_based_azimuth_continuous.py inside container: $CONTAINER_NAME"
+
+  if [ ! -d "$LOCAL_ROS2_APRILTAG_DIR" ]; then
+    echo "ERROR: Local directory not found: $LOCAL_ROS2_APRILTAG_DIR"
+    return 1
+  fi
+
+  echo ">>> Syncing local ros2_apriltag directory into container..."
+  docker cp "$LOCAL_ROS2_APRILTAG_DIR/." "$CONTAINER_NAME:$CONTAINER_APRILTAG_DIR/"
+
+  docker exec -it "$CONTAINER_NAME" bash -lc "
+    set -e
+    echo 'Sourcing ROS...'
+    source /opt/ros/\$ROS_DISTRO/setup.bash
+
+    cd /ros2_ws
+    if [ -f install/setup.bash ]; then
+      source install/setup.bash
+    fi
+
+    echo 'Checking for numpy...'
+    python3 -c 'import numpy' 2>/dev/null || {
+      echo 'numpy not found, installing python3-numpy...'
+      apt-get update
+      apt-get install -y python3-numpy
+    }
+
+    cd $CONTAINER_APRILTAG_DIR
+
+    if [ ! -f $TAG_BASED_AZIMUTH_FILE_NAME ]; then
+      echo 'ERROR: file $TAG_BASED_AZIMUTH_FILE_NAME not found in $CONTAINER_APRILTAG_DIR'
+      ls -la
+      exit 1
+    fi
+
+    echo 'Running $TAG_BASED_AZIMUTH_FILE_NAME...'
+    python3 $TAG_BASED_AZIMUTH_FILE_NAME --ros-args \\
+  "
+}
 ########################################
 # MENU
 ########################################
@@ -287,6 +326,7 @@ show_menu() {
   echo "5) Run tag_imu_logger.py (step 5)"
   echo "6) Run optical_flow_node.py (Optical Flow)"
   echo "7) Run object_size_from_json.py (object size)"
+  echo "8) Run tag_based_azimuth_continuous.py (tag azimuth)"
   echo "q) Quit"
   echo "=============================="
   echo ""
@@ -338,6 +378,9 @@ main() {
         ;;
       7)
         run_object_size
+        ;;
+      8)
+        run_tag_based_azimuth_continuous
         ;;
       q|Q)
         echo "Bye :)"
