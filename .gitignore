@@ -33,3 +33,10 @@ cmake-build-*/
 # Misc
 *.swp
 *.swo
+
+*.mkv
+*.avi
+*.mp4
+*.mov
+*.zip
+*.tar.gz

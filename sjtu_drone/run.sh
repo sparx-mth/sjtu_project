@@ -103,7 +103,7 @@ docker run \
   -v "${XSOCK}:${XSOCK}" \
   -v "${XAUTH}:${XAUTH}" \
   -v "${WORKSPACE_DIR}:${CONTAINER_WS}:rw" \
-  -v "${WORKSPACE_DIR}/sjtu_drone/models/april_tag_36h11_0:/root/.gazebo/models/april_tag_36h11_0:ro" \
+  -v "${WORKSPACE_DIR}/sjtu_drone/ros2_apriltag:/ros2_ws/src/apriltag_ros" \
   -e DISPLAY="${DISPLAY}" \
   -e XAUTHORITY="${XAUTH}" \
   -e QT_X11_NO_MITSHM=1 \
