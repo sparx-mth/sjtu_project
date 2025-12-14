@@ -5,12 +5,13 @@ Meta-Agent (Multi-Agent Version)
 A high-level agent that interacts with multiple navigation services.
 
 Available agents:
-    1. NavigationAgentService - Navigate to specific coordinates
+    1. NavigationAgentService - Navigate to specific coordinates (A*)
     2. DoorwayTraversalAgent - Find and traverse the nearest door
     3. FrontierExplorationService - Autonomous frontier exploration
     4. TurnRightAgent - Rotate 90° clockwise
     5. TurnLeftAgent - Rotate 90° counterclockwise
     6. MoveForwardAgent - Move forward 1 meter
+    7. RRT Navigation - Navigate using RRT* planner
 """
 
 import rclpy
@@ -33,6 +34,7 @@ class MetaAgent(Node):
         self.turn_right_client = self.create_client(NavigateToPose, "/turn_right")
         self.turn_left_client = self.create_client(NavigateToPose, "/turn_left")
         self.move_forward_client = self.create_client(NavigateToPose, "/move_forward")
+        self.rrt_client = self.create_client(NavigateToPose, "/navigate_rrt")  # NEW
 
         self.get_logger().info("Waiting for services...")
 
@@ -47,12 +49,14 @@ class MetaAgent(Node):
         self.turn_right_available = self.turn_right_client.wait_for_service(timeout_sec=2.0)
         self.turn_left_available = self.turn_left_client.wait_for_service(timeout_sec=2.0)
         self.move_forward_available = self.move_forward_client.wait_for_service(timeout_sec=2.0)
+        self.rrt_available = self.rrt_client.wait_for_service(timeout_sec=2.0)  # NEW
 
         for name, avail in [("/traverse_doorway", self.door_available),
                             ("/explore_frontiers", self.explore_available),
                             ("/turn_right", self.turn_right_available),
                             ("/turn_left", self.turn_left_available),
-                            ("/move_forward", self.move_forward_available)]:
+                            ("/move_forward", self.move_forward_available),
+                            ("/navigate_rrt", self.rrt_available)]:  # NEW
             status = "available" if avail else "not available (optional)"
             self.get_logger().info(f"  {name} {status}")
 
@@ -66,13 +70,14 @@ class MetaAgent(Node):
         print("\n" + "=" * 50)
         print("           AUTONOMOUS DRONE CONTROL")
         print("=" * 50)
-        print("  1. Navigate to coordinates (x, y, z)")
+        print("  1. Navigate to coordinates (A*)")
         print(f"  2. {'Traverse nearest doorway' if self.door_available else '[Unavailable] Traverse nearest doorway'}")
         print(f"  3. {'Frontier exploration (autonomous)' if self.explore_available else '[Unavailable] Frontier exploration'}")
         print(f"  4. {'Turn right (90° clockwise)' if self.turn_right_available else '[Unavailable] Turn right'}")
         print(f"  5. {'Turn left (90° counter-clockwise)' if self.turn_left_available else '[Unavailable] Turn left'}")
         print(f"  6. {'Move forward (1 meter)' if self.move_forward_available else '[Unavailable] Move forward'}")
-        print("  7. Exit")
+        print(f"  7. {'Navigate via RRT*' if self.rrt_available else '[Unavailable] Navigate via RRT*'}")  # NEW
+        print("  8. Exit")
         print("=" * 50)
 
     def main_loop(self):
@@ -81,7 +86,7 @@ class MetaAgent(Node):
             self.print_menu()
 
             try:
-                choice = input("Select agent (1-7): ").strip()
+                choice = input("Select agent (1-8): ").strip()
             except EOFError:
                 break
 
@@ -112,17 +117,22 @@ class MetaAgent(Node):
                     self.handle_move_forward()
                 else:
                     print("Move forward service not available.")
-            elif choice == "7":
+            elif choice == "7":  # NEW
+                if self.rrt_available:
+                    self.handle_rrt_navigation()
+                else:
+                    print("RRT navigation service not available.")
+            elif choice == "8":
                 print("Exiting Meta-Agent...")
                 break
             else:
-                print("Invalid choice. Please enter 1-7.")
+                print("Invalid choice. Please enter 1-8.")
 
     # ---------------------------------------------------------------------
 
     def handle_navigation(self):
         """Handle navigation to specific coordinates."""
-        print("\n--- Navigate to Coordinates ---")
+        print("\n--- Navigate to Coordinates (A*) ---")
         try:
             x = float(input("Enter target X (meters): "))
             y = float(input("Enter target Y (meters): "))
@@ -134,6 +144,22 @@ class MetaAgent(Node):
 
         print(f"\nSending navigation request to ({x:.2f}, {y:.2f}, {z:.2f}) ...")
         success, message = self.call_navigation_service(x, y, z)
+        self.print_result(success, message)
+
+    def handle_rrt_navigation(self):  # NEW
+        """Handle RRT* navigation to specific coordinates."""
+        print("\n--- Navigate via RRT* ---")
+        try:
+            x = float(input("Enter target X (meters): "))
+            y = float(input("Enter target Y (meters): "))
+            z = float(input("Enter target Z (meters) [default=1.5]: ") or "1.5")
+            z = float(z)
+        except ValueError:
+            print("Invalid input. Enter numeric values.")
+            return
+
+        print(f"\nSending RRT* navigation request to ({x:.2f}, {y:.2f}, {z:.2f}) ...")
+        success, message = self.call_rrt_service(x, y, z)
         self.print_result(success, message)
 
     def handle_doorway_traversal(self):
@@ -202,6 +228,19 @@ class MetaAgent(Node):
         req.z = z
 
         future = self.nav_client.call_async(req)
+        rclpy.spin_until_future_complete(self, future)
+        if future.result() is None:
+            return False, "Service call failed or interrupted."
+        return future.result().success, future.result().message
+
+    def call_rrt_service(self, x: float, y: float, z: float):  # NEW
+        """Send an RRT* navigation request."""
+        req = NavigateToPose.Request()
+        req.x = x
+        req.y = y
+        req.z = z
+
+        future = self.rrt_client.call_async(req)
         rclpy.spin_until_future_complete(self, future)
         if future.result() is None:
             return False, "Service call failed or interrupted."

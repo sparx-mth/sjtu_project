@@ -94,6 +94,13 @@ def generate_launch_description():
             output='screen'
         ),
 
+        Node(
+            package='autonomous_system',
+            executable='rrt_navigation_service',
+            name='rrt_navigation_service',
+            output='screen',
+            parameters=[{...}]
+        ),
         # Map visualization with exploration (fog of war)
         Node(
             package='autonomous_system',

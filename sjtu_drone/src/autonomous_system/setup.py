@@ -27,6 +27,7 @@ setup(
             'frontier_exploration_service = autonomous_system.agents.frontier_exploration_service_node:main',
             # 'room_exploration_agent = autonomous_system.agents.room_exploration_agent:main',
             'meta_agent = autonomous_system.agents.meta_agent_node:main',
+            'rrt_navigation_service = autonomous_system.agents.rrt_navigation_service:main',
             'turn_right_agent = autonomous_system.agents.turn_right_agent_node:main',
             'turn_left_agent = autonomous_system.agents.turn_left_agent_node:main',
             'move_forward_agent = autonomous_system.agents.move_forward_agent_node:main',

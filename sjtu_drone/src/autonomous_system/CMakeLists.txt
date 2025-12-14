@@ -32,6 +32,12 @@ install(
   DESTINATION local/lib/python3.10/dist-packages/autonomous_system
 )
 
+install(PROGRAMS
+  autonomous_system/agents/rrt_navigation_service.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME rrt_navigation_service
+)
+
 # Install the executable scripts with proper names
 install(PROGRAMS
   autonomous_system/agents/navigation_agent_service_node.py
