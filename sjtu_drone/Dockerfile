@@ -29,6 +29,10 @@ RUN apt-get update && apt-get install -y \
         ros-${ROS_DISTRO}-nav-msgs \
         ros-${ROS_DISTRO}-nav2-costmap-2d \
         ros-${ROS_DISTRO}-nav2-map-server \
+        ros-${ROS_DISTRO}-ompl \
+        libompl-dev \
+        libyaml-cpp-dev \
+        libopencv-dev \
         python3-opencv python3-yaml python3-numpy python3-scipy \
         libgl1 libglib2.0-0 \
     && apt-get clean

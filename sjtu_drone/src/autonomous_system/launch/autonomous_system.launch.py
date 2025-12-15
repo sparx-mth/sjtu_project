@@ -96,11 +96,17 @@ def generate_launch_description():
 
         Node(
             package='autonomous_system',
-            executable='rrt_navigation_service',
+            executable='rrt_navigation_service_cpp',
             name='rrt_navigation_service',
             output='screen',
-            parameters=[{...}]
+            parameters=[{
+                'map_yaml': '/root/sjtu_project/sjtu_drone/maps/hospital_map_cropped.yaml',
+                'safety_margin': 10,
+                'cruise_speed': 0.5,
+                'waypoint_tolerance': 0.3,
+            }]
         ),
+
         # Map visualization with exploration (fog of war)
         Node(
             package='autonomous_system',
