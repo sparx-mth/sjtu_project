@@ -1,11 +1,24 @@
+# PlanPath.srv
+# Service definition for RRT* path planning
 # Request: start and goal positions
+# Response: waypoints (positions + velocities)
+
+# Request
 float64 start_x
 float64 start_y
 float64 goal_x
 float64 goal_y
 ---
-# Response: success flag and waypoints
+# Response
 bool success
 string message
+
+# Waypoint positions (world coordinates, meters)
 float64[] waypoints_x
 float64[] waypoints_y
+
+# Velocity vectors at each waypoint (m/s)
+# Direction: tangent to path at each waypoint
+# Magnitude: scaled to desired_speed parameter
+float64[] velocities_x
+float64[] velocities_y

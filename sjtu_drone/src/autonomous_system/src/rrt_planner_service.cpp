@@ -2,7 +2,7 @@
  * rrt_planner_service.cpp
  * -----------------------
  * Minimal RRT* path planning service using OMPL.
- * ONLY does planning - returns waypoints. No navigation.
+ * ONLY does planning - returns waypoints AND velocity vectors. No navigation.
  */
 
 #include <rclcpp/rclcpp.hpp>
@@ -29,10 +29,12 @@ public:
         declare_parameter("map_yaml", "/root/sjtu_project/sjtu_drone/maps/hospital_map_cropped.yaml");
         declare_parameter("safety_margin", 10);
         declare_parameter("planning_timeout", 3.0);
+        declare_parameter("desired_speed", 0.4);  // NEW: default cruise speed (m/s)
 
         std::string map_path = get_parameter("map_yaml").as_string();
         safety_margin_ = get_parameter("safety_margin").as_int();
         planning_timeout_ = get_parameter("planning_timeout").as_double();
+        desired_speed_ = get_parameter("desired_speed").as_double();  // NEW
 
         load_map(map_path);
 
@@ -100,6 +102,58 @@ private:
         double wx = gx * resolution_ + origin_x_;
         double wy = gy * resolution_ + origin_y_;
         return {wx, wy};
+    }
+
+    // =========================================================================
+    // NEW: Compute velocity vectors from waypoints
+    // =========================================================================
+    void compute_velocities(
+        const std::vector<double>& waypoints_x,
+        const std::vector<double>& waypoints_y,
+        std::vector<double>& velocities_x,
+        std::vector<double>& velocities_y,
+        double speed)
+    {
+        size_t n = waypoints_x.size();
+        if (n == 0) return;
+
+        velocities_x.resize(n);
+        velocities_y.resize(n);
+
+        for (size_t i = 0; i < n; ++i) {
+            double dx, dy;
+
+            if (i < n - 1) {
+                // Direction to next waypoint
+                dx = waypoints_x[i + 1] - waypoints_x[i];
+                dy = waypoints_y[i + 1] - waypoints_y[i];
+            } else {
+                // Last waypoint: use previous direction or zero
+                if (n > 1) {
+                    dx = waypoints_x[i] - waypoints_x[i - 1];
+                    dy = waypoints_y[i] - waypoints_y[i - 1];
+                } else {
+                    dx = 0.0;
+                    dy = 0.0;
+                }
+            }
+
+            // Normalize and scale by desired speed
+            double mag = std::hypot(dx, dy);
+            if (mag > 1e-6) {
+                velocities_x[i] = (dx / mag) * speed;
+                velocities_y[i] = (dy / mag) * speed;
+            } else {
+                velocities_x[i] = 0.0;
+                velocities_y[i] = 0.0;
+            }
+        }
+
+        // Optional: reduce velocity at final waypoint for smooth stop
+        if (n > 0) {
+            velocities_x[n - 1] = 0.0;
+            velocities_y[n - 1] = 0.0;
+        }
     }
 
     void plan_callback(
@@ -181,9 +235,20 @@ private:
                 }
             }
 
+            // =========================================================
+            // NEW: Compute velocity vectors
+            // =========================================================
+            compute_velocities(
+                response->waypoints_x,
+                response->waypoints_y,
+                response->velocities_x,
+                response->velocities_y,
+                desired_speed_
+            );
+
             response->success = true;
             response->message = "Path found with " + std::to_string(response->waypoints_x.size()) + " waypoints";
-            RCLCPP_INFO(get_logger(), "Path found: %zu waypoints", response->waypoints_x.size());
+            RCLCPP_INFO(get_logger(), "Path found: %zu waypoints with velocities", response->waypoints_x.size());
         } else {
             response->success = false;
             response->message = "No path found";
@@ -195,6 +260,7 @@ private:
     int width_, height_, safety_margin_;
     double resolution_, origin_x_, origin_y_;
     double planning_timeout_;
+    double desired_speed_;  // NEW
 
     rclcpp::Service<autonomous_system::srv::PlanPath>::SharedPtr service_;
 };

@@ -4,10 +4,15 @@ RRT Navigation Agent (Service-based)
 -------------------------------------
 Uses C++ RRT* planner service for path planning,
 then executes waypoints using WaypointController.
+
+NEW: Now receives velocity vectors from planner for:
+  - Feed-forward velocity hints
+  - Path visualization
+  - Motion profiling
 """
 
 import time
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 import rclpy
 from rclpy.executors import MultiThreadedExecutor
@@ -21,6 +26,7 @@ class RRTNavigationAgent(WaypointController):
     """
     RRT Navigation Agent:
     - Calls /plan_path_rrt (C++) for path planning
+    - Receives waypoints AND velocity vectors
     - Executes waypoints using WaypointController
     """
 
@@ -31,10 +37,12 @@ class RRTNavigationAgent(WaypointController):
         self.declare_parameter("cruise_altitude", 1.5)
         self.declare_parameter("waypoint_tolerance", 0.3)
         self.declare_parameter("planner_timeout", 5.0)
+        self.declare_parameter("use_velocity_hints", False)  # NEW: enable feed-forward
 
         self.cruise_altitude = float(self.get_parameter("cruise_altitude").value)
         self.waypoint_tolerance = float(self.get_parameter("waypoint_tolerance").value)
         self.planner_timeout = float(self.get_parameter("planner_timeout").value)
+        self.use_velocity_hints = bool(self.get_parameter("use_velocity_hints").value)
 
         # Client to C++ RRT planner
         self.planner_cb_group = MutuallyExclusiveCallbackGroup()
@@ -61,10 +69,17 @@ class RRTNavigationAgent(WaypointController):
             self.get_logger().info("  Still waiting...")
 
         self.get_logger().info("RRT Navigation Agent ready on /navigate_rrt")
+        self.get_logger().info(f"  Velocity hints: {'enabled' if self.use_velocity_hints else 'disabled'}")
 
     def call_planner(self, start_x: float, start_y: float,
-                     goal_x: float, goal_y: float) -> Tuple[bool, List[Tuple[float, float]], str]:
-        """Call C++ RRT planner service."""
+                     goal_x: float, goal_y: float) -> Tuple[bool, List[dict], str]:
+        """
+        Call C++ RRT planner service.
+
+        Returns:
+            Tuple of (success, waypoints, message)
+            where waypoints is a list of dicts: {'x', 'y', 'vx', 'vy'}
+        """
         request = PlanPath.Request()
         request.start_x = start_x
         request.start_y = start_y
@@ -87,8 +102,23 @@ class RRTNavigationAgent(WaypointController):
         if not result.success:
             return False, [], result.message
 
-        # Convert arrays to list of tuples
-        waypoints = list(zip(result.waypoints_x, result.waypoints_y))
+        # NEW: Combine positions and velocities into waypoint dicts
+        waypoints = []
+        n = len(result.waypoints_x)
+
+        # Handle case where velocities might not be provided (backward compatibility)
+        has_velocities = (len(result.velocities_x) == n and
+                          len(result.velocities_y) == n)
+
+        for i in range(n):
+            wp = {
+                'x': result.waypoints_x[i],
+                'y': result.waypoints_y[i],
+                'vx': result.velocities_x[i] if has_velocities else 0.0,
+                'vy': result.velocities_y[i] if has_velocities else 0.0,
+            }
+            waypoints.append(wp)
+
         return True, waypoints, result.message
 
     def handle_navigation_request(
@@ -128,13 +158,25 @@ class RRTNavigationAgent(WaypointController):
             self.busy = False
             return response
 
-        self.get_logger().info(f"Path received: {len(waypoints)} waypoints")
+        self.get_logger().info(f"Path received: {len(waypoints)} waypoints with velocities")
 
         # Execute waypoints using WaypointController
-        for i, (wx, wy) in enumerate(waypoints):
-            self.get_logger().info(f"Waypoint {i + 1}/{len(waypoints)}: ({wx:.2f}, {wy:.2f})")
+        for i, wp in enumerate(waypoints):
+            wx, wy = wp['x'], wp['y']
+            vx, vy = wp['vx'], wp['vy']
 
-            reached, aborted = self.goto(wx, wy, goal_z)
+            # Log waypoint with velocity info
+            speed = (vx ** 2 + vy ** 2) ** 0.5
+            self.get_logger().info(
+                f"Waypoint {i + 1}/{len(waypoints)}: "
+                f"pos=({wx:.2f}, {wy:.2f}) vel=({vx:.2f}, {vy:.2f}) speed={speed:.2f}m/s"
+            )
+
+            # Execute waypoint with velocity hints for feedforward control
+            if self.use_velocity_hints:
+                reached, aborted = self.goto(wx, wy, goal_z, vx_hint=vx, vy_hint=vy)
+            else:
+                reached, aborted = self.goto(wx, wy, goal_z)
 
             if aborted:
                 response.success = False

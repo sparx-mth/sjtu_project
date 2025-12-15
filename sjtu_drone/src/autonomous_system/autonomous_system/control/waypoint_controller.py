@@ -201,6 +201,11 @@ class WaypointController(Node):
         self.control_rate = 50
         self.control_period = 1.0 / self.control_rate
 
+        # Feedforward velocity hints (from path planner)
+        self._vx_hint = 0.0
+        self._vy_hint = 0.0
+        self._ff_gain = 0.3
+
         self.get_logger().info(
             f"WaypointController initialized - HIGH PRECISION MODE"
         )
@@ -324,7 +329,15 @@ class WaypointController(Node):
     # Main Navigation Method - HIGH PRECISION
     # ------------------------------------------------------------------ #
 
-    def goto(self, tx: float, ty: float, tz: float | None = None) -> Tuple[bool, bool]:
+    def goto(
+            self,
+            tx: float,
+            ty: float,
+            tz: float | None = None,
+            vx_hint: float = 0.0,
+            vy_hint: float = 0.0,
+            feedforward_gain: float = 0.3,
+    ) -> Tuple[bool, bool]:
         """
         Navigate to target position with high precision.
 
@@ -336,6 +349,9 @@ class WaypointController(Node):
             tx: Target X coordinate (world frame, meters)
             ty: Target Y coordinate (world frame, meters)
             tz: Target Z coordinate (altitude, meters). If None, uses 1.5m.
+            vx_hint: Feedforward velocity hint X (m/s) from path planner
+            vy_hint: Feedforward velocity hint Y (m/s) from path planner
+            feedforward_gain: Blending factor for velocity hints (0=ignore, 1=full)
 
         Returns:
             Tuple of (reached, aborted):
@@ -344,6 +360,11 @@ class WaypointController(Node):
         """
         if tz is None:
             tz = 1.5
+
+        # Store feedforward hints
+        self._vx_hint = vx_hint
+        self._vy_hint = vy_hint
+        self._ff_gain = feedforward_gain
 
         # Wait for initial pose
         if not self._wait_for_pose(timeout=10.0):
@@ -416,6 +437,15 @@ class WaypointController(Node):
             current_time = time.time()
             vel_x_raw = self.pid_xy.compute(error_x, current_time)
             vel_y_raw = self._compute_y_pid(error_y, current_time)
+
+            # ============================================================
+            # FEEDFORWARD VELOCITY BLENDING
+            # Blend planner velocity hints with PID feedback
+            # Reduces to pure PID when hints are zero or in fine approach
+            # ============================================================
+            if not in_fine_approach and (abs(self._vx_hint) > 0.01 or abs(self._vy_hint) > 0.01):
+                vel_x_raw = vel_x_raw + self._ff_gain * self._vx_hint
+                vel_y_raw = vel_y_raw + self._ff_gain * self._vy_hint
 
             # Normalize XY velocity to respect limit
             vel_xy_mag = math.hypot(vel_x_raw, vel_y_raw)
