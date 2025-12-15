@@ -94,16 +94,29 @@ def generate_launch_description():
             output='screen'
         ),
 
+        # --- RRT Planner (C++ OMPL planning service) ---
         Node(
             package='autonomous_system',
-            executable='rrt_navigation_service_cpp',
-            name='rrt_navigation_service',
+            executable='rrt_planner_service',
+            name='rrt_planner_service',
             output='screen',
             parameters=[{
                 'map_yaml': '/root/sjtu_project/sjtu_drone/maps/hospital_map_cropped.yaml',
                 'safety_margin': 10,
-                'cruise_speed': 0.5,
+                'planning_timeout': 3.0,
+            }]
+        ),
+
+        # --- RRT Navigation Agent (Python: calls planner + executes waypoints) ---
+        Node(
+            package='autonomous_system',
+            executable='rrt_navigation_agent',
+            name='rrt_navigation_agent',
+            output='screen',
+            parameters=[{
+                'cruise_altitude': 1.5,
                 'waypoint_tolerance': 0.3,
+                'planner_timeout': 5.0,
             }]
         ),
 
