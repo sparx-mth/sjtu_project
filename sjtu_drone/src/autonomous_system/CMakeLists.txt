@@ -6,47 +6,35 @@ find_package(ament_cmake REQUIRED)
 find_package(ament_cmake_python REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 
-# === C++ dependencies for RRT ===
+# C++ dependencies for RRT
 find_package(rclcpp REQUIRED)
-find_package(geometry_msgs REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(yaml-cpp REQUIRED)
-
-# === OMPL (CMake package, not pkg-config) ===
 find_package(ompl REQUIRED)
 
-# Generate interfaces (services)
+# Generate interfaces (services) - includes PlanPath.srv
 rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/NavigateToPose.srv"
+  "srv/PlanPath.srv"
 )
 
-# === Build C++ RRT navigation service ===
-add_executable(rrt_navigation_service_cpp src/rrt_navigation_service.cpp)
+# Build C++ RRT planner service (planning only)
+add_executable(rrt_planner_service src/rrt_planner_service.cpp)
 
-target_include_directories(rrt_navigation_service_cpp
-  PRIVATE
-    ${OpenCV_INCLUDE_DIRS}
-)
+target_include_directories(rrt_planner_service PRIVATE ${OpenCV_INCLUDE_DIRS})
 
-# IMPORTANT: use "plain" signature everywhere to avoid keyword/plain mixing
-target_link_libraries(rrt_navigation_service_cpp
+target_link_libraries(rrt_planner_service
   ompl::ompl
   yaml-cpp
   ${OpenCV_LIBS}
 )
 
-ament_target_dependencies(rrt_navigation_service_cpp
-  rclcpp
-  geometry_msgs
-)
+ament_target_dependencies(rrt_planner_service rclcpp)
 
 rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} rosidl_typesupport_cpp)
-target_link_libraries(rrt_navigation_service_cpp "${cpp_typesupport_target}")
+target_link_libraries(rrt_planner_service "${cpp_typesupport_target}")
 
-install(TARGETS rrt_navigation_service_cpp
-  DESTINATION lib/${PROJECT_NAME}
-)
-# === END NEW ===
+install(TARGETS rrt_planner_service DESTINATION lib/${PROJECT_NAME})
 
 # Install Python package subdirectories to dist-packages
 install(
@@ -80,6 +68,12 @@ install(PROGRAMS
   autonomous_system/agents/meta_agent_node.py
   DESTINATION lib/${PROJECT_NAME}
   RENAME meta_agent
+)
+
+install(PROGRAMS
+  autonomous_system/agents/rrt_navigation_agent.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME rrt_navigation_agent
 )
 
 install(PROGRAMS

@@ -30,6 +30,7 @@ setup(
             'turn_right_agent = autonomous_system.agents.turn_right_agent_node:main',
             'turn_left_agent = autonomous_system.agents.turn_left_agent_node:main',
             'move_forward_agent = autonomous_system.agents.move_forward_agent_node:main',
+            'rrt_navigation_agent = autonomous_system.agents.rrt_navigation_agent:main',
             'show_drone_map = autonomous_system.mapping.show_drone_map:main',
             'show_drone_map_exploration = autonomous_system.mapping.show_drone_map_with_exploration:main',
         ],
