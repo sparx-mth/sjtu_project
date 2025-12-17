@@ -180,7 +180,7 @@ class WaypointController(Node):
         # ============================================================
         # VELOCITY PROFILING - PRECISION APPROACH
         # ============================================================
-        self.max_velocity_xy = 0.4  # Full speed in open areas
+        self.max_velocity_xy = 0.25  # Reduced cruise speed for better path tracking
         self.min_velocity_xy = 0.08  # Minimum speed near walls
         self.max_velocity_z = 0.3
 
@@ -379,6 +379,21 @@ class WaypointController(Node):
         start = self.pose
         initial_dist = math.hypot(tx - start.position.x, ty - start.position.y)
 
+        # ============================================================
+        # CROSS-TRACK ERROR CORRECTION SETUP
+        # Compute the direction vector of the ideal straight-line path
+        # ============================================================
+        start_x, start_y = start.position.x, start.position.y
+        path_dx = tx - start_x
+        path_dy = ty - start_y
+        path_length = math.hypot(path_dx, path_dy)
+        if path_length > 0.01:
+            # Unit direction vector along the path
+            path_dir_x = path_dx / path_length
+            path_dir_y = path_dy / path_length
+        else:
+            path_dir_x, path_dir_y = 1.0, 0.0
+
         self.get_logger().info(
             f"[PRECISION] Target: ({tx:.3f}, {ty:.3f}, {tz:.2f}) "
             f"from ({start.position.x:.3f}, {start.position.y:.3f}, {start.position.z:.2f}) "
@@ -404,11 +419,32 @@ class WaypointController(Node):
             current = self.pose
             x, y, z = current.position.x, current.position.y, current.position.z
 
-            # Compute errors
+            # Compute errors to target
             error_x = tx - x
             error_y = ty - y
             error_z = tz - z
             dist_xy = math.hypot(error_x, error_y)
+
+            # ============================================================
+            # CROSS-TRACK ERROR CORRECTION
+            # Compute deviation from the straight line (start -> target)
+            # ============================================================
+            # Vector from start to current position
+            dx_from_start = x - start_x
+            dy_from_start = y - start_y
+
+            # Project onto path direction (along-track distance)
+            along_track = dx_from_start * path_dir_x + dy_from_start * path_dir_y
+
+            # Cross-track error: perpendicular deviation from line
+            # Point on the ideal path closest to current position
+            ideal_x = start_x + along_track * path_dir_x
+            ideal_y = start_y + along_track * path_dir_y
+
+            # Cross-track error vector (points from current position toward the line)
+            cross_track_error_x = ideal_x - x
+            cross_track_error_y = ideal_y - y
+            cross_track_dist = math.hypot(cross_track_error_x, cross_track_error_y)
 
             # Detect phase transition
             if not in_fine_approach and dist_xy < self.fine_approach_radius:
@@ -418,7 +454,6 @@ class WaypointController(Node):
                 )
                 # Reset integral to avoid overshoot
                 self.pid_xy.integral *= 0.5
-                self._y_integral *= 0.5
 
             # Clearance-based speed scaling
             clearance_factor = self.get_clearance_speed_factor(x, y)
@@ -435,8 +470,25 @@ class WaypointController(Node):
 
             # Compute PID outputs
             current_time = time.time()
-            vel_x_raw = self.pid_xy.compute(error_x, current_time)
-            vel_y_raw = self._compute_y_pid(error_y, current_time)
+
+            # ============================================================
+            # DIAGONAL MOVEMENT FIX
+            # Use distance-based PID and apply in direction toward target
+            # This ensures the drone moves diagonally (straight to target)
+            # ============================================================
+            vel_magnitude = self.pid_xy.compute(dist_xy, current_time)
+
+            # Direction toward target (unit vector)
+            if dist_xy > 0.001:
+                dir_x = error_x / dist_xy
+                dir_y = error_y / dist_xy
+            else:
+                dir_x, dir_y = 0.0, 0.0
+
+            # Apply magnitude in direction toward target
+            vel_x_raw = vel_magnitude * dir_x
+            vel_y_raw = vel_magnitude * dir_y
+
 
             # ============================================================
             # FEEDFORWARD VELOCITY BLENDING
@@ -503,8 +555,8 @@ class WaypointController(Node):
                 phase = "FINE" if in_fine_approach else "COARSE"
                 self.get_logger().info(
                     f"  [{phase}] pos=({x:.3f}, {y:.3f}) "
-                    f"err={dist_xy * 100:.1f}cm vel_lim={vel_limit_xy:.3f} "
-                    f"stable={stable_counter}/{self.stable_count_required}"
+                    f"err={dist_xy * 100:.1f}cm xte={cross_track_dist * 100:.1f}cm "
+                    f"vel_lim={vel_limit_xy:.3f} stable={stable_counter}/{self.stable_count_required}"
                 )
 
             # Timeout check
