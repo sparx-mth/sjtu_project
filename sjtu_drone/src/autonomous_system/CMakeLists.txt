@@ -124,6 +124,12 @@ install(PROGRAMS
   RENAME show_drone_map_exploration
 )
 
+install(PROGRAMS
+  autonomous_system/mapping/route_map_viewer.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME route_map_viewer
+)
+
 # Export dependencies
 ament_export_dependencies(rosidl_default_runtime)
 
