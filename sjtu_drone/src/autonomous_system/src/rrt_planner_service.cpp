@@ -29,13 +29,15 @@ public:
         declare_parameter("safety_margin", 10);
         declare_parameter("planning_timeout", 3.0);
         declare_parameter("desired_speed", 0.4);
-        declare_parameter("clearance_weight",5.0);
+        declare_parameter("clearance_weight", 5.0);
+        declare_parameter("min_clearance_for_smooth", 15.0);  // Higher = preserve more waypoints near obstacles
 
         std::string map_path = get_parameter("map_yaml").as_string();
         safety_margin_ = get_parameter("safety_margin").as_int();
         planning_timeout_ = get_parameter("planning_timeout").as_double();
         desired_speed_ = get_parameter("desired_speed").as_double();
         clearance_weight_ = get_parameter("clearance_weight").as_double();
+        min_clearance_smooth_ = get_parameter("min_clearance_for_smooth").as_double();
 
         load_map(map_path);
 
@@ -202,14 +204,34 @@ private:
         ob::PlannerStatus solved = ss.solve(planning_timeout_);
 
         if (solved) {
-            // NOTE: Removed simplifySolution() - it can cut through obstacles!
             og::PathGeometric& path = ss.getSolutionPath();
 
-            double path_length = path.length();
-            int num_points = std::max(10, static_cast<int>(path_length / 5.0));
-            path.interpolate(num_points);
+            // Adaptive smoothing: keep more points in tight spaces
+            auto& si = ss.getSpaceInformation();
+            std::vector<ob::State*> smoothed;
+            smoothed.push_back(si->cloneState(path.getState(0)));  // Keep start
 
-            // Verify path validity before returning
+            for (size_t i = 1; i < path.getStateCount() - 1; ++i) {
+                const auto* curr = path.getState(i)->as<ob::RealVectorStateSpace::StateType>();
+
+                double clearance = get_clearance(curr->values[0], curr->values[1]);
+                bool can_skip = si->checkMotion(smoothed.back(), path.getState(i + 1));
+
+                // Keep point if: low clearance OR can't skip safely
+                if (clearance < min_clearance_smooth_ || !can_skip) {
+                    smoothed.push_back(si->cloneState(path.getState(i)));
+                }
+            }
+            smoothed.push_back(si->cloneState(path.getState(path.getStateCount() - 1)));  // Keep end
+
+            // Replace path with smoothed version
+            path.clear();
+            for (auto* s : smoothed) {
+                path.append(s);
+                si->freeState(s);
+            }
+
+            // Verify and convert to world coordinates
             for (size_t i = 0; i < path.getStateCount(); ++i) {
                 const auto* s = path.getState(i)->as<ob::RealVectorStateSpace::StateType>();
                 if (!is_valid(s->values[0], s->values[1])) {
@@ -251,7 +273,7 @@ private:
     cv::Mat map_data_, distance_map_;
     int width_, height_, safety_margin_;
     double resolution_, origin_x_, origin_y_;
-    double planning_timeout_, desired_speed_, clearance_weight_;
+    double planning_timeout_, desired_speed_, clearance_weight_, min_clearance_smooth_;
     rclcpp::Service<autonomous_system::srv::PlanPath>::SharedPtr service_;
 };
 

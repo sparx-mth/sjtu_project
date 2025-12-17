@@ -140,6 +140,9 @@ class RouteMapViewer(Node):
         # Route polyline
         self.route_line, = self.ax.plot([], [], "-", linewidth=2, label="route")
 
+        # Route waypoint dots
+        self.route_dots, = self.ax.plot([], [], "ro", markersize=4)
+
         # Velocity arrows (optional)
         self.vel_quiver = None  # created on-demand
 
@@ -308,11 +311,13 @@ class RouteMapViewer(Node):
             dxm, dym = self.world_to_map_f(dxw, dyw)
             self.drone_point.set_data([dxm], [dym])
 
-        # Update route polyline
+        # Update route polyline and dots
         if len(self.route_map_x) >= 2:
             self.route_line.set_data(self.route_map_x, self.route_map_y)
+            self.route_dots.set_data(self.route_map_x, self.route_map_y)
         else:
             self.route_line.set_data([], [])
+            self.route_dots.set_data([], [])
 
         # Update velocity quiver (recreate for simplicity)
         if self.show_velocity_arrows and len(self.route_vel_map_u) > 0 and len(self.route_map_x) > 0:
