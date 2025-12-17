@@ -1,8 +1,8 @@
 /**
  * rrt_planner_service.cpp
  * -----------------------
- * Minimal RRT* path planning service using OMPL.
- * ONLY does planning - returns waypoints AND velocity vectors. No navigation.
+ * RRT* path planning with clearance optimization (prefers middle of hallways/doors).
+ * Uses distance transform for clearance costs.
  */
 
 #include <rclcpp/rclcpp.hpp>
@@ -10,13 +10,12 @@
 
 #include <ompl/base/SpaceInformation.h>
 #include <ompl/base/spaces/RealVectorStateSpace.h>
+#include <ompl/base/objectives/StateCostIntegralObjective.h>
 #include <ompl/geometric/SimpleSetup.h>
 #include <ompl/geometric/planners/rrt/RRTstar.h>
 
 #include <opencv2/opencv.hpp>
 #include <yaml-cpp/yaml.h>
-#include <vector>
-#include <string>
 
 namespace ob = ompl::base;
 namespace og = ompl::geometric;
@@ -29,12 +28,14 @@ public:
         declare_parameter("map_yaml", "/root/sjtu_project/sjtu_drone/maps/hospital_map_cropped.yaml");
         declare_parameter("safety_margin", 10);
         declare_parameter("planning_timeout", 3.0);
-        declare_parameter("desired_speed", 0.4);  // NEW: default cruise speed (m/s)
+        declare_parameter("desired_speed", 0.4);
+        declare_parameter("clearance_weight",5.0);
 
         std::string map_path = get_parameter("map_yaml").as_string();
         safety_margin_ = get_parameter("safety_margin").as_int();
         planning_timeout_ = get_parameter("planning_timeout").as_double();
-        desired_speed_ = get_parameter("desired_speed").as_double();  // NEW
+        desired_speed_ = get_parameter("desired_speed").as_double();
+        clearance_weight_ = get_parameter("clearance_weight").as_double();
 
         load_map(map_path);
 
@@ -43,7 +44,7 @@ public:
             std::bind(&RRTPlannerService::plan_callback, this,
                       std::placeholders::_1, std::placeholders::_2));
 
-        RCLCPP_INFO(get_logger(), "RRT Planner Service ready on /plan_path_rrt");
+        RCLCPP_INFO(get_logger(), "RRT Planner Service ready (clearance_weight=%.1f)", clearance_weight_);
     }
 
 private:
@@ -51,15 +52,12 @@ private:
     {
         YAML::Node config = YAML::LoadFile(yaml_path);
         resolution_ = config["resolution"].as<double>();
-
-        auto origin = config["origin"];
-        origin_x_ = origin[0].as<double>();
-        origin_y_ = origin[1].as<double>();
+        origin_x_ = config["origin"][0].as<double>();
+        origin_y_ = config["origin"][1].as<double>();
 
         std::string img_path = config["image"].as<std::string>();
         if (img_path[0] != '/') {
-            size_t pos = yaml_path.find_last_of('/');
-            img_path = yaml_path.substr(0, pos + 1) + img_path;
+            img_path = yaml_path.substr(0, yaml_path.find_last_of('/') + 1) + img_path;
         }
 
         cv::Mat img = cv::imread(img_path, cv::IMREAD_UNCHANGED);
@@ -69,20 +67,27 @@ private:
         }
 
         cv::Mat binary;
-        cv::threshold(img, binary, 250, 1, cv::THRESH_BINARY_INV);
+        cv::threshold(img, binary, 250, 255, cv::THRESH_BINARY_INV);  // 0=free, 255=obstacle
         cv::flip(binary, binary, 0);
 
         cv::Mat kernel = cv::getStructuringElement(
             cv::MORPH_ELLIPSE, cv::Size(2 * safety_margin_ + 1, 2 * safety_margin_ + 1));
-        cv::dilate(binary, map_data_, kernel);
+        cv::dilate(binary, map_data_, kernel);  // map_data_: 0=free, 255=obstacle
+
+        // Distance transform: distance to nearest obstacle for each free cell
+        cv::Mat free_space;
+        cv::bitwise_not(map_data_, free_space);  // 255=free, 0=obstacle
+        cv::distanceTransform(free_space, distance_map_, cv::DIST_L2, cv::DIST_MASK_PRECISE);
 
         width_ = map_data_.cols;
         height_ = map_data_.rows;
 
-        RCLCPP_INFO(get_logger(), "Map loaded: %dx%d, resolution: %.3f", width_, height_, resolution_);
+        double max_clearance;
+        cv::minMaxLoc(distance_map_, nullptr, &max_clearance);
+        RCLCPP_INFO(get_logger(), "Map: %dx%d, max_clearance: %.1f px", width_, height_, max_clearance);
     }
 
-    bool is_valid(double x, double y)
+    bool is_valid(double x, double y) const
     {
         int gx = static_cast<int>(std::round(x));
         int gy = static_cast<int>(std::round(y));
@@ -90,71 +95,58 @@ private:
         return map_data_.at<uchar>(gy, gx) == 0;
     }
 
-    std::pair<int, int> world_to_map(double wx, double wy)
+    double get_clearance(double x, double y) const
     {
-        int gx = static_cast<int>(std::round((wx - origin_x_) / resolution_));
-        int gy = static_cast<int>(std::round((wy - origin_y_) / resolution_));
-        return {gx, gy};
+        int gx = static_cast<int>(std::round(x));
+        int gy = static_cast<int>(std::round(y));
+        if (gx < 0 || gx >= width_ || gy < 0 || gy >= height_) return 0.0;
+        return distance_map_.at<float>(gy, gx);
     }
 
-    std::pair<double, double> map_to_world(int gx, int gy)
+    std::pair<int, int> world_to_map(double wx, double wy) const
     {
-        double wx = gx * resolution_ + origin_x_;
-        double wy = gy * resolution_ + origin_y_;
-        return {wx, wy};
+        return {static_cast<int>(std::round((wx - origin_x_) / resolution_)),
+                static_cast<int>(std::round((wy - origin_y_) / resolution_))};
     }
 
-    // =========================================================================
-    // NEW: Compute velocity vectors from waypoints
-    // =========================================================================
-    void compute_velocities(
-        const std::vector<double>& waypoints_x,
-        const std::vector<double>& waypoints_y,
-        std::vector<double>& velocities_x,
-        std::vector<double>& velocities_y,
-        double speed)
+    std::pair<double, double> map_to_world(int gx, int gy) const
     {
-        size_t n = waypoints_x.size();
-        if (n == 0) return;
+        return {gx * resolution_ + origin_x_, gy * resolution_ + origin_y_};
+    }
 
-        velocities_x.resize(n);
-        velocities_y.resize(n);
+    void compute_velocities(const std::vector<double>& wx, const std::vector<double>& wy,
+                           std::vector<double>& vx, std::vector<double>& vy, double speed)
+    {
+        size_t n = wx.size();
+        vx.resize(n); vy.resize(n);
 
         for (size_t i = 0; i < n; ++i) {
-            double dx, dy;
-
-            if (i < n - 1) {
-                // Direction to next waypoint
-                dx = waypoints_x[i + 1] - waypoints_x[i];
-                dy = waypoints_y[i + 1] - waypoints_y[i];
-            } else {
-                // Last waypoint: use previous direction or zero
-                if (n > 1) {
-                    dx = waypoints_x[i] - waypoints_x[i - 1];
-                    dy = waypoints_y[i] - waypoints_y[i - 1];
-                } else {
-                    dx = 0.0;
-                    dy = 0.0;
-                }
-            }
-
-            // Normalize and scale by desired speed
+            double dx = (i < n-1) ? wx[i+1] - wx[i] : (n > 1 ? wx[i] - wx[i-1] : 0.0);
+            double dy = (i < n-1) ? wy[i+1] - wy[i] : (n > 1 ? wy[i] - wy[i-1] : 0.0);
             double mag = std::hypot(dx, dy);
-            if (mag > 1e-6) {
-                velocities_x[i] = (dx / mag) * speed;
-                velocities_y[i] = (dy / mag) * speed;
-            } else {
-                velocities_x[i] = 0.0;
-                velocities_y[i] = 0.0;
-            }
+            vx[i] = (mag > 1e-6) ? (dx / mag) * speed : 0.0;
+            vy[i] = (mag > 1e-6) ? (dy / mag) * speed : 0.0;
         }
-
-        // Optional: reduce velocity at final waypoint for smooth stop
-        if (n > 0) {
-            velocities_x[n - 1] = 0.0;
-            velocities_y[n - 1] = 0.0;
-        }
+        if (n > 0) { vx[n-1] = vy[n-1] = 0.0; }
     }
+
+    // Clearance optimization objective
+    class ClearanceObjective : public ob::StateCostIntegralObjective
+    {
+    public:
+        ClearanceObjective(const ob::SpaceInformationPtr& si, const RRTPlannerService* planner, double weight)
+            : ob::StateCostIntegralObjective(si, true), planner_(planner), weight_(weight) {}
+
+        ob::Cost stateCost(const ob::State* s) const override
+        {
+            const auto* st = s->as<ob::RealVectorStateSpace::StateType>();
+            double clearance = planner_->get_clearance(st->values[0], st->values[1]);
+            return ob::Cost(weight_ / (clearance + 1.0));
+        }
+    private:
+        const RRTPlannerService* planner_;
+        double weight_;
+    };
 
     void plan_callback(
         const std::shared_ptr<autonomous_system::srv::PlanPath::Request> request,
@@ -163,34 +155,38 @@ private:
         auto [start_gx, start_gy] = world_to_map(request->start_x, request->start_y);
         auto [goal_gx, goal_gy] = world_to_map(request->goal_x, request->goal_y);
 
-        RCLCPP_INFO(get_logger(), "Planning: (%.2f, %.2f) -> (%.2f, %.2f)",
+        RCLCPP_INFO(get_logger(), "Planning: (%.2f,%.2f) -> (%.2f,%.2f)",
                     request->start_x, request->start_y, request->goal_x, request->goal_y);
 
         if (!is_valid(start_gx, start_gy)) {
             response->success = false;
-            response->message = "Start position in obstacle";
+            response->message = "Start in obstacle";
             return;
         }
         if (!is_valid(goal_gx, goal_gy)) {
             response->success = false;
-            response->message = "Goal position in obstacle";
+            response->message = "Goal in obstacle";
             return;
         }
 
-        // OMPL setup
+        // OMPL setup (same structure as original)
         auto space = std::make_shared<ob::RealVectorStateSpace>(2);
         ob::RealVectorBounds bounds(2);
-        bounds.setLow(0, 0);
-        bounds.setHigh(0, width_ - 1);
-        bounds.setLow(1, 0);
-        bounds.setHigh(1, height_ - 1);
+        bounds.setLow(0, 0); bounds.setHigh(0, width_ - 1);
+        bounds.setLow(1, 0); bounds.setHigh(1, height_ - 1);
         space->setBounds(bounds);
 
         og::SimpleSetup ss(space);
+
+        // Validity checker - MUST reject obstacles
         ss.setStateValidityChecker([this](const ob::State* state) {
             const auto* s = state->as<ob::RealVectorStateSpace::StateType>();
             return is_valid(s->values[0], s->values[1]);
         });
+
+        // Clearance-based optimization
+        ss.setOptimizationObjective(
+            std::make_shared<ClearanceObjective>(ss.getSpaceInformation(), this, clearance_weight_));
 
         ob::ScopedState<> start(space);
         start[0] = static_cast<double>(start_gx);
@@ -206,17 +202,22 @@ private:
         ob::PlannerStatus solved = ss.solve(planning_timeout_);
 
         if (solved) {
-            ss.simplifySolution();
+            // NOTE: Removed simplifySolution() - it can cut through obstacles!
             og::PathGeometric& path = ss.getSolutionPath();
 
-            // Interpolate
             double path_length = path.length();
             int num_points = std::max(10, static_cast<int>(path_length / 5.0));
             path.interpolate(num_points);
 
-            // Convert to world coordinates
+            // Verify path validity before returning
             for (size_t i = 0; i < path.getStateCount(); ++i) {
                 const auto* s = path.getState(i)->as<ob::RealVectorStateSpace::StateType>();
+                if (!is_valid(s->values[0], s->values[1])) {
+                    RCLCPP_ERROR(get_logger(), "Invalid waypoint at index %zu! Rejecting path.", i);
+                    response->success = false;
+                    response->message = "Path validation failed - waypoint in obstacle";
+                    return;
+                }
                 int mgx = static_cast<int>(std::round(s->values[0]));
                 int mgy = static_cast<int>(std::round(s->values[1]));
                 auto [wx, wy] = map_to_world(mgx, mgy);
@@ -224,31 +225,22 @@ private:
                 response->waypoints_y.push_back(wy);
             }
 
-            // Ensure goal is included
+            // Ensure goal included
             if (!response->waypoints_x.empty()) {
-                double last_x = response->waypoints_x.back();
-                double last_y = response->waypoints_y.back();
-                double dist = std::hypot(last_x - request->goal_x, last_y - request->goal_y);
+                double dist = std::hypot(response->waypoints_x.back() - request->goal_x,
+                                        response->waypoints_y.back() - request->goal_y);
                 if (dist > 0.3) {
                     response->waypoints_x.push_back(request->goal_x);
                     response->waypoints_y.push_back(request->goal_y);
                 }
             }
 
-            // =========================================================
-            // NEW: Compute velocity vectors
-            // =========================================================
-            compute_velocities(
-                response->waypoints_x,
-                response->waypoints_y,
-                response->velocities_x,
-                response->velocities_y,
-                desired_speed_
-            );
+            compute_velocities(response->waypoints_x, response->waypoints_y,
+                             response->velocities_x, response->velocities_y, desired_speed_);
 
             response->success = true;
-            response->message = "Path found with " + std::to_string(response->waypoints_x.size()) + " waypoints";
-            RCLCPP_INFO(get_logger(), "Path found: %zu waypoints with velocities", response->waypoints_x.size());
+            response->message = "Path found: " + std::to_string(response->waypoints_x.size()) + " waypoints";
+            RCLCPP_INFO(get_logger(), "%s", response->message.c_str());
         } else {
             response->success = false;
             response->message = "No path found";
@@ -256,12 +248,10 @@ private:
         }
     }
 
-    cv::Mat map_data_;
+    cv::Mat map_data_, distance_map_;
     int width_, height_, safety_margin_;
     double resolution_, origin_x_, origin_y_;
-    double planning_timeout_;
-    double desired_speed_;  // NEW
-
+    double planning_timeout_, desired_speed_, clearance_weight_;
     rclcpp::Service<autonomous_system::srv::PlanPath>::SharedPtr service_;
 };
 
