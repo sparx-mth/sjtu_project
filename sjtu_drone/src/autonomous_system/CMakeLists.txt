@@ -77,6 +77,12 @@ install(PROGRAMS
 )
 
 install(PROGRAMS
+  autonomous_system/agents/rrt_smooth_navigation_agent.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME rrt_smooth_navigation_agent
+)
+
+install(PROGRAMS
   autonomous_system/agents/doorway_traversal_agent.py
   DESTINATION lib/${PROJECT_NAME}
   RENAME doorway_traversal_agent

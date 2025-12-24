@@ -2,7 +2,7 @@
 """
 route_map_viewer.py
 -------------------
-Live 2D occupancy-map viewer + RRT* route overlay.
+Live 2D occupancy-map viewer + RRT* route overlay with smooth trajectory.
 
 Features:
 - Subscribes to drone pose: /simple_drone/gt_pose (geometry_msgs/Pose)
@@ -10,11 +10,16 @@ Features:
     * Click on map
     * Press 't' to type target grid coords
 - Calls planner service: /plan_path_rrt (autonomous_system/srv/PlanPath)
-- Draws returned path on the map (and optional velocity arrows)
+- Draws:
+    * Raw waypoints from planner (blue dots)
+    * Smooth spline trajectory (green curve)
+    * Velocity arrows (optional)
 
-Notes:
-- Goal is selected in MAP GRID coords (pixels), converted to WORLD coords for planning.
-- Planner returns WAYPOINTS in WORLD coords, converted back to MAP GRID for drawing.
+Controls:
+- Click: Set target
+- 't': Type target coordinates
+- 's': Toggle smooth trajectory display
+- 'v': Toggle velocity arrows
 """
 
 import os
@@ -33,6 +38,7 @@ from rclpy.node import Node
 from geometry_msgs.msg import Pose
 
 from autonomous_system.srv import PlanPath
+from autonomous_system.planning.trajectory_smoother import smooth_waypoints
 
 
 class RouteMapViewer(Node):
@@ -51,7 +57,9 @@ class RouteMapViewer(Node):
         self.declare_parameter("replan_period_sec", 0.5)
         self.declare_parameter("replan_if_start_moved_m", 0.75)
         self.declare_parameter("show_velocity_arrows", True)
-        self.declare_parameter("velocity_arrow_stride", 4)  # draw 1 arrow every N waypoints
+        self.declare_parameter("show_smooth_trajectory", True)
+        self.declare_parameter("velocity_arrow_stride", 4)
+        self.declare_parameter("smooth_sample_spacing", 0.1)  # meters
 
         map_yaml_path = str(self.get_parameter("map_yaml").value)
         pose_topic = str(self.get_parameter("pose_topic").value)
@@ -64,7 +72,9 @@ class RouteMapViewer(Node):
         self.replan_if_start_moved_m = float(self.get_parameter("replan_if_start_moved_m").value)
 
         self.show_velocity_arrows = bool(self.get_parameter("show_velocity_arrows").value)
+        self.show_smooth_trajectory = bool(self.get_parameter("show_smooth_trajectory").value)
         self.velocity_arrow_stride = int(self.get_parameter("velocity_arrow_stride").value)
+        self.smooth_sample_spacing = float(self.get_parameter("smooth_sample_spacing").value)
 
         # ----------------------------
         # Load map (YAML + image)
@@ -83,7 +93,7 @@ class RouteMapViewer(Node):
         if img is None:
             raise FileNotFoundError(f"Failed to load map image: {map_image_path}")
 
-        # Binary occupancy for display (same style as your original viewer)
+        # Binary occupancy for display
         self.map_data = np.zeros_like(img, dtype=np.uint8)
         self.map_data[img < 50] = 1  # obstacles
         self.map_data = np.flipud(self.map_data)  # make y-axis match "origin=lower"
@@ -99,11 +109,15 @@ class RouteMapViewer(Node):
         # Default target in MAP coords (grid/pixel)
         self.target_map: Tuple[int, int] = (355, 593)
 
-        # Latest planned route (map coords for drawing)
+        # Raw waypoints from planner (map coords)
         self.route_map_x: List[float] = []
         self.route_map_y: List[float] = []
-        self.route_vel_map_u: List[float] = []  # velocity vector in map-units (pixels per second)
+        self.route_vel_map_u: List[float] = []
         self.route_vel_map_v: List[float] = []
+
+        # Smooth trajectory points (map coords)
+        self.smooth_map_x: List[float] = []
+        self.smooth_map_y: List[float] = []
 
         # Planner request tracking
         self._plan_in_flight = False
@@ -125,26 +139,27 @@ class RouteMapViewer(Node):
         # Matplotlib UI
         # ----------------------------
         plt.ion()
-        self.fig, self.ax = plt.subplots(figsize=(7, 7))
-        self.ax.set_title("Route Map Viewer")
+        self.fig, self.ax = plt.subplots(figsize=(8, 8))
+        self.ax.set_title("Route Map Viewer (s=smooth, v=velocity)")
 
         self.im = self.ax.imshow(self.map_data, cmap="gray", origin="lower")
 
         # Drone marker
-        self.drone_point, = self.ax.plot([], [], "ro", markersize=5, label="drone")
+        self.drone_point, = self.ax.plot([], [], "ro", markersize=6, label="drone")
 
         # Target rectangle
         self.target_rect = None
         self._draw_target_rectangle()
 
-        # Route polyline
-        self.route_line, = self.ax.plot([], [], "-", linewidth=2, label="route")
+        # Raw waypoints - line + dots (blue)
+        self.route_line, = self.ax.plot([], [], "b-", linewidth=1.5, alpha=0.7, label="RRT* path")
+        self.route_dots, = self.ax.plot([], [], "bo", markersize=5, alpha=0.8)
 
-        # Route waypoint dots
-        self.route_dots, = self.ax.plot([], [], "ro", markersize=4)
+        # Smooth trajectory (green, thicker)
+        self.smooth_line, = self.ax.plot([], [], "g-", linewidth=3, label="smooth path")
 
         # Velocity arrows (optional)
-        self.vel_quiver = None  # created on-demand
+        self.vel_quiver = None
 
         # Status text (bottom-left)
         self.status_text = self.ax.text(
@@ -167,7 +182,8 @@ class RouteMapViewer(Node):
         self.create_timer(0.1, self._update_display)
         self.create_timer(self.replan_period_sec, self._maybe_replan)
 
-        self.get_logger().info("RouteMapViewer ready. Click to set target, press 't' to type target.")
+        self.get_logger().info("RouteMapViewer ready.")
+        self.get_logger().info("  Click to set target, 't' to type, 's' toggle smooth, 'v' toggle velocity")
 
     # ----------------------------
     # Coordinate conversions
@@ -202,16 +218,13 @@ class RouteMapViewer(Node):
         goal_world = self.map_to_world(float(self.target_map[0]), float(self.target_map[1]))
         start_world = self.drone_pose_world
 
-        # If we never planned yet, plan now
         if self._last_plan_start_world is None or self._last_plan_goal_world is None:
             self._need_replan = True
         else:
-            # Replan if goal changed (target moved)
             gx0, gy0 = self._last_plan_goal_world
             gx1, gy1 = goal_world
             goal_changed = (abs(gx1 - gx0) > 1e-6) or (abs(gy1 - gy0) > 1e-6)
 
-            # Replan if start moved enough
             sx0, sy0 = self._last_plan_start_world
             sx1, sy1 = start_world
             start_moved = ((sx1 - sx0) ** 2 + (sy1 - sy0) ** 2) ** 0.5 > self.replan_if_start_moved_m
@@ -221,7 +234,6 @@ class RouteMapViewer(Node):
         if not self._need_replan:
             return
 
-        # Fire async service call
         req = PlanPath.Request()
         req.start_x = float(start_world[0])
         req.start_y = float(start_world[1])
@@ -240,30 +252,30 @@ class RouteMapViewer(Node):
     def _on_plan_result(self, future) -> None:
         self._plan_in_flight = False
 
-        # Timeout guard (service can still return late; we ignore if too late)
         if hasattr(self, "_plan_sent_time") and (time.time() - self._plan_sent_time) > self.planner_timeout_sec:
-            self.get_logger().warn("Planner response arrived after timeout window; ignoring.")
+            self.get_logger().warn("Planner response arrived after timeout; ignoring.")
             return
 
         try:
             res = future.result()
         except Exception as e:
             self.get_logger().error(f"Planner call failed: {e}")
-            self.route_map_x, self.route_map_y = [], []
-            self.route_vel_map_u, self.route_vel_map_v = [], []
+            self._clear_route()
             return
 
         if res is None or not res.success:
             msg = res.message if res is not None else "None response"
             self.get_logger().warn(f"No path: {msg}")
-            self.route_map_x, self.route_map_y = [], []
-            self.route_vel_map_u, self.route_vel_map_v = [], []
+            self._clear_route()
             return
 
-        # Convert world waypoints -> map coords for plotting
+        # Convert world waypoints -> map coords
         n = len(res.waypoints_x)
         mx, my = [], []
+        wx_list, wy_list = [], []
         for i in range(n):
+            wx_list.append(res.waypoints_x[i])
+            wy_list.append(res.waypoints_y[i])
             xf, yf = self.world_to_map_f(res.waypoints_x[i], res.waypoints_y[i])
             mx.append(xf)
             my.append(yf)
@@ -271,18 +283,44 @@ class RouteMapViewer(Node):
         self.route_map_x = mx
         self.route_map_y = my
 
-        # Optional velocity arrows
+        # Velocity arrows
         self.route_vel_map_u, self.route_vel_map_v = [], []
         has_vel = (len(res.velocities_x) == n and len(res.velocities_y) == n)
         if self.show_velocity_arrows and has_vel and n > 0:
-            # Convert world velocities (m/s) -> map velocities (pixels/s)
-            # (pixels = meters / resolution)
             scale = 1.0 / self.resolution
             for i in range(n):
                 self.route_vel_map_u.append(res.velocities_x[i] * scale)
                 self.route_vel_map_v.append(res.velocities_y[i] * scale)
 
-        self.get_logger().info(f"Planned route received: {n} waypoints")
+        # Generate smooth trajectory
+        self._generate_smooth_trajectory(wx_list, wy_list)
+
+        self.get_logger().info(f"Route: {n} waypoints, {len(self.smooth_map_x)} smooth points")
+
+    def _generate_smooth_trajectory(self, wx_list: List[float], wy_list: List[float]) -> None:
+        """Generate smooth spline trajectory from world waypoints."""
+        self.smooth_map_x, self.smooth_map_y = [], []
+
+        if len(wx_list) < 2:
+            return
+
+        trajectory = smooth_waypoints(wx_list, wy_list)
+        if trajectory is None:
+            return
+
+        # Sample the smooth trajectory
+        points = trajectory.sample_trajectory(spacing=self.smooth_sample_spacing)
+
+        for pt in points:
+            mx, my = self.world_to_map_f(pt.x, pt.y)
+            self.smooth_map_x.append(mx)
+            self.smooth_map_y.append(my)
+
+    def _clear_route(self) -> None:
+        """Clear all route data."""
+        self.route_map_x, self.route_map_y = [], []
+        self.route_vel_map_u, self.route_vel_map_v = [], []
+        self.smooth_map_x, self.smooth_map_y = [], []
 
     # ----------------------------
     # Drawing helpers
@@ -311,7 +349,7 @@ class RouteMapViewer(Node):
             dxm, dym = self.world_to_map_f(dxw, dyw)
             self.drone_point.set_data([dxm], [dym])
 
-        # Update route polyline and dots
+        # Update raw waypoint line + dots
         if len(self.route_map_x) >= 2:
             self.route_line.set_data(self.route_map_x, self.route_map_y)
             self.route_dots.set_data(self.route_map_x, self.route_map_y)
@@ -319,7 +357,15 @@ class RouteMapViewer(Node):
             self.route_line.set_data([], [])
             self.route_dots.set_data([], [])
 
-        # Update velocity quiver (recreate for simplicity)
+        # Update smooth trajectory line
+        if self.show_smooth_trajectory and len(self.smooth_map_x) >= 2:
+            self.smooth_line.set_data(self.smooth_map_x, self.smooth_map_y)
+            self.smooth_line.set_visible(True)
+        else:
+            self.smooth_line.set_data([], [])
+            self.smooth_line.set_visible(False)
+
+        # Update velocity quiver
         if self.show_velocity_arrows and len(self.route_vel_map_u) > 0 and len(self.route_map_x) > 0:
             if self.vel_quiver is not None:
                 self.vel_quiver.remove()
@@ -331,8 +377,11 @@ class RouteMapViewer(Node):
             us = np.array(self.route_vel_map_u[::stride], dtype=float)
             vs = np.array(self.route_vel_map_v[::stride], dtype=float)
 
-            # arrows in "map pixel space"
-            self.vel_quiver = self.ax.quiver(xs, ys, us, vs, angles="xy", scale_units="xy", scale=1.0)
+            self.vel_quiver = self.ax.quiver(
+                xs, ys, us, vs,
+                angles="xy", scale_units="xy", scale=1.0,
+                color="orange", alpha=0.7
+            )
         else:
             if self.vel_quiver is not None:
                 self.vel_quiver.remove()
@@ -342,18 +391,23 @@ class RouteMapViewer(Node):
         tx, ty = self.target_map
         txw, tyw = self.map_to_world(float(tx), float(ty))
 
+        smooth_str = "ON" if self.show_smooth_trajectory else "OFF"
+        vel_str = "ON" if self.show_velocity_arrows else "OFF"
+
         if self.drone_pose_world is None:
             self.status_text.set_text(
-                f"Target map=({tx},{ty}) world=({txw:.2f},{tyw:.2f})\n"
-                f"Drone: waiting for pose..."
+                f"Target: map=({tx},{ty}) world=({txw:.2f},{tyw:.2f})\n"
+                f"Drone: waiting for pose...\n"
+                f"Smooth: {smooth_str} | Velocity: {vel_str}"
             )
         else:
             dxw, dyw = self.drone_pose_world
             dxm, dym = self.world_to_map_f(dxw, dyw)
             self.status_text.set_text(
-                f"Drone world=({dxw:.2f},{dyw:.2f}) map=({dxm:.1f},{dym:.1f})\n"
-                f"Target map=({tx},{ty}) world=({txw:.2f},{tyw:.2f})\n"
-                f"Route points: {len(self.route_map_x)}"
+                f"Drone: world=({dxw:.2f},{dyw:.2f}) map=({dxm:.1f},{dym:.1f})\n"
+                f"Target: map=({tx},{ty}) world=({txw:.2f},{tyw:.2f})\n"
+                f"Waypoints: {len(self.route_map_x)} | Smooth: {len(self.smooth_map_x)} pts\n"
+                f"[s] Smooth: {smooth_str} | [v] Velocity: {vel_str}"
             )
 
         self.fig.canvas.draw_idle()
@@ -364,24 +418,35 @@ class RouteMapViewer(Node):
     # ----------------------------
     def _on_key(self, event) -> None:
         if event.key == "t":
-            root = tk.Tk()
-            root.withdraw()
-            try:
-                x = simpledialog.askinteger("New Target X", "Enter target X (map pixel):", parent=root)
-                if x is None:
-                    return
-                y = simpledialog.askinteger("New Target Y", "Enter target Y (map pixel):", parent=root)
-                if y is None:
-                    return
+            self._handle_type_target()
+        elif event.key == "s":
+            self.show_smooth_trajectory = not self.show_smooth_trajectory
+            state = "ON" if self.show_smooth_trajectory else "OFF"
+            self.get_logger().info(f"Smooth trajectory: {state}")
+        elif event.key == "v":
+            self.show_velocity_arrows = not self.show_velocity_arrows
+            state = "ON" if self.show_velocity_arrows else "OFF"
+            self.get_logger().info(f"Velocity arrows: {state}")
 
-                x = int(np.clip(x, 0, self.w - 1))
-                y = int(np.clip(y, 0, self.h - 1))
+    def _handle_type_target(self) -> None:
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            x = simpledialog.askinteger("New Target X", "Enter target X (map pixel):", parent=root)
+            if x is None:
+                return
+            y = simpledialog.askinteger("New Target Y", "Enter target Y (map pixel):", parent=root)
+            if y is None:
+                return
 
-                self.target_map = (x, y)
-                self._draw_target_rectangle()
-                self._need_replan = True
-            finally:
-                root.destroy()
+            x = int(np.clip(x, 0, self.w - 1))
+            y = int(np.clip(y, 0, self.h - 1))
+
+            self.target_map = (x, y)
+            self._draw_target_rectangle()
+            self._need_replan = True
+        finally:
+            root.destroy()
 
     def _on_click(self, event) -> None:
         if event.inaxes != self.ax or event.xdata is None or event.ydata is None:

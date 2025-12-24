@@ -11,7 +11,8 @@ Available agents:
     4. TurnRightAgent - Rotate 90° clockwise
     5. TurnLeftAgent - Rotate 90° counterclockwise
     6. MoveForwardAgent - Move forward 1 meter
-    7. RRT Navigation - Navigate using RRT* planner
+    7. RRT Navigation - Navigate using RRT* planner (point-by-point)
+    8. RRT Smooth Navigation - Navigate using RRT* with smooth trajectory
 """
 
 import rclpy
@@ -34,7 +35,8 @@ class MetaAgent(Node):
         self.turn_right_client = self.create_client(NavigateToPose, "/turn_right")
         self.turn_left_client = self.create_client(NavigateToPose, "/turn_left")
         self.move_forward_client = self.create_client(NavigateToPose, "/move_forward")
-        self.rrt_client = self.create_client(NavigateToPose, "/navigate_rrt")  # NEW
+        self.rrt_client = self.create_client(NavigateToPose, "/navigate_rrt")
+        self.rrt_smooth_client = self.create_client(NavigateToPose, "/navigate_rrt_smooth")
 
         self.get_logger().info("Waiting for services...")
 
@@ -49,14 +51,16 @@ class MetaAgent(Node):
         self.turn_right_available = self.turn_right_client.wait_for_service(timeout_sec=2.0)
         self.turn_left_available = self.turn_left_client.wait_for_service(timeout_sec=2.0)
         self.move_forward_available = self.move_forward_client.wait_for_service(timeout_sec=2.0)
-        self.rrt_available = self.rrt_client.wait_for_service(timeout_sec=2.0)  # NEW
+        self.rrt_available = self.rrt_client.wait_for_service(timeout_sec=2.0)
+        self.rrt_smooth_available = self.rrt_smooth_client.wait_for_service(timeout_sec=2.0)
 
         for name, avail in [("/traverse_doorway", self.door_available),
                             ("/explore_frontiers", self.explore_available),
                             ("/turn_right", self.turn_right_available),
                             ("/turn_left", self.turn_left_available),
                             ("/move_forward", self.move_forward_available),
-                            ("/navigate_rrt", self.rrt_available)]:  # NEW
+                            ("/navigate_rrt", self.rrt_available),
+                            ("/navigate_rrt_smooth", self.rrt_smooth_available)]:
             status = "available" if avail else "not available (optional)"
             self.get_logger().info(f"  {name} {status}")
 
@@ -76,8 +80,9 @@ class MetaAgent(Node):
         print(f"  4. {'Turn right (90° clockwise)' if self.turn_right_available else '[Unavailable] Turn right'}")
         print(f"  5. {'Turn left (90° counter-clockwise)' if self.turn_left_available else '[Unavailable] Turn left'}")
         print(f"  6. {'Move forward (1 meter)' if self.move_forward_available else '[Unavailable] Move forward'}")
-        print(f"  7. {'Navigate via RRT*' if self.rrt_available else '[Unavailable] Navigate via RRT*'}")  # NEW
-        print("  8. Exit")
+        print(f"  7. {'Navigate via RRT* (point-by-point)' if self.rrt_available else '[Unavailable] Navigate via RRT*'}")
+        print(f"  8. {'Navigate via RRT* (smooth)' if self.rrt_smooth_available else '[Unavailable] Navigate via RRT* (smooth)'}")
+        print("  9. Exit")
         print("=" * 50)
 
     def main_loop(self):
@@ -86,7 +91,7 @@ class MetaAgent(Node):
             self.print_menu()
 
             try:
-                choice = input("Select agent (1-8): ").strip()
+                choice = input("Select agent (1-9): ").strip()
             except EOFError:
                 break
 
@@ -117,16 +122,21 @@ class MetaAgent(Node):
                     self.handle_move_forward()
                 else:
                     print("Move forward service not available.")
-            elif choice == "7":  # NEW
+            elif choice == "7":
                 if self.rrt_available:
                     self.handle_rrt_navigation()
                 else:
                     print("RRT navigation service not available.")
             elif choice == "8":
+                if self.rrt_smooth_available:
+                    self.handle_rrt_smooth_navigation()
+                else:
+                    print("RRT smooth navigation service not available.")
+            elif choice == "9":
                 print("Exiting Meta-Agent...")
                 break
             else:
-                print("Invalid choice. Please enter 1-8.")
+                print("Invalid choice. Please enter 1-9.")
 
     # ---------------------------------------------------------------------
 
@@ -146,9 +156,9 @@ class MetaAgent(Node):
         success, message = self.call_navigation_service(x, y, z)
         self.print_result(success, message)
 
-    def handle_rrt_navigation(self):  # NEW
-        """Handle RRT* navigation to specific coordinates."""
-        print("\n--- Navigate via RRT* ---")
+    def handle_rrt_navigation(self):
+        """Handle RRT* navigation to specific coordinates (point-by-point)."""
+        print("\n--- Navigate via RRT* (point-by-point) ---")
         try:
             x = float(input("Enter target X (meters): "))
             y = float(input("Enter target Y (meters): "))
@@ -160,6 +170,23 @@ class MetaAgent(Node):
 
         print(f"\nSending RRT* navigation request to ({x:.2f}, {y:.2f}, {z:.2f}) ...")
         success, message = self.call_rrt_service(x, y, z)
+        self.print_result(success, message)
+
+    def handle_rrt_smooth_navigation(self):
+        """Handle RRT* smooth navigation to specific coordinates."""
+        print("\n--- Navigate via RRT* (smooth trajectory) ---")
+        print("Uses cubic spline + Pure Pursuit for smooth, continuous flight.")
+        try:
+            x = float(input("Enter target X (meters): "))
+            y = float(input("Enter target Y (meters): "))
+            z = float(input("Enter target Z (meters) [default=1.5]: ") or "1.5")
+            z = float(z)
+        except ValueError:
+            print("Invalid input. Enter numeric values.")
+            return
+
+        print(f"\nSending smooth RRT* navigation request to ({x:.2f}, {y:.2f}, {z:.2f}) ...")
+        success, message = self.call_rrt_smooth_service(x, y, z)
         self.print_result(success, message)
 
     def handle_doorway_traversal(self):
@@ -233,14 +260,27 @@ class MetaAgent(Node):
             return False, "Service call failed or interrupted."
         return future.result().success, future.result().message
 
-    def call_rrt_service(self, x: float, y: float, z: float):  # NEW
-        """Send an RRT* navigation request."""
+    def call_rrt_service(self, x: float, y: float, z: float):
+        """Send an RRT* navigation request (point-by-point)."""
         req = NavigateToPose.Request()
         req.x = x
         req.y = y
         req.z = z
 
         future = self.rrt_client.call_async(req)
+        rclpy.spin_until_future_complete(self, future)
+        if future.result() is None:
+            return False, "Service call failed or interrupted."
+        return future.result().success, future.result().message
+
+    def call_rrt_smooth_service(self, x: float, y: float, z: float):
+        """Send an RRT* smooth navigation request."""
+        req = NavigateToPose.Request()
+        req.x = x
+        req.y = y
+        req.z = z
+
+        future = self.rrt_smooth_client.call_async(req)
         rclpy.spin_until_future_complete(self, future)
         if future.result() is None:
             return False, "Service call failed or interrupted."

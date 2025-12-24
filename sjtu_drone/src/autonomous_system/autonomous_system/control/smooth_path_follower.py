@@ -21,7 +21,7 @@ from rclpy.node import Node
 from rclpy.callback_groups import ReentrantCallbackGroup
 from geometry_msgs.msg import Pose, Twist
 
-from trajectory_smoother import SmoothTrajectory
+from autonomous_system.planning.trajectory_smoother import SmoothTrajectory
 
 
 class SmoothPathFollower(Node):
