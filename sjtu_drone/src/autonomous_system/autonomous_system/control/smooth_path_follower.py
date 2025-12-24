@@ -9,6 +9,7 @@ Key Features:
  - Naturally creates smooth, rounded turns
  - Adaptive lookahead based on speed and curvature
  - Velocity profiling for safe navigation
+ - Smooth yaw control to look in direction of flight
  - Compatible with WaypointController base class
 """
 
@@ -84,6 +85,14 @@ class SmoothPathFollower(Node):
         self.altitude_kp = 1.2
         self.max_vertical_speed = 0.3
 
+        # ========================================
+        # Yaw Control Parameters (subtle, smooth)
+        # ========================================
+        self.yaw_kp = 0.6  # Low gain for subtle yaw corrections
+        self.max_yaw_rate = 0.4  # Maximum yaw rate (rad/s) - ~23 deg/s
+        self.yaw_deadband = 0.15  # Ignore small yaw errors (rad, ~8.5 degrees)
+        self.yaw_speed_threshold = 0.05  # Only adjust yaw when moving faster than this
+
         # Control loop
         self.control_rate = 50
         self.control_period = 1.0 / self.control_rate
@@ -91,6 +100,7 @@ class SmoothPathFollower(Node):
         self.get_logger().info("SmoothPathFollower initialized")
         self.get_logger().info(f"  Lookahead: {self.min_lookahead}-{self.max_lookahead}m")
         self.get_logger().info(f"  Speed: {self.min_speed}-{self.max_speed}m/s")
+        self.get_logger().info(f"  Yaw: kp={self.yaw_kp}, max_rate={self.max_yaw_rate}rad/s")
 
     # ----------------------------------------------------------------
     # Pose and abort management
@@ -129,6 +139,44 @@ class SmoothPathFollower(Node):
         for _ in range(5):
             self.cmd_pub.publish(twist)
             time.sleep(0.02)
+
+    # ----------------------------------------------------------------
+    # Yaw helpers
+    # ----------------------------------------------------------------
+
+    def _quaternion_to_yaw(self, q) -> float:
+        """Extract yaw angle from quaternion."""
+        siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
+        cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+        return math.atan2(siny_cosp, cosy_cosp)
+
+    def _normalize_angle(self, angle: float) -> float:
+        """Normalize angle to [-pi, pi]."""
+        while angle > math.pi:
+            angle -= 2.0 * math.pi
+        while angle < -math.pi:
+            angle += 2.0 * math.pi
+        return angle
+
+    def _world_to_body_velocity(
+            self, vx_world: float, vy_world: float, yaw: float
+    ) -> Tuple[float, float]:
+        """
+        Transform world-frame velocity to body-frame velocity.
+
+        Args:
+            vx_world: Velocity in world X direction
+            vy_world: Velocity in world Y direction
+            yaw: Current yaw angle (radians)
+
+        Returns:
+            Tuple of (vx_body, vy_body)
+        """
+        cos_yaw = math.cos(yaw)
+        sin_yaw = math.sin(yaw)
+        vx_body = vx_world * cos_yaw + vy_world * sin_yaw
+        vy_body = -vx_world * sin_yaw + vy_world * cos_yaw
+        return vx_body, vy_body
 
     # ----------------------------------------------------------------
     # Clearance-based speed control
@@ -199,6 +247,42 @@ class SmoothPathFollower(Node):
 
         return max(self.min_speed, min(speed, self.max_speed))
 
+    def _compute_yaw_rate(
+            self,
+            current_yaw: float,
+            desired_yaw: float,
+            current_speed: float,
+    ) -> float:
+        """
+        Compute smooth yaw rate to align with direction of flight.
+
+        Args:
+            current_yaw: Current yaw angle (rad)
+            desired_yaw: Desired yaw angle (rad)
+            current_speed: Current movement speed (m/s)
+
+        Returns:
+            Yaw rate command (rad/s)
+        """
+        # Don't adjust yaw when nearly stationary
+        if current_speed < self.yaw_speed_threshold:
+            return 0.0
+
+        # Compute yaw error (normalized to [-pi, pi])
+        yaw_error = self._normalize_angle(desired_yaw - current_yaw)
+
+        # Apply deadband - don't correct small errors
+        if abs(yaw_error) < self.yaw_deadband:
+            return 0.0
+
+        # Proportional control with saturation
+        yaw_rate = self.yaw_kp * yaw_error
+
+        # Clamp to maximum yaw rate
+        yaw_rate = max(-self.max_yaw_rate, min(yaw_rate, self.max_yaw_rate))
+
+        return yaw_rate
+
     # ----------------------------------------------------------------
     # Main follow method
     # ----------------------------------------------------------------
@@ -247,9 +331,10 @@ class SmoothPathFollower(Node):
                 self.get_logger().warn("Trajectory following ABORTED")
                 return False, True
 
-            # Get current position
+            # Get current position and orientation
             current = self.pose
             px, py, pz = current.position.x, current.position.y, current.position.z
+            current_yaw = self._quaternion_to_yaw(current.orientation)
 
             # Distance to goal
             dist_to_goal = math.hypot(goal_x - px, goal_y - py)
@@ -294,7 +379,7 @@ class SmoothPathFollower(Node):
             target_point = trajectory.get_point(lookahead_s)
             target_x, target_y = target_point.x, target_point.y
 
-            # Compute velocity toward lookahead point
+            # Compute velocity toward lookahead point (in world frame)
             dx = target_x - px
             dy = target_y - py
             dist_to_target = math.hypot(dx, dy)
@@ -309,34 +394,45 @@ class SmoothPathFollower(Node):
             speed_alpha = 0.3
             current_speed = speed_alpha * target_speed + (1 - speed_alpha) * current_speed
 
-            # Compute velocity components
+            # Compute world-frame velocity components
             if dist_to_target > 0.01:
-                vx = (dx / dist_to_target) * current_speed
-                vy = (dy / dist_to_target) * current_speed
+                vx_world = (dx / dist_to_target) * current_speed
+                vy_world = (dy / dist_to_target) * current_speed
+                desired_yaw = math.atan2(dy, dx)
             else:
-                vx, vy = 0.0, 0.0
+                vx_world, vy_world = 0.0, 0.0
+                desired_yaw = current_yaw
+
+            # Compute yaw rate (smooth, subtle correction)
+            yaw_rate = self._compute_yaw_rate(current_yaw, desired_yaw, current_speed)
+
+            # Transform velocities from world frame to body frame
+            vx_body, vy_body = self._world_to_body_velocity(vx_world, vy_world, current_yaw)
 
             # Altitude control (simple P)
             error_z = target_altitude - pz
             vz = self.altitude_kp * error_z
             vz = max(-self.max_vertical_speed, min(vz, self.max_vertical_speed))
 
-            # Publish velocity command
+            # Publish velocity command (body frame + yaw rate)
             twist = Twist()
-            twist.linear.x = vx
-            twist.linear.y = vy
+            twist.linear.x = vx_body
+            twist.linear.y = vy_body
             twist.linear.z = vz
+            twist.angular.z = yaw_rate
             self.cmd_pub.publish(twist)
 
             # Logging
             loop_count += 1
             if loop_count % 50 == 0:
                 progress = (current_s / trajectory.total_length) * 100
+                yaw_deg = math.degrees(current_yaw)
+                desired_yaw_deg = math.degrees(desired_yaw)
                 self.get_logger().info(
                     f"Progress: {progress:.0f}% | "
                     f"pos=({px:.2f},{py:.2f}) | "
                     f"speed={current_speed:.2f}m/s | "
-                    f"lookahead={lookahead:.2f}m"
+                    f"yaw={yaw_deg:.0f}°→{desired_yaw_deg:.0f}°"
                 )
 
             # Timeout check
