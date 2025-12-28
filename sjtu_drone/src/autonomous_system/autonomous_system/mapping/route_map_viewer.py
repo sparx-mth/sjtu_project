@@ -51,7 +51,7 @@ class RouteMapViewer(Node):
         self.declare_parameter("map_yaml", "/root/sjtu_project/sjtu_drone/maps/hospital_map_cropped.yaml")
         self.declare_parameter("pose_topic", "/simple_drone/gt_pose")
         self.declare_parameter("planner_service", "/plan_path_rrt")
-        self.declare_parameter("planner_timeout_sec", 5.0)
+        self.declare_parameter("planner_timeout_sec", 10.0)
 
         self.declare_parameter("target_size_px", 20)
         self.declare_parameter("replan_period_sec", 0.5)

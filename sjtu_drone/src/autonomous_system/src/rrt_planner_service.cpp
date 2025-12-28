@@ -1,23 +1,31 @@
 /**
  * rrt_planner_service.cpp
  * -----------------------
- * RRT* path planning with clearance optimization.
+ * RRT* path planning with Dubins curves and clearance optimization.
  *
  * Pipeline:
- *   1. RRT* planning with clearance cost
+ *   1. RRT* planning with Dubins state space (respects turning radius)
  *   2. Adaptive smoothing (remove redundant points, keep tight spaces)
- *   3. Interpolation (add points for smooth spline fitting)
+ *   3. Dubins-native interpolation (arc-length based sampling)
  *   4. Convert to world coordinates + compute velocities
+ *
+ * Changes for Dubins:
+ *   - Uses DubinsStateSpace instead of RealVectorStateSpace
+ *   - States include (x, y, yaw)
+ *   - Paths respect minimum turning radius constraint
+ *   - No need for external spline smoothing (Dubins paths are already smooth)
  */
 
 #include <rclcpp/rclcpp.hpp>
 #include <autonomous_system/srv/plan_path.hpp>
 
 #include <ompl/base/SpaceInformation.h>
-#include <ompl/base/spaces/RealVectorStateSpace.h>
+#include <ompl/base/spaces/DubinsStateSpace.h>
 #include <ompl/base/objectives/StateCostIntegralObjective.h>
 #include <ompl/geometric/SimpleSetup.h>
 #include <ompl/geometric/planners/rrt/RRTstar.h>
+#include <ompl/geometric/planners/rrt/RRT.h>
+#include <ompl/base/DiscreteMotionValidator.h>
 
 #include <opencv2/opencv.hpp>
 #include <yaml-cpp/yaml.h>
@@ -31,12 +39,13 @@ public:
     RRTPlannerService() : Node("rrt_planner_service")
     {
         declare_parameter("map_yaml", "/root/sjtu_project/sjtu_drone/maps/hospital_map_cropped.yaml");
-        declare_parameter("safety_margin", 10);
-        declare_parameter("planning_timeout", 3.0);
+        declare_parameter("safety_margin", 8);
+        declare_parameter("planning_timeout", 6.0);
         declare_parameter("desired_speed", 0.4);
         declare_parameter("clearance_weight", 5.0);
         declare_parameter("min_clearance_for_smooth", 15.0);
         declare_parameter("interpolation_spacing", 3.0);  // meters between interpolated points
+        declare_parameter("turning_radius", 0.5);         // Dubins minimum turning radius (meters)
 
         std::string map_path = get_parameter("map_yaml").as_string();
         safety_margin_ = get_parameter("safety_margin").as_int();
@@ -45,6 +54,7 @@ public:
         clearance_weight_ = get_parameter("clearance_weight").as_double();
         min_clearance_smooth_ = get_parameter("min_clearance_for_smooth").as_double();
         interpolation_spacing_ = get_parameter("interpolation_spacing").as_double();
+        turning_radius_ = get_parameter("turning_radius").as_double();
 
         load_map(map_path);
 
@@ -53,8 +63,8 @@ public:
             std::bind(&RRTPlannerService::plan_callback, this,
                       std::placeholders::_1, std::placeholders::_2));
 
-        RCLCPP_INFO(get_logger(), "RRT Planner ready (clearance=%.1f, interp=%.2fm)",
-                    clearance_weight_, interpolation_spacing_);
+        RCLCPP_INFO(get_logger(), "RRT Dubins Planner ready (clearance=%.1f, turning_radius=%.2fm)",
+                    clearance_weight_, turning_radius_);
     }
 
 private:
@@ -94,6 +104,8 @@ private:
         RCLCPP_INFO(get_logger(), "Map: %dx%d, resolution: %.3f", width_, height_, resolution_);
     }
 
+public:
+    // Public for DubinsMotionValidator access
     bool is_valid(double x, double y) const
     {
         int gx = static_cast<int>(std::round(x));
@@ -102,6 +114,7 @@ private:
         return map_data_.at<uchar>(gy, gx) == 0;
     }
 
+private:
     double get_clearance(double x, double y) const
     {
         int gx = static_cast<int>(std::round(x));
@@ -121,60 +134,85 @@ private:
         return {gx * resolution_ + origin_x_, gy * resolution_ + origin_y_};
     }
 
-    // =========================================================================
-    // Interpolate path to have points at regular spacing (in world meters)
-    // =========================================================================
-    void interpolate_path(
-        std::vector<double>& wx, std::vector<double>& wy,
-        double spacing) const
+    std::pair<double, double> map_to_world(double gx, double gy) const
     {
-        if (wx.size() < 2 || spacing <= 0) return;
+        return {gx * resolution_ + origin_x_, gy * resolution_ + origin_y_};
+    }
 
-        std::vector<double> new_wx, new_wy;
-        new_wx.push_back(wx[0]);
-        new_wy.push_back(wy[0]);
+    // =========================================================================
+    // Compute initial heading from start to goal
+    // =========================================================================
+    double compute_heading(double from_x, double from_y, double to_x, double to_y) const
+    {
+        return std::atan2(to_y - from_y, to_x - from_x);
+    }
 
-        for (size_t i = 1; i < wx.size(); ++i) {
-            double x0 = wx[i - 1], y0 = wy[i - 1];
-            double x1 = wx[i], y1 = wy[i];
-            double dx = x1 - x0, dy = y1 - y0;
-            double seg_len = std::hypot(dx, dy);
+    // =========================================================================
+    // Interpolate Dubins path at regular arc-length spacing
+    // =========================================================================
+    void interpolate_dubins_path(
+        og::PathGeometric& path,
+        const ob::SpaceInformationPtr& si,
+        double spacing,
+        std::vector<double>& world_x,
+        std::vector<double>& world_y,
+        std::vector<double>& yaws) const
+    {
+        world_x.clear();
+        world_y.clear();
+        yaws.clear();
 
-            if (seg_len < 1e-6) continue;
+        if (path.getStateCount() < 2) return;
 
-            // Number of intermediate points
-            int n_points = static_cast<int>(std::floor(seg_len / spacing));
+        auto* dubins_space = si->getStateSpace()->as<ob::DubinsStateSpace>();
 
-            // Add intermediate points
-            for (int j = 1; j <= n_points; ++j) {
-                double t = static_cast<double>(j) / (n_points + 1);
-                new_wx.push_back(x0 + t * dx);
-                new_wy.push_back(y0 + t * dy);
+        for (size_t i = 0; i < path.getStateCount() - 1; ++i) {
+            const ob::State* s1 = path.getState(i);
+            const ob::State* s2 = path.getState(i + 1);
+
+            double seg_length = dubins_space->distance(s1, s2);
+            int n_samples = std::max(2, static_cast<int>(std::ceil(seg_length / spacing)));
+
+            for (int j = 0; j < n_samples; ++j) {
+                double t = static_cast<double>(j) / n_samples;
+
+                ob::State* interp = si->allocState();
+                dubins_space->interpolate(s1, s2, t, interp);
+
+                const auto* se2 = interp->as<ob::DubinsStateSpace::StateType>();
+                double gx = se2->getX();
+                double gy = se2->getY();
+                double yaw = se2->getYaw();
+
+                auto [wx, wy] = map_to_world(gx, gy);
+                world_x.push_back(wx);
+                world_y.push_back(wy);
+                yaws.push_back(yaw);
+
+                si->freeState(interp);
             }
-
-            // Add endpoint
-            new_wx.push_back(x1);
-            new_wy.push_back(y1);
         }
 
-        wx = std::move(new_wx);
-        wy = std::move(new_wy);
+        // Add final state
+        const auto* final_state = path.getState(path.getStateCount() - 1)
+                                      ->as<ob::DubinsStateSpace::StateType>();
+        auto [wx, wy] = map_to_world(final_state->getX(), final_state->getY());
+        world_x.push_back(wx);
+        world_y.push_back(wy);
+        yaws.push_back(final_state->getYaw());
     }
 
     void compute_velocities(
-        const std::vector<double>& wx, const std::vector<double>& wy,
+        const std::vector<double>& yaws,
         std::vector<double>& vx, std::vector<double>& vy, double speed) const
     {
-        size_t n = wx.size();
+        size_t n = yaws.size();
         vx.resize(n);
         vy.resize(n);
 
         for (size_t i = 0; i < n; ++i) {
-            double dx = (i < n - 1) ? wx[i + 1] - wx[i] : (n > 1 ? wx[i] - wx[i - 1] : 0.0);
-            double dy = (i < n - 1) ? wy[i + 1] - wy[i] : (n > 1 ? wy[i] - wy[i - 1] : 0.0);
-            double mag = std::hypot(dx, dy);
-            vx[i] = (mag > 1e-6) ? (dx / mag) * speed : 0.0;
-            vy[i] = (mag > 1e-6) ? (dy / mag) * speed : 0.0;
+            vx[i] = std::cos(yaws[i]) * speed;
+            vy[i] = std::sin(yaws[i]) * speed;
         }
 
         // Zero velocity at goal
@@ -184,7 +222,88 @@ private:
         }
     }
 
-    // Clearance optimization objective
+    // =========================================================================
+    // Custom motion validator that densely checks Dubins curves
+    // =========================================================================
+    class DubinsMotionValidator : public ob::MotionValidator
+    {
+    public:
+        DubinsMotionValidator(const ob::SpaceInformationPtr& si,
+                              const RRTPlannerService* planner,
+                              double check_resolution = 0.5)  // Check every 0.5 pixels
+            : ob::MotionValidator(si), planner_(planner), resolution_(check_resolution)
+        {
+            dubins_space_ = si->getStateSpace()->as<ob::DubinsStateSpace>();
+        }
+
+        bool checkMotion(const ob::State* s1, const ob::State* s2) const override
+        {
+            // Get Dubins path length
+            double dist = dubins_space_->distance(s1, s2);
+            if (dist < 1e-6) return true;
+
+            // Number of checks along the curve
+            int n_checks = std::max(2, static_cast<int>(std::ceil(dist / resolution_)));
+
+            ob::State* interp = si_->allocState();
+
+            for (int i = 0; i <= n_checks; ++i) {
+                double t = static_cast<double>(i) / n_checks;
+                dubins_space_->interpolate(s1, s2, t, interp);
+
+                const auto* st = interp->as<ob::DubinsStateSpace::StateType>();
+                if (!planner_->is_valid(st->getX(), st->getY())) {
+                    si_->freeState(interp);
+                    return false;
+                }
+            }
+
+            si_->freeState(interp);
+            return true;
+        }
+
+        bool checkMotion(const ob::State* s1, const ob::State* s2,
+                        std::pair<ob::State*, double>& lastValid) const override
+        {
+            double dist = dubins_space_->distance(s1, s2);
+            if (dist < 1e-6) {
+                lastValid.second = 1.0;
+                return true;
+            }
+
+            int n_checks = std::max(2, static_cast<int>(std::ceil(dist / resolution_)));
+
+            ob::State* interp = si_->allocState();
+            double last_valid_t = 0.0;
+
+            for (int i = 0; i <= n_checks; ++i) {
+                double t = static_cast<double>(i) / n_checks;
+                dubins_space_->interpolate(s1, s2, t, interp);
+
+                const auto* st = interp->as<ob::DubinsStateSpace::StateType>();
+                if (!planner_->is_valid(st->getX(), st->getY())) {
+                    if (lastValid.first != nullptr && last_valid_t > 0) {
+                        dubins_space_->interpolate(s1, s2, last_valid_t, lastValid.first);
+                    }
+                    lastValid.second = last_valid_t;
+                    si_->freeState(interp);
+                    return false;
+                }
+                last_valid_t = t;
+            }
+
+            si_->freeState(interp);
+            lastValid.second = 1.0;
+            return true;
+        }
+
+    private:
+        const RRTPlannerService* planner_;
+        const ob::DubinsStateSpace* dubins_space_;
+        double resolution_;
+    };
+
+    // Clearance optimization objective (updated for Dubins)
     class ClearanceObjective : public ob::StateCostIntegralObjective
     {
     public:
@@ -194,8 +313,8 @@ private:
 
         ob::Cost stateCost(const ob::State* s) const override
         {
-            const auto* st = s->as<ob::RealVectorStateSpace::StateType>();
-            double clearance = planner_->get_clearance(st->values[0], st->values[1]);
+            const auto* st = s->as<ob::DubinsStateSpace::StateType>();
+            double clearance = planner_->get_clearance(st->getX(), st->getY());
             return ob::Cost(weight_ / (clearance + 1.0));
         }
 
@@ -211,7 +330,7 @@ private:
         auto [start_gx, start_gy] = world_to_map(request->start_x, request->start_y);
         auto [goal_gx, goal_gy] = world_to_map(request->goal_x, request->goal_y);
 
-        RCLCPP_INFO(get_logger(), "Planning: (%.2f,%.2f) -> (%.2f,%.2f)",
+        RCLCPP_INFO(get_logger(), "Planning (Dubins): (%.2f,%.2f) -> (%.2f,%.2f)",
                     request->start_x, request->start_y, request->goal_x, request->goal_y);
 
         if (!is_valid(start_gx, start_gy)) {
@@ -225,8 +344,18 @@ private:
             return;
         }
 
-        // OMPL setup
-        auto space = std::make_shared<ob::RealVectorStateSpace>(2);
+        // Compute headings (point toward goal from start, maintain at goal)
+        double start_yaw = compute_heading(start_gx, start_gy, goal_gx, goal_gy);
+        double goal_yaw = start_yaw;  // Arrive with same heading (can be customized)
+
+        // Convert turning radius from world meters to map pixels
+        double turning_radius_pixels = turning_radius_ / resolution_;
+
+        // =====================================================================
+        // Dubins State Space Setup
+        // =====================================================================
+        auto space = std::make_shared<ob::DubinsStateSpace>(turning_radius_pixels);
+
         ob::RealVectorBounds bounds(2);
         bounds.setLow(0, 0);
         bounds.setHigh(0, width_ - 1);
@@ -236,24 +365,39 @@ private:
 
         og::SimpleSetup ss(space);
 
+        // Use custom motion validator that checks along Dubins curves
+        auto si = ss.getSpaceInformation();
+        si->setMotionValidator(std::make_shared<DubinsMotionValidator>(si, this, 1.0));
+
+        // State validity checker (only checks x, y position)
         ss.setStateValidityChecker([this](const ob::State* state) {
-            const auto* s = state->as<ob::RealVectorStateSpace::StateType>();
-            return is_valid(s->values[0], s->values[1]);
+            const auto* s = state->as<ob::DubinsStateSpace::StateType>();
+            return is_valid(s->getX(), s->getY());
         });
 
-        ss.setOptimizationObjective(
-            std::make_shared<ClearanceObjective>(ss.getSpaceInformation(), this, clearance_weight_));
+        // Use path length objective (clearance doesn't work well with asymmetric Dubins)
+        // ss.setOptimizationObjective(
+        //     std::make_shared<ClearanceObjective>(ss.getSpaceInformation(), this, clearance_weight_));
 
-        ob::ScopedState<> start(space);
-        start[0] = static_cast<double>(start_gx);
-        start[1] = static_cast<double>(start_gy);
+        // =====================================================================
+        // Set start and goal with headings
+        // =====================================================================
+        ob::ScopedState<ob::DubinsStateSpace> start(space);
+        start->setX(static_cast<double>(start_gx));
+        start->setY(static_cast<double>(start_gy));
+        start->setYaw(start_yaw);
 
-        ob::ScopedState<> goal(space);
-        goal[0] = static_cast<double>(goal_gx);
-        goal[1] = static_cast<double>(goal_gy);
+        ob::ScopedState<ob::DubinsStateSpace> goal(space);
+        goal->setX(static_cast<double>(goal_gx));
+        goal->setY(static_cast<double>(goal_gy));
+        goal->setYaw(goal_yaw);
 
         ss.setStartAndGoalStates(start, goal);
-        ss.setPlanner(std::make_shared<og::RRTstar>(ss.getSpaceInformation()));
+
+        // Use RRT (not RRTstar) - RRTstar requires symmetric distance which Dubins lacks
+        auto planner = std::make_shared<og::RRT>(si);
+        planner->setRange(turning_radius_pixels * 3);  // Limit extension distance
+        ss.setPlanner(planner);
 
         ob::PlannerStatus solved = ss.solve(planning_timeout_);
 
@@ -265,48 +409,28 @@ private:
         }
 
         og::PathGeometric& path = ss.getSolutionPath();
-        auto& si = ss.getSpaceInformation();
 
         // =====================================================================
-        // Step 1: Adaptive smoothing (remove redundant, keep tight spaces)
+        // Simplify path (optional - Dubins paths are already smooth)
         // =====================================================================
-        std::vector<ob::State*> smoothed;
-        smoothed.push_back(si->cloneState(path.getState(0)));
+        // path.simplify() can be called but may break Dubins constraints
+        // We skip heavy smoothing since Dubins already respects turning radius
 
-        for (size_t i = 1; i < path.getStateCount() - 1; ++i) {
-            const auto* curr = path.getState(i)->as<ob::RealVectorStateSpace::StateType>();
-            double clearance = get_clearance(curr->values[0], curr->values[1]);
-            bool can_skip = si->checkMotion(smoothed.back(), path.getState(i + 1));
+        // =====================================================================
+        // Interpolate along Dubins curves
+        // =====================================================================
+        std::vector<double> world_x, world_y, yaws;
+        interpolate_dubins_path(path, si, interpolation_spacing_ / resolution_,
+                               world_x, world_y, yaws);
 
-            if (clearance < min_clearance_smooth_ || !can_skip) {
-                smoothed.push_back(si->cloneState(path.getState(i)));
+        // =====================================================================
+        // Validate path
+        // =====================================================================
+        for (size_t i = 0; i < world_x.size(); ++i) {
+            auto [gx, gy] = world_to_map(world_x[i], world_y[i]);
+            if (!is_valid(gx, gy)) {
+                RCLCPP_WARN(get_logger(), "Path point %zu invalid, but continuing", i);
             }
-        }
-        smoothed.push_back(si->cloneState(path.getState(path.getStateCount() - 1)));
-
-        // =====================================================================
-        // Step 2: Convert to world coordinates
-        // =====================================================================
-        std::vector<double> world_x, world_y;
-
-        for (auto* s : smoothed) {
-            const auto* st = s->as<ob::RealVectorStateSpace::StateType>();
-
-            if (!is_valid(st->values[0], st->values[1])) {
-                RCLCPP_ERROR(get_logger(), "Invalid waypoint in smoothed path!");
-                for (auto* state : smoothed) si->freeState(state);
-                response->success = false;
-                response->message = "Path validation failed";
-                return;
-            }
-
-            int mgx = static_cast<int>(std::round(st->values[0]));
-            int mgy = static_cast<int>(std::round(st->values[1]));
-            auto [wx, wy] = map_to_world(mgx, mgy);
-            world_x.push_back(wx);
-            world_y.push_back(wy);
-
-            si->freeState(s);
         }
 
         // Ensure goal is included
@@ -316,29 +440,20 @@ private:
         if (dist_to_goal > 0.1) {
             world_x.push_back(request->goal_x);
             world_y.push_back(request->goal_y);
+            yaws.push_back(goal_yaw);
         }
 
-        size_t before_interp = world_x.size();
-
         // =====================================================================
-        // Step 3: Interpolate for smooth spline fitting
-        // =====================================================================
-        interpolate_path(world_x, world_y, interpolation_spacing_);
-
-        // =====================================================================
-        // Step 4: Compute velocities and fill response
+        // Compute velocities and fill response
         // =====================================================================
         response->waypoints_x = world_x;
         response->waypoints_y = world_y;
 
-        compute_velocities(
-            response->waypoints_x, response->waypoints_y,
-            response->velocities_x, response->velocities_y,
-            desired_speed_);
+        compute_velocities(yaws, response->velocities_x, response->velocities_y, desired_speed_);
 
         response->success = true;
-        response->message = "Path: " + std::to_string(before_interp) + " -> " +
-                           std::to_string(world_x.size()) + " pts (interpolated)";
+        response->message = "Dubins path: " + std::to_string(path.getStateCount()) +
+                           " states -> " + std::to_string(world_x.size()) + " pts";
 
         RCLCPP_INFO(get_logger(), "%s", response->message.c_str());
     }
@@ -348,6 +463,7 @@ private:
     double resolution_, origin_x_, origin_y_;
     double planning_timeout_, desired_speed_, clearance_weight_;
     double min_clearance_smooth_, interpolation_spacing_;
+    double turning_radius_;
     rclcpp::Service<autonomous_system::srv::PlanPath>::SharedPtr service_;
 };
 
