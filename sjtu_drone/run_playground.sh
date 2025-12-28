@@ -15,7 +15,7 @@ XAUTH=$HOME/.Xauthority
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_DIR="$(dirname "$SCRIPT_DIR")"                          # <workspace_root>
 CONTAINER_WS="/root/$(basename "$WORKSPACE_DIR")"                 # e.g., /root/my_project
-HOST_WORLDS_DIR="${WORKSPACE_DIR}/aws-robomaker-hospital-world/worlds"
+HOST_WORLDS_DIR="${WORKSPACE_DIR}/sjtu_drone/sjtu_drone_description/worlds"
 
 HOST_SRC_DIR="${WORKSPACE_DIR}/src"
 
@@ -42,17 +42,12 @@ fi
 
 WORLD_FILE="$1"
 WORLD_BASE="$(basename "${WORLD_FILE}" .world)"
-WORLD_PATH="${CONTAINER_WS}/aws-robomaker-hospital-world/worlds/${WORLD_FILE}"
+WORLD_PATH="${CONTAINER_WS}/sjtu_drone/sjtu_drone_description/worlds/${WORLD_FILE}"
 
 # -----------------------------
 # Pre-run checks (host)
 # -----------------------------
-if [[ ! -d "${WORKSPACE_DIR}/aws-robomaker-hospital-world" ]]; then
-  echo "[ERROR] Missing directory: ${WORKSPACE_DIR}/aws-robomaker-hospital-world"
-  echo "        Expected layout:"
-  echo "        <workspace_root>/{sjtu_drone, aws-robomaker-hospital-world}"
-  exit 1
-fi
+
 
 if [[ ! -f "${HOST_WORLDS_DIR}/${WORLD_FILE}" ]]; then
   echo "[ERROR] World file not found: ${HOST_WORLDS_DIR}/${WORLD_FILE}"
@@ -94,6 +89,7 @@ xhost +local:docker >/dev/null 2>&1 || true
 # -----------------------------
 # Run container
 # -----------------------------
+
 echo "[INFO] Using world: ${WORLD_PATH}"
 docker run \
   -it --rm \
@@ -124,17 +120,15 @@ docker run \
 
     # --- Core env ---
     export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+
+    # Gazebo paths (SJTU-only)
     export GAZEBO_MODEL_PATH=/usr/share/gazebo-11/models
-    export GAZEBO_MODEL_PATH=\$GAZEBO_MODEL_PATH:${CONTAINER_WS}/aws-robomaker-hospital-world/models
-    if [[ -d '${CONTAINER_WS}/aws-robomaker-hospital-world/fuel_models' ]]; then
-      export GAZEBO_MODEL_PATH=\$GAZEBO_MODEL_PATH:${CONTAINER_WS}/aws-robomaker-hospital-world/fuel_models
-    fi
     export GAZEBO_MODEL_PATH=\$GAZEBO_MODEL_PATH:${CONTAINER_WS}/sjtu_drone/sjtu_drone_description
     export GAZEBO_MODEL_PATH=\$GAZEBO_MODEL_PATH:${CONTAINER_WS}/sjtu_drone/models
 
     export GAZEBO_RESOURCE_PATH=/usr/share/gazebo-11
-    export GAZEBO_RESOURCE_PATH=\$GAZEBO_RESOURCE_PATH:${CONTAINER_WS}/aws-robomaker-hospital-world/worlds
-    export GAZEBO_RESOURCE_PATH=\$GAZEBO_RESOURCE_PATH:${CONTAINER_WS}/aws-robomaker-hospital-world
+    export GAZEBO_RESOURCE_PATH=\$GAZEBO_RESOURCE_PATH:${CONTAINER_WS}/sjtu_drone/sjtu_drone_description/worlds
+
     export GAZEBO_MODEL_DATABASE_URI=
     export GAZEBO_PLUGIN_PATH=/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:\$GAZEBO_PLUGIN_PATH
     if [[ -d '${CONTAINER_WS}/install/gazebo_ros_2d_map/lib' ]]; then
@@ -153,15 +147,14 @@ docker run \
     echo '================================'
 
     # --- Sanity: world exists ---
-    if [[ ! -f '${CONTAINER_WS}/aws-robomaker-hospital-world/worlds/${WORLD_FILE}' ]]; then
-      echo '[ERROR] World file missing inside container: ${CONTAINER_WS}/aws-robomaker-hospital-world/worlds/${WORLD_FILE}'
+    if [[ ! -f '${CONTAINER_WS}/sjtu_drone/sjtu_drone_description/worlds/${WORLD_FILE}' ]]; then
+      echo '[ERROR] World file missing inside container: ${CONTAINER_WS}/sjtu_drone/sjtu_drone_description/worlds/${WORLD_FILE}'
       exit 1
     fi
 
     # --- Build ---
     echo '[INFO] Building workspace...'
     cd '${CONTAINER_WS}'
-    # Clean only our packages to avoid nuking other builds in the same WS
     rm -rf build/sjtu_drone_* install/sjtu_drone_* 2>/dev/null || true
     if [[ \"${SKIP_MAP}\" != 'true' ]]; then
       rm -rf build/gazebo_ros_2d_map install/gazebo_ros_2d_map 2>/dev/null || true
@@ -196,7 +189,7 @@ docker run \
       mkdir -p '${CONTAINER_WS}/maps'
       ros2 run gazebo_ros_2d_map gazebo_ros_2d_map \
         --ros-args \
-        -p map_name:='hospital_map' \
+        -p map_name:='playground_map' \
         -p save_map:=true \
         -p map_path:='${CONTAINER_WS}/maps' \
         -p occupied_thresh:=0.65 \
@@ -211,3 +204,4 @@ docker run \
 # Revoke X11 access
 xhost -local:docker >/dev/null 2>&1 || true
 echo "[INFO] Container exited."
+
