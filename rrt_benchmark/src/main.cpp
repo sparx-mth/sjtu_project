@@ -12,6 +12,7 @@
 #include <iostream>
 #include <filesystem>
 #include <getopt.h>
+#include <ompl/util/Console.h>
 
 // Default map path
 const std::string DEFAULT_MAP = "maps/hospital_map_cropped.yaml";
@@ -36,12 +37,15 @@ void printHelp(const char* name) {
 }
 
 int main(int argc, char** argv) {
+    // Suppress OMPL debug output
+    ompl::msg::setLogLevel(ompl::msg::LOG_WARN);
+
     // Defaults
     std::string map_path = DEFAULT_MAP;
     std::string output_dir = "results";
     int pairs = 20;
     int iterations = 100;
-    double min_distance = 5.0;
+    double min_distance = 30.0;
     double timeout = 3.0;
     int seed = -1;
     bool verbose = true;

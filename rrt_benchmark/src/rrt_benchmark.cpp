@@ -349,6 +349,9 @@ PlanResult Planner::plan(int start_x, int start_y, int goal_x, int goal_y) {
                 result.success = true;
                 result.first_solution_time_ms = elapsed_ms;
                 result.first_solution_length = len;
+                // Save first path for visualization
+                result.first_path_x = wx;
+                result.first_path_y = wy;
             }
 
             // Add snapshot if path improved
@@ -448,13 +451,22 @@ PairResult Runner::runPair(int id, int sx, int sy, int gx, int gy,
     pr.goal_world_x = gwx; pr.goal_world_y = gwy;
     pr.air_distance = std::hypot(gwx - swx, gwy - swy);
 
+    bool saved_example = false;
+
     for (int i = 0; i < iterations; ++i) {
-        if (verbose && (i+1) % 10 == 0) {
-            std::cout << "  Iteration " << (i+1) << "/" << iterations << "\r" << std::flush;
+        auto result = planner_->plan(sx, sy, gx, gy);
+
+        // Save example paths from first successful iteration
+        if (result.success && !saved_example) {
+            pr.example_first_path_x = result.first_path_x;
+            pr.example_first_path_y = result.first_path_y;
+            pr.example_final_path_x = result.path_x;
+            pr.example_final_path_y = result.path_y;
+            saved_example = true;
         }
-        pr.iterations.push_back(planner_->plan(sx, sy, gx, gy));
+
+        pr.iterations.push_back(std::move(result));
     }
-    if (verbose) std::cout << std::endl;
 
     computeStats(pr);
     return pr;
@@ -469,13 +481,8 @@ Session Runner::run(int num_pairs, int iterations, double min_distance, bool ver
     session.config = config_;
 
     if (verbose) {
-        std::cout << "\n========================================\n";
-        std::cout << "RRT* Benchmark\n";
-        std::cout << "========================================\n";
-        std::cout << "Pairs: " << num_pairs << ", Iterations: " << iterations << "\n";
-        std::cout << "Min distance: " << min_distance << "m\n";
-        std::cout << "Timeout: " << config_.planning_timeout << "s\n";
-        std::cout << "========================================\n\n";
+        std::cout << "RRT* Benchmark: " << num_pairs << " pairs x " << iterations
+                  << " iterations, timeout=" << config_.planning_timeout << "s\n";
     }
 
     auto t_start = std::chrono::high_resolution_clock::now();
@@ -486,12 +493,7 @@ Session Runner::run(int num_pairs, int iterations, double min_distance, bool ver
         auto [gx, gy] = goal;
 
         if (verbose) {
-            auto [swx, swy] = map_.gridToWorld(sx, sy);
-            auto [gwx, gwy] = map_.gridToWorld(gx, gy);
-            double air = std::hypot(gwx - swx, gwy - swy);
-            std::cout << "Pair " << (i+1) << "/" << num_pairs
-                      << ": (" << sx << "," << sy << ") -> (" << gx << "," << gy << ")"
-                      << " [air=" << std::fixed << std::setprecision(1) << air << "m]\n";
+            std::cout << "Pair " << (i+1) << "/" << num_pairs << "..." << std::flush;
         }
 
         auto pr = runPair(i, sx, sy, gx, gy, iterations, verbose);
@@ -499,10 +501,9 @@ Session Runner::run(int num_pairs, int iterations, double min_distance, bool ver
 
         if (verbose) {
             auto& r = session.results.back();
-            std::cout << "  Success: " << std::setprecision(0) << (r.success_rate*100) << "%"
-                      << ", First: " << std::setprecision(1) << r.mean_first_time_ms << "ms"
-                      << ", Length: " << std::setprecision(2) << r.mean_final_length << "m"
-                      << ", Improvement: " << std::setprecision(1) << r.mean_improvement_pct << "%\n\n";
+            std::cout << " done (" << std::fixed << std::setprecision(0)
+                      << (r.success_rate*100) << "% success, "
+                      << std::setprecision(1) << r.mean_first_time_ms << "ms avg)\n";
         }
     }
 
@@ -512,13 +513,10 @@ Session Runner::run(int num_pairs, int iterations, double min_distance, bool ver
     computeGlobalStats(session);
 
     if (verbose) {
-        std::cout << "========================================\n";
-        std::cout << "COMPLETE\n";
-        std::cout << "========================================\n";
-        std::cout << "Duration: " << std::setprecision(1) << session.duration_seconds << "s\n";
-        std::cout << "Success rate: " << std::setprecision(0) << (session.success_rate*100) << "%\n";
-        std::cout << "Mean first solution: " << std::setprecision(1) << session.mean_first_time_ms << "ms\n";
-        std::cout << "Mean path length: " << std::setprecision(2) << session.mean_final_length << "m\n";
+        std::cout << "\nDone in " << std::setprecision(1) << session.duration_seconds << "s. "
+                  << "Success: " << std::setprecision(0) << (session.success_rate*100) << "%, "
+                  << "Mean first: " << std::setprecision(1) << session.mean_first_time_ms << "ms, "
+                  << "Mean length: " << std::setprecision(2) << session.mean_final_length << "m\n";
     }
 
     return session;
@@ -531,6 +529,7 @@ void Runner::saveJson(const Session& s, const std::string& filepath) {
     f << std::fixed;
     f << "{\n";
     f << "  \"timestamp\": \"" << s.timestamp << "\",\n";
+    f << "  \"map_file\": \"" << s.map_file << "\",\n";
     f << "  \"num_pairs\": " << s.num_pairs << ",\n";
     f << "  \"iterations_per_pair\": " << s.iterations_per_pair << ",\n";
     f << "  \"min_distance\": " << s.min_distance << ",\n";
@@ -562,6 +561,35 @@ void Runner::saveJson(const Session& s, const std::string& filepath) {
         f << "      \"mean_final_length\": " << std::setprecision(3) << pr.mean_final_length << ",\n";
         f << "      \"std_final_length\": " << pr.std_final_length << ",\n";
         f << "      \"mean_improvement_percent\": " << std::setprecision(2) << pr.mean_improvement_pct << ",\n";
+
+        // Example first path (from first successful iteration)
+        f << "      \"example_first_path_x\": [";
+        for (size_t i = 0; i < pr.example_first_path_x.size(); ++i) {
+            f << std::setprecision(4) << pr.example_first_path_x[i];
+            if (i < pr.example_first_path_x.size() - 1) f << ", ";
+        }
+        f << "],\n";
+        f << "      \"example_first_path_y\": [";
+        for (size_t i = 0; i < pr.example_first_path_y.size(); ++i) {
+            f << std::setprecision(4) << pr.example_first_path_y[i];
+            if (i < pr.example_first_path_y.size() - 1) f << ", ";
+        }
+        f << "],\n";
+
+        // Example final path
+        f << "      \"example_final_path_x\": [";
+        for (size_t i = 0; i < pr.example_final_path_x.size(); ++i) {
+            f << std::setprecision(4) << pr.example_final_path_x[i];
+            if (i < pr.example_final_path_x.size() - 1) f << ", ";
+        }
+        f << "],\n";
+        f << "      \"example_final_path_y\": [";
+        for (size_t i = 0; i < pr.example_final_path_y.size(); ++i) {
+            f << std::setprecision(4) << pr.example_final_path_y[i];
+            if (i < pr.example_final_path_y.size() - 1) f << ", ";
+        }
+        f << "],\n";
+
         f << "      \"iteration_results\": [\n";
 
         for (size_t ii = 0; ii < pr.iterations.size(); ++ii) {

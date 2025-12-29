@@ -63,7 +63,13 @@ struct PlanResult {
     double final_path_length = 0;
 
     std::vector<Snapshot> snapshots;
-    std::vector<double> path_x;  // Final path (world coords)
+
+    // First solution path (world coords)
+    std::vector<double> first_path_x;
+    std::vector<double> first_path_y;
+
+    // Final path (world coords)
+    std::vector<double> path_x;
     std::vector<double> path_y;
 };
 
@@ -85,6 +91,12 @@ struct PairResult {
     double mean_final_length = 0;
     double std_final_length = 0;
     double mean_improvement_pct = 0;
+
+    // Example paths from first successful iteration (for visualization)
+    std::vector<double> example_first_path_x;
+    std::vector<double> example_first_path_y;
+    std::vector<double> example_final_path_x;
+    std::vector<double> example_final_path_y;
 };
 
 /** Full benchmark session */
