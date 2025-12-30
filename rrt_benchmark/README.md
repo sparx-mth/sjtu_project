@@ -60,13 +60,14 @@ make
 
 ```bash
 # Basic run (20 pairs × 100 iterations)
-./rrt_benchmark -m /path/to/map.yaml
+cd rrt_benchmark
+./build/rrt_benchmark -m /path/to/map.yaml
 
 # Quick test
-./rrt_benchmark -m map.yaml -p 5 -i 20
+./build/rrt_benchmark -m map.yaml -p 5 -i 20
 
 # Full options
-./rrt_benchmark -m map.yaml -p 20 -i 100 -d 10 -t 5.0 -o results/
+./build/rrt_benchmark -m map.yaml -p 20 -i 100 -d 10 -t 5.0 -o results/
 ```
 
 ### Options
@@ -90,16 +91,6 @@ python3 scripts/analyze.py results/benchmark_XXXX.json
 
 # Without display (server mode)
 python3 scripts/analyze.py results/benchmark_XXXX.json --no-show
-```
-
-### Smoothing Benchmark
-
-```bash
-# Synthetic paths
-python3 scripts/smoothing_benchmark.py --synthetic --num 100
-
-# From benchmark results
-python3 scripts/smoothing_benchmark.py --input results/benchmark_XXXX.json
 ```
 
 ## Output
@@ -153,44 +144,3 @@ Image: Grayscale PNG where white (>250) = free, dark = obstacle.
 
 # Combine and analyze later
 ```
-
-## Example Output
-
-```
-========================================
-RRT* Benchmark
-========================================
-Pairs: 20, Iterations: 100
-Min distance: 5.0m
-Timeout: 3.0s
-========================================
-
-Pair 1/20: (156,234) -> (512,678) [air=15.2m]
-  Success: 100%, First: 45.2ms, Length: 18.34m, Improvement: 12.3%
-
-...
-
-========================================
-COMPLETE
-========================================
-Duration: 127.4s
-Success rate: 100%
-Mean first solution: 52.3ms
-Mean path length: 16.78m
-```
-
-## Code Details
-
-The C++ code is **identical** to your `rrt_planner_service.cpp`:
-
-| Component | Original | Benchmark |
-|-----------|----------|-----------|
-| OMPL API | `og::SimpleSetup` | `og::SimpleSetup` ✓ |
-| Planner | `og::RRTstar` | `og::RRTstar` ✓ |
-| Objective | `ClearanceObjective` | Same formula ✓ |
-| Validity | `is_valid()` | Identical ✓ |
-| Smoothing | `si->checkMotion()` | `si->checkMotion()` ✓ |
-| Interpolation | `interpolate_path()` | Same logic ✓ |
-| Map loading | OpenCV + yaml-cpp | Identical ✓ |
-
-**Only difference**: Benchmark solves in small increments to record solution improvements over time, but the algorithm and parameters are identical.

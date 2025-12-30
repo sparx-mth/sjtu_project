@@ -26,11 +26,18 @@ from pathlib import Path
 import cv2
 import yaml
 import numpy as np
+import os
+import matplotlib
+
+# Prevent PyCharm interagg backend + system mpl_toolkits mixing
+if os.environ.get("MPLBACKEND") is None:
+    matplotlib.use("Agg")
+
 import matplotlib.pyplot as plt
 
 
 # Your known-good map path (default when -m is not provided)
-DEFAULT_MAP_YAML = "/home/nadavc/PycharmProjects/sjtu_project/rrt_benchmark/maps/hospital_map_cropped.yaml"
+DEFAULT_MAP_YAML = "/home/user/PycharmProjects/sjtu_project/rrt_benchmark/maps/hospital_map_cropped.yaml"
 
 
 def load_map(yaml_path: str) -> Tuple[np.ndarray, float, Tuple[float, float]]:

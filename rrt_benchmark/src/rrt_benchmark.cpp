@@ -292,84 +292,159 @@ PlanResult Planner::plan(int start_x, int start_y, int goal_x, int goal_y) {
     ss.setPlanner(std::make_shared<og::RRTstar>(ss.getSpaceInformation()));
 
     // =========================================================================
-    // Planning with periodic solution capture (for benchmarking)
+    // Two-phase planning: fine polling for first solution, coarse for improvements
     // =========================================================================
     auto t_start = std::chrono::high_resolution_clock::now();
-    double remaining = config_.planning_timeout;
-    double increment = config_.snapshot_interval_ms / 1000.0;
 
-    while (remaining > 0) {
-        double dt = std::min(increment, remaining);
-        ss.solve(dt);
+    // Storage for solution snapshots
+    struct SolutionSnapshot {
+        double time_ms;
+        double path_length;
+        std::vector<double> path_x;
+        std::vector<double> path_y;
+        int num_raw_points;
+        int num_smoothed_points;
+    };
+    std::vector<SolutionSnapshot> snapshots;
+
+    auto si = ss.getSpaceInformation();
+
+    // Helper lambda to validate that a path doesn't go through obstacles
+    auto isPathValid = [&](og::PathGeometric& path) -> bool {
+        if (path.getStateCount() < 2) return false;
+
+        for (size_t i = 0; i < path.getStateCount() - 1; ++i) {
+            // Check if motion between consecutive states is valid
+            if (!si->checkMotion(path.getState(i), path.getState(i + 1))) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    // Helper lambda to extract and process current solution
+    auto extractSolution = [&]() -> SolutionSnapshot {
+        og::PathGeometric& current_path = ss.getSolutionPath();
+
+        // Extract raw path from OMPL (validated path)
+        std::vector<std::pair<double,double>> raw;
+        for (size_t i = 0; i < current_path.getStateCount(); ++i) {
+            const auto* s = current_path.getState(i)->as<ob::RealVectorStateSpace::StateType>();
+            raw.emplace_back(s->values[0], s->values[1]);
+        }
+        int n_raw = raw.size();
+
+        // Apply smoothing
+        auto smoothed = smooth(raw, si);
+        int n_smooth = smoothed.size();
+
+        // Convert to world coordinates
+        std::vector<double> wx, wy;
+        for (auto& [gx, gy] : smoothed) {
+            auto [x, y] = map_->gridToWorld(std::round(gx), std::round(gy));
+            wx.push_back(x);
+            wy.push_back(y);
+        }
+
+        // Ensure goal is included
+        if (!wx.empty()) {
+            double d = std::hypot(wx.back() - goal_wx, wy.back() - goal_wy);
+            if (d > 0.1) {
+                wx.push_back(goal_wx);
+                wy.push_back(goal_wy);
+            }
+        }
+
+        // Interpolate
+        interpolate(wx, wy, config_.interpolation_spacing);
 
         auto t_now = std::chrono::high_resolution_clock::now();
         double elapsed_ms = std::chrono::duration<double, std::milli>(t_now - t_start).count();
+        double len = pathLength(wx, wy);
 
-        if (ss.haveSolutionPath()) {
+        return {elapsed_ms, len, std::move(wx), std::move(wy), n_raw, n_smooth};
+    };
+
+    // -------------------------------------------------------------------------
+    // Phase 1: Fine polling (1ms) until first VALID solution is found
+    // -------------------------------------------------------------------------
+    const double fine_poll = 0.001;  // 1ms
+    double elapsed_sec = 0;
+
+    while (elapsed_sec < config_.planning_timeout) {
+        ob::PlannerStatus status = ss.solve(fine_poll);
+
+        auto t_now = std::chrono::high_resolution_clock::now();
+        elapsed_sec = std::chrono::duration<double>(t_now - t_start).count();
+
+        // Only accept EXACT solutions that pass validation
+        if (status == ob::PlannerStatus::EXACT_SOLUTION && ss.haveSolutionPath()) {
             og::PathGeometric& path = ss.getSolutionPath();
-            auto si = ss.getSpaceInformation();
 
-            // Extract raw path
-            std::vector<std::pair<double,double>> raw;
-            for (size_t i = 0; i < path.getStateCount(); ++i) {
-                const auto* s = path.getState(i)->as<ob::RealVectorStateSpace::StateType>();
-                raw.emplace_back(s->values[0], s->values[1]);
-            }
-            int n_raw = raw.size();
+            // Verify the path is actually valid (doesn't go through walls)
+            if (isPathValid(path)) {
+                // Found first valid solution - extract it
+                auto first_snap = extractSolution();
 
-            // Adaptive smoothing (same logic as original pipeline)
-            auto smoothed = smooth(raw, si);
-            int n_smooth = smoothed.size();
-
-            // Convert to world coordinates
-            std::vector<double> wx, wy;
-            for (auto& [gx, gy] : smoothed) {
-                auto [x, y] = map_->gridToWorld(std::round(gx), std::round(gy));
-                wx.push_back(x);
-                wy.push_back(y);
-            }
-
-            // Ensure goal is included
-            if (!wx.empty()) {
-                double d = std::hypot(wx.back() - goal_wx, wy.back() - goal_wy);
-                if (d > 0.1) {
-                    wx.push_back(goal_wx);
-                    wy.push_back(goal_wy);
-                }
-            }
-
-            // Interpolate
-            interpolate(wx, wy, config_.interpolation_spacing);
-            int n_final = wx.size();
-
-            double len = pathLength(wx, wy);
-
-            // Record first solution
-            if (!result.success) {
                 result.success = true;
-                result.first_solution_time_ms = elapsed_ms;
-                result.first_solution_length = len;
-                // Save first path for visualization
-                result.first_path_x = wx;
-                result.first_path_y = wy;
-            }
+                result.first_solution_time_ms = first_snap.time_ms;
+                result.first_solution_length = first_snap.path_length;
+                result.first_path_x = first_snap.path_x;
+                result.first_path_y = first_snap.path_y;
+                result.path_x = first_snap.path_x;
+                result.path_y = first_snap.path_y;
+                result.final_path_length = first_snap.path_length;
 
-            // Add snapshot if path improved
-            if (result.snapshots.empty() ||
-                std::abs(result.snapshots.back().path_length - len) > 0.001) {
-                result.snapshots.push_back({elapsed_ms, len, n_raw, n_smooth, n_final});
+                snapshots.push_back(std::move(first_snap));
+                break;  // Move to phase 2
             }
-
-            result.path_x = std::move(wx);
-            result.path_y = std::move(wy);
-            result.final_path_length = len;
         }
+    }
 
-        remaining -= dt;
+    // -------------------------------------------------------------------------
+    // Phase 2: Coarse polling (50ms) for path optimization
+    // -------------------------------------------------------------------------
+    if (result.success) {
+        const double coarse_poll = config_.snapshot_interval_ms / 1000.0;  // 50ms default
+        double remaining = config_.planning_timeout - elapsed_sec;
+
+        while (remaining > 0) {
+            double dt = std::min(coarse_poll, remaining);
+            ob::PlannerStatus status = ss.solve(dt);
+
+            // Check for improved valid solution
+            if (status == ob::PlannerStatus::EXACT_SOLUTION && ss.haveSolutionPath()) {
+                auto snap = extractSolution();
+
+                // Only record if path improved meaningfully
+                if (snap.path_length < snapshots.back().path_length * 0.999) {
+                    snapshots.push_back(snap);
+                }
+
+                // Always update final path
+                result.path_x = std::move(snap.path_x);
+                result.path_y = std::move(snap.path_y);
+                result.final_path_length = snap.path_length;
+            }
+
+            remaining -= dt;
+        }
     }
 
     auto t_end = std::chrono::high_resolution_clock::now();
     result.total_time_ms = std::chrono::duration<double, std::milli>(t_end - t_start).count();
+
+    // Build result snapshots
+    for (const auto& snap : snapshots) {
+        result.snapshots.push_back({
+            snap.time_ms,
+            snap.path_length,
+            snap.num_raw_points,
+            snap.num_smoothed_points,
+            static_cast<int>(snap.path_x.size())
+        });
+    }
+
     result.message = result.success ? "OK" : "No path found";
 
     return result;

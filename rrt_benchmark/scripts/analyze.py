@@ -13,6 +13,13 @@ import sys
 import json
 import argparse
 import numpy as np
+import os
+import matplotlib
+
+# Prevent PyCharm interagg backend + system mpl_toolkits mixing
+if os.environ.get("MPLBACKEND") is None:
+    matplotlib.use("Agg")
+
 import matplotlib.pyplot as plt
 from pathlib import Path
 
