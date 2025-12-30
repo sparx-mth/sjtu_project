@@ -17,6 +17,11 @@
 
 #include <yaml-cpp/yaml.h>
 
+// Additional OMPL planners for Informed RRT* and BIT*
+#include <ompl/geometric/planners/rrt/InformedRRTstar.h>
+#include <ompl/geometric/planners/informedtrees/BITstar.h>
+#include <ompl/base/objectives/PathLengthOptimizationObjective.h>
+
 namespace rrt_bench {
 
 // =============================================================================
@@ -277,8 +282,15 @@ PlanResult Planner::plan(int start_x, int start_y, int goal_x, int goal_y) {
         return map_->isValid(s->values[0], s->values[1]);
     });
 
-    ss.setOptimizationObjective(
-        std::make_shared<ClearanceObjective>(ss.getSpaceInformation(), map_, config_.clearance_weight));
+    // Use PathLengthOptimizationObjective for informed planners (has built-in heuristic)
+    // Use ClearanceObjective for standard RRT*
+    if (config_.planner_type == "InformedRRTstar" || config_.planner_type == "BITstar") {
+        ss.setOptimizationObjective(
+            std::make_shared<ob::PathLengthOptimizationObjective>(ss.getSpaceInformation()));
+    } else {
+        ss.setOptimizationObjective(
+            std::make_shared<ClearanceObjective>(ss.getSpaceInformation(), map_, config_.clearance_weight));
+    }
 
     ob::ScopedState<> start(space);
     start[0] = static_cast<double>(start_x);
@@ -289,7 +301,17 @@ PlanResult Planner::plan(int start_x, int start_y, int goal_x, int goal_y) {
     goal[1] = static_cast<double>(goal_y);
 
     ss.setStartAndGoalStates(start, goal);
-    ss.setPlanner(std::make_shared<og::RRTstar>(ss.getSpaceInformation()));
+    // Select planner based on config (default: RRTstar)
+    // Options: "RRTstar", "InformedRRTstar", "BITstar"
+    if (config_.planner_type == "InformedRRTstar") {
+        ss.setPlanner(std::make_shared<og::InformedRRTstar>(ss.getSpaceInformation()));
+    } else if (config_.planner_type == "BITstar") {
+    auto bitstar = std::make_shared<og::BITstar>(ss.getSpaceInformation());
+    bitstar->setUseKNearest(false);  // Silence the naming warning
+    ss.setPlanner(bitstar);
+    } else {
+        ss.setPlanner(std::make_shared<og::RRTstar>(ss.getSpaceInformation()));
+    }
 
     // =========================================================================
     // Two-phase planning: fine polling for first solution, coarse for improvements
@@ -556,7 +578,8 @@ Session Runner::run(int num_pairs, int iterations, double min_distance, bool ver
     session.config = config_;
 
     if (verbose) {
-        std::cout << "RRT* Benchmark: " << num_pairs << " pairs x " << iterations
+        std::string planner_name = config_.planner_type.empty() ? "RRTstar" : config_.planner_type;
+        std::cout << planner_name << " Benchmark: " << num_pairs << " pairs x " << iterations
                   << " iterations, timeout=" << config_.planning_timeout << "s\n";
     }
 

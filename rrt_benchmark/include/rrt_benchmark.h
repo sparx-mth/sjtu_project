@@ -20,6 +20,8 @@
 #include <ompl/base/objectives/StateCostIntegralObjective.h>
 #include <ompl/geometric/SimpleSetup.h>
 #include <ompl/geometric/planners/rrt/RRTstar.h>
+#include <ompl/geometric/planners/rrt/InformedRRTstar.h>
+#include <ompl/geometric/planners/informedtrees/BITstar.h>
 
 namespace ob = ompl::base;
 namespace og = ompl::geometric;
@@ -37,6 +39,7 @@ struct Config {
     double min_clearance_smooth = 15.0;  // Min clearance to allow smoothing
     double interpolation_spacing = 3.0;  // Meters between interpolated points
     double snapshot_interval_ms = 50.0;  // How often to record solutions
+    std::string planner_type = "BITstar";  // Options: "RRTstar", "InformedRRTstar", "BITstar"
 };
 
 // =============================================================================
