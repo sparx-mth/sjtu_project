@@ -39,7 +39,7 @@ struct Config {
     double min_clearance_smooth = 15.0;  // Min clearance to allow smoothing
     double interpolation_spacing = 3.0;  // Meters between interpolated points
     double snapshot_interval_ms = 50.0;  // How often to record solutions
-    std::string planner_type = "BITstar";  // Options: "RRTstar", "InformedRRTstar", "BITstar"
+    std::string planner_type = "RRTstar";  // Options: "RRTstar", "InformedRRTstar", "BITstar"
 };
 
 // =============================================================================

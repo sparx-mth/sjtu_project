@@ -23,6 +23,7 @@ void printHelp(const char* name) {
               << "Options:\n"
               << "  -m, --map <file>       Map YAML file (default: " << DEFAULT_MAP << ")\n"
               << "  -o, --output <dir>     Output directory (default: results)\n"
+              << "  -a, --algo <name>      Algorithm: RRTstar, InformedRRTstar, BITstar (default: BITstar)\n"
               << "  -p, --pairs <n>        Number of point pairs (default: 20)\n"
               << "  -i, --iterations <n>   Iterations per pair (default: 100)\n"
               << "  -d, --distance <m>     Min distance between points (default: 5.0)\n"
@@ -33,6 +34,7 @@ void printHelp(const char* name) {
               << "Examples:\n"
               << "  " << name << "                                    # Use default map\n"
               << "  " << name << " -m maps/my_map.yaml -p 5 -i 10\n"
+              << "  " << name << " -a InformedRRTstar -p 20 -i 100\n"
               << "  " << name << " -p 20 -i 100 -t 5.0 -s 42\n";
 }
 
@@ -43,6 +45,7 @@ int main(int argc, char** argv) {
     // Defaults
     std::string map_path = DEFAULT_MAP;
     std::string output_dir = "results";
+    std::string algo = "BITstar";
     int pairs = 20;
     int iterations = 100;
     double min_distance = 30.0;
@@ -53,6 +56,7 @@ int main(int argc, char** argv) {
     static struct option opts[] = {
         {"map",        required_argument, 0, 'm'},
         {"output",     required_argument, 0, 'o'},
+        {"algo",       required_argument, 0, 'a'},
         {"pairs",      required_argument, 0, 'p'},
         {"iterations", required_argument, 0, 'i'},
         {"distance",   required_argument, 0, 'd'},
@@ -64,10 +68,11 @@ int main(int argc, char** argv) {
     };
 
     int c;
-    while ((c = getopt_long(argc, argv, "m:o:p:i:d:t:s:qh", opts, nullptr)) != -1) {
+    while ((c = getopt_long(argc, argv, "m:o:a:p:i:d:t:s:qh", opts, nullptr)) != -1) {
         switch (c) {
             case 'm': map_path = optarg; break;
             case 'o': output_dir = optarg; break;
+            case 'a': algo = optarg; break;
             case 'p': pairs = std::atoi(optarg); break;
             case 'i': iterations = std::atoi(optarg); break;
             case 'd': min_distance = std::atof(optarg); break;
@@ -80,12 +85,20 @@ int main(int argc, char** argv) {
     }
 
     try {
+        // Validate algorithm choice
+        if (algo != "RRTstar" && algo != "InformedRRTstar" && algo != "BITstar") {
+            std::cerr << "Error: Unknown algorithm '" << algo << "'\n";
+            std::cerr << "Valid options: RRTstar, InformedRRTstar, BITstar\n";
+            return 1;
+        }
+
         // Create output directory
         std::filesystem::create_directories(output_dir);
 
         // Setup config
         rrt_bench::Config config;
         config.planning_timeout = timeout;
+        config.planner_type = algo;
 
         // Create runner
         rrt_bench::Runner runner(map_path, config);

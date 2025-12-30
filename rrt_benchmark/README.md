@@ -59,15 +59,20 @@ make
 ### Run Benchmark
 
 ```bash
-# Basic run (20 pairs × 100 iterations)
+# Basic run with BIT* (default algorithm)
 cd rrt_benchmark
 ./build/rrt_benchmark -m /path/to/map.yaml
 
 # Quick test
 ./build/rrt_benchmark -m map.yaml -p 5 -i 20
 
+# Use different algorithms
+./build/rrt_benchmark -m map.yaml -a RRTstar -p 5 -i 20
+./build/rrt_benchmark -m map.yaml -a InformedRRTstar -p 5 -i 20
+./build/rrt_benchmark -m map.yaml -a BITstar -p 5 -i 20
+
 # Full options
-./build/rrt_benchmark -m map.yaml -p 20 -i 100 -d 10 -t 5.0 -o results/
+./build/rrt_benchmark -m map.yaml -a BITstar -p 20 -i 100 -d 10 -t 5.0 -o results/
 ```
 
 ### Options
@@ -76,6 +81,7 @@ cd rrt_benchmark
 |--------|-------------|---------|
 | `-m, --map` | Map YAML file (required) | - |
 | `-o, --output` | Output directory | results |
+| `-a, --algo` | Algorithm: RRTstar, InformedRRTstar, BITstar | BITstar |
 | `-p, --pairs` | Number of point pairs | 20 |
 | `-i, --iterations` | Iterations per pair | 100 |
 | `-d, --distance` | Min distance between points (m) | 5.0 |
@@ -121,6 +127,16 @@ results/
 3. **Final Path Quality** - Length compared to air distance
 4. **Success Rate** - Percentage of successful planning attempts
 
+## Available Algorithms
+
+| Algorithm | Description |
+|-----------|-------------|
+| **RRTstar** | Standard RRT* with clearance optimization. Good baseline. |
+| **InformedRRTstar** | RRT* with informed sampling using ellipsoidal heuristic. Faster convergence after finding initial solution. |
+| **BITstar** | Batch Informed Trees. Combines best of RRT* and graph-based planners. Often fastest convergence. |
+
+**Note:** InformedRRTstar and BITstar use path length optimization (required for informed sampling heuristics). RRTstar uses clearance-weighted optimization.
+
 ## Map Format
 
 Standard ROS map format (YAML + image):
@@ -143,4 +159,18 @@ Image: Grayscale PNG where white (>250) = free, dark = obstacle.
 ./rrt_benchmark -m map.yaml -s 2 -o results_m2/
 
 # Combine and analyze later
+```
+
+## Comparing Algorithms
+
+```bash
+# Run same scenario with different algorithms
+./rrt_benchmark -m map.yaml -a RRTstar -s 42 -p 10 -i 50 -o results_rrt/
+./rrt_benchmark -m map.yaml -a InformedRRTstar -s 42 -p 10 -i 50 -o results_irrt/
+./rrt_benchmark -m map.yaml -a BITstar -s 42 -p 10 -i 50 -o results_bit/
+
+# Analyze each
+python3 scripts/analyze.py results_rrt/benchmark_*.json
+python3 scripts/analyze.py results_irrt/benchmark_*.json
+python3 scripts/analyze.py results_bit/benchmark_*.json
 ```
