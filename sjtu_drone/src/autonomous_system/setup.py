@@ -14,7 +14,10 @@ setup(
         ('share/' + package_name, ['package.xml']),
         (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
     ],
-    install_requires=['setuptools'],
+    install_requires=[
+        'setuptools',
+        'minsnap-trajectories',
+    ],
     zip_safe=True,
     maintainer='Nadav',
     maintainer_email='you@example.com',

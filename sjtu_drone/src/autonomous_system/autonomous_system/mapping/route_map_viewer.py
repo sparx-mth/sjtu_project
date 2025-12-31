@@ -2,7 +2,7 @@
 """
 route_map_viewer.py
 -------------------
-Live 2D occupancy-map viewer + RRT* route overlay with smooth trajectory.
+Live 2D occupancy-map viewer + RRT* route overlay with BOTH smooth trajectories.
 
 Features:
 - Subscribes to drone pose: /simple_drone/gt_pose (geometry_msgs/Pose)
@@ -12,13 +12,15 @@ Features:
 - Calls planner service: /plan_path_rrt (autonomous_system/srv/PlanPath)
 - Draws:
     * Raw waypoints from planner (blue dots)
-    * Smooth spline trajectory (green curve)
+    * CubicSpline trajectory (green curve)
+    * MinSnap trajectory (magenta curve)
     * Velocity arrows (optional)
 
 Controls:
 - Click: Set target
 - 't': Type target coordinates
-- 's': Toggle smooth trajectory display
+- 's': Toggle CubicSpline trajectory display
+- 'm': Toggle MinSnap trajectory display
 - 'v': Toggle velocity arrows
 """
 
@@ -38,7 +40,23 @@ from rclpy.node import Node
 from geometry_msgs.msg import Pose
 
 from autonomous_system.srv import PlanPath
-from autonomous_system.planning.trajectory_smoother import smooth_waypoints
+
+# Try to import both smoothers
+try:
+    from autonomous_system.planning.minsnap_trajectory_smoother import smooth_waypoints as minsnap_smooth
+    HAS_MINSNAP = True
+except ImportError:
+    HAS_MINSNAP = False
+    minsnap_smooth = None
+    print("[WARN] MinSnap smoother not available - install: pip install minsnap-trajectories")
+
+try:
+    from autonomous_system.planning.trajectory_smoother import smooth_waypoints as cubic_smooth
+    HAS_CUBIC = True
+except ImportError:
+    HAS_CUBIC = False
+    cubic_smooth = None
+    print("[WARN] CubicSpline smoother not available")
 
 
 class RouteMapViewer(Node):
@@ -57,7 +75,8 @@ class RouteMapViewer(Node):
         self.declare_parameter("replan_period_sec", 0.5)
         self.declare_parameter("replan_if_start_moved_m", 0.75)
         self.declare_parameter("show_velocity_arrows", True)
-        self.declare_parameter("show_smooth_trajectory", True)
+        self.declare_parameter("show_cubic_trajectory", True)
+        self.declare_parameter("show_minsnap_trajectory", True)
         self.declare_parameter("velocity_arrow_stride", 4)
         self.declare_parameter("smooth_sample_spacing", 0.1)  # meters
 
@@ -72,7 +91,8 @@ class RouteMapViewer(Node):
         self.replan_if_start_moved_m = float(self.get_parameter("replan_if_start_moved_m").value)
 
         self.show_velocity_arrows = bool(self.get_parameter("show_velocity_arrows").value)
-        self.show_smooth_trajectory = bool(self.get_parameter("show_smooth_trajectory").value)
+        self.show_cubic_trajectory = bool(self.get_parameter("show_cubic_trajectory").value) and HAS_CUBIC
+        self.show_minsnap_trajectory = bool(self.get_parameter("show_minsnap_trajectory").value) and HAS_MINSNAP
         self.velocity_arrow_stride = int(self.get_parameter("velocity_arrow_stride").value)
         self.smooth_sample_spacing = float(self.get_parameter("smooth_sample_spacing").value)
 
@@ -115,9 +135,13 @@ class RouteMapViewer(Node):
         self.route_vel_map_u: List[float] = []
         self.route_vel_map_v: List[float] = []
 
-        # Smooth trajectory points (map coords)
-        self.smooth_map_x: List[float] = []
-        self.smooth_map_y: List[float] = []
+        # CubicSpline trajectory points (map coords)
+        self.cubic_map_x: List[float] = []
+        self.cubic_map_y: List[float] = []
+
+        # MinSnap trajectory points (map coords)
+        self.minsnap_map_x: List[float] = []
+        self.minsnap_map_y: List[float] = []
 
         # Planner request tracking
         self._plan_in_flight = False
@@ -139,24 +163,27 @@ class RouteMapViewer(Node):
         # Matplotlib UI
         # ----------------------------
         plt.ion()
-        self.fig, self.ax = plt.subplots(figsize=(8, 8))
-        self.ax.set_title("Route Map Viewer (s=smooth, v=velocity)")
+        self.fig, self.ax = plt.subplots(figsize=(10, 10))
+        self.ax.set_title("Route Map Viewer - [s]=CubicSpline [m]=MinSnap [v]=velocity")
 
         self.im = self.ax.imshow(self.map_data, cmap="gray", origin="lower")
 
         # Drone marker
-        self.drone_point, = self.ax.plot([], [], "ro", markersize=6, label="drone")
+        self.drone_point, = self.ax.plot([], [], "ro", markersize=8, label="drone")
 
         # Target rectangle
         self.target_rect = None
         self._draw_target_rectangle()
 
         # Raw waypoints - line + dots (blue)
-        self.route_line, = self.ax.plot([], [], "b-", linewidth=1.5, alpha=0.7, label="RRT* path")
-        self.route_dots, = self.ax.plot([], [], "bo", markersize=5, alpha=0.8)
+        self.route_line, = self.ax.plot([], [], "b-", linewidth=1.5, alpha=0.7, label="RRT* waypoints")
+        self.route_dots, = self.ax.plot([], [], "bo", markersize=6, alpha=0.9)
 
-        # Smooth trajectory (green, thicker)
-        self.smooth_line, = self.ax.plot([], [], "g-", linewidth=3, label="smooth path")
+        # CubicSpline trajectory (green, thick)
+        self.cubic_line, = self.ax.plot([], [], "g-", linewidth=3, alpha=0.8, label="CubicSpline")
+
+        # MinSnap trajectory (magenta, thick)
+        self.minsnap_line, = self.ax.plot([], [], "m-", linewidth=3, alpha=0.8, label="MinSnap")
 
         # Velocity arrows (optional)
         self.vel_quiver = None
@@ -183,7 +210,9 @@ class RouteMapViewer(Node):
         self.create_timer(self.replan_period_sec, self._maybe_replan)
 
         self.get_logger().info("RouteMapViewer ready.")
-        self.get_logger().info("  Click to set target, 't' to type, 's' toggle smooth, 'v' toggle velocity")
+        self.get_logger().info(f"  CubicSpline: {'available' if HAS_CUBIC else 'NOT available'}")
+        self.get_logger().info(f"  MinSnap: {'available' if HAS_MINSNAP else 'NOT available'}")
+        self.get_logger().info("  Controls: click=target, t=type, s=cubic, m=minsnap, v=velocity")
 
     # ----------------------------
     # Coordinate conversions
@@ -215,55 +244,43 @@ class RouteMapViewer(Node):
         if self._plan_in_flight:
             return
 
-        goal_world = self.map_to_world(float(self.target_map[0]), float(self.target_map[1]))
         start_world = self.drone_pose_world
+        goal_world = self.map_to_world(float(self.target_map[0]), float(self.target_map[1]))
 
-        if self._last_plan_start_world is None or self._last_plan_goal_world is None:
-            self._need_replan = True
-        else:
-            gx0, gy0 = self._last_plan_goal_world
-            gx1, gy1 = goal_world
-            goal_changed = (abs(gx1 - gx0) > 1e-6) or (abs(gy1 - gy0) > 1e-6)
-
-            sx0, sy0 = self._last_plan_start_world
-            sx1, sy1 = start_world
-            start_moved = ((sx1 - sx0) ** 2 + (sy1 - sy0) ** 2) ** 0.5 > self.replan_if_start_moved_m
-
-            self._need_replan = self._need_replan or goal_changed or start_moved
-
+        # Check if we need to replan
         if not self._need_replan:
-            return
+            if self._last_plan_start_world is not None:
+                dist = ((start_world[0] - self._last_plan_start_world[0])**2 +
+                        (start_world[1] - self._last_plan_start_world[1])**2)**0.5
+                if dist < self.replan_if_start_moved_m:
+                    return
+            else:
+                return
 
-        req = PlanPath.Request()
-        req.start_x = float(start_world[0])
-        req.start_y = float(start_world[1])
-        req.goal_x = float(goal_world[0])
-        req.goal_y = float(goal_world[1])
-
-        self._plan_in_flight = True
         self._need_replan = False
+        self._plan_in_flight = True
         self._last_plan_start_world = start_world
         self._last_plan_goal_world = goal_world
-        self._plan_sent_time = time.time()
+
+        # Call planner
+        req = PlanPath.Request()
+        req.start_x, req.start_y = start_world
+        req.goal_x, req.goal_y = goal_world
 
         future = self.planner_client.call_async(req)
-        future.add_done_callback(self._on_plan_result)
+        future.add_done_callback(self._plan_done_callback)
 
-    def _on_plan_result(self, future) -> None:
+    def _plan_done_callback(self, future) -> None:
         self._plan_in_flight = False
-
-        if hasattr(self, "_plan_sent_time") and (time.time() - self._plan_sent_time) > self.planner_timeout_sec:
-            self.get_logger().warn("Planner response arrived after timeout; ignoring.")
-            return
 
         try:
             res = future.result()
         except Exception as e:
-            self.get_logger().error(f"Planner call failed: {e}")
+            self.get_logger().error(f"Service call failed: {e}")
             self._clear_route()
             return
 
-        if res is None or not res.success:
+        if res is None or not res.success or len(res.waypoints_x) < 2:
             msg = res.message if res is not None else "None response"
             self.get_logger().warn(f"No path: {msg}")
             self._clear_route()
@@ -292,35 +309,62 @@ class RouteMapViewer(Node):
                 self.route_vel_map_u.append(res.velocities_x[i] * scale)
                 self.route_vel_map_v.append(res.velocities_y[i] * scale)
 
-        # Generate smooth trajectory
-        self._generate_smooth_trajectory(wx_list, wy_list)
+        # Generate BOTH smooth trajectories
+        self._generate_cubic_trajectory(wx_list, wy_list)
+        self._generate_minsnap_trajectory(wx_list, wy_list)
 
-        self.get_logger().info(f"Route: {n} waypoints, {len(self.smooth_map_x)} smooth points")
+        self.get_logger().info(
+            f"Route: {n} waypoints | "
+            f"Cubic: {len(self.cubic_map_x)} pts | "
+            f"MinSnap: {len(self.minsnap_map_x)} pts"
+        )
 
-    def _generate_smooth_trajectory(self, wx_list: List[float], wy_list: List[float]) -> None:
-        """Generate smooth spline trajectory from world waypoints."""
-        self.smooth_map_x, self.smooth_map_y = [], []
+    def _generate_cubic_trajectory(self, wx_list: List[float], wy_list: List[float]) -> None:
+        """Generate CubicSpline trajectory from world waypoints."""
+        self.cubic_map_x, self.cubic_map_y = [], []
 
-        if len(wx_list) < 2:
+        if not HAS_CUBIC or len(wx_list) < 2:
             return
 
-        trajectory = smooth_waypoints(wx_list, wy_list)
-        if trajectory is None:
+        try:
+            trajectory = cubic_smooth(wx_list, wy_list)
+            if trajectory is None:
+                return
+
+            points = trajectory.sample_trajectory(spacing=self.smooth_sample_spacing)
+            for pt in points:
+                mx, my = self.world_to_map_f(pt.x, pt.y)
+                self.cubic_map_x.append(mx)
+                self.cubic_map_y.append(my)
+        except Exception as e:
+            self.get_logger().warn(f"CubicSpline failed: {e}")
+
+    def _generate_minsnap_trajectory(self, wx_list: List[float], wy_list: List[float]) -> None:
+        """Generate MinSnap trajectory from world waypoints."""
+        self.minsnap_map_x, self.minsnap_map_y = [], []
+
+        if not HAS_MINSNAP or len(wx_list) < 2:
             return
 
-        # Sample the smooth trajectory
-        points = trajectory.sample_trajectory(spacing=self.smooth_sample_spacing)
+        try:
+            trajectory = minsnap_smooth(wx_list, wy_list)
+            if trajectory is None:
+                return
 
-        for pt in points:
-            mx, my = self.world_to_map_f(pt.x, pt.y)
-            self.smooth_map_x.append(mx)
-            self.smooth_map_y.append(my)
+            points = trajectory.sample_trajectory(spacing=self.smooth_sample_spacing)
+            for pt in points:
+                mx, my = self.world_to_map_f(pt.x, pt.y)
+                self.minsnap_map_x.append(mx)
+                self.minsnap_map_y.append(my)
+        except Exception as e:
+            self.get_logger().warn(f"MinSnap failed: {e}")
 
     def _clear_route(self) -> None:
         """Clear all route data."""
         self.route_map_x, self.route_map_y = [], []
         self.route_vel_map_u, self.route_vel_map_v = [], []
-        self.smooth_map_x, self.smooth_map_y = [], []
+        self.cubic_map_x, self.cubic_map_y = [], []
+        self.minsnap_map_x, self.minsnap_map_y = [], []
 
     # ----------------------------
     # Drawing helpers
@@ -349,7 +393,7 @@ class RouteMapViewer(Node):
             dxm, dym = self.world_to_map_f(dxw, dyw)
             self.drone_point.set_data([dxm], [dym])
 
-        # Update raw waypoint line + dots
+        # Update raw waypoint line + dots (blue)
         if len(self.route_map_x) >= 2:
             self.route_line.set_data(self.route_map_x, self.route_map_y)
             self.route_dots.set_data(self.route_map_x, self.route_map_y)
@@ -357,13 +401,21 @@ class RouteMapViewer(Node):
             self.route_line.set_data([], [])
             self.route_dots.set_data([], [])
 
-        # Update smooth trajectory line
-        if self.show_smooth_trajectory and len(self.smooth_map_x) >= 2:
-            self.smooth_line.set_data(self.smooth_map_x, self.smooth_map_y)
-            self.smooth_line.set_visible(True)
+        # Update CubicSpline trajectory (green)
+        if self.show_cubic_trajectory and len(self.cubic_map_x) >= 2:
+            self.cubic_line.set_data(self.cubic_map_x, self.cubic_map_y)
+            self.cubic_line.set_visible(True)
         else:
-            self.smooth_line.set_data([], [])
-            self.smooth_line.set_visible(False)
+            self.cubic_line.set_data([], [])
+            self.cubic_line.set_visible(False)
+
+        # Update MinSnap trajectory (magenta)
+        if self.show_minsnap_trajectory and len(self.minsnap_map_x) >= 2:
+            self.minsnap_line.set_data(self.minsnap_map_x, self.minsnap_map_y)
+            self.minsnap_line.set_visible(True)
+        else:
+            self.minsnap_line.set_data([], [])
+            self.minsnap_line.set_visible(False)
 
         # Update velocity quiver
         if self.show_velocity_arrows and len(self.route_vel_map_u) > 0 and len(self.route_map_x) > 0:
@@ -391,14 +443,15 @@ class RouteMapViewer(Node):
         tx, ty = self.target_map
         txw, tyw = self.map_to_world(float(tx), float(ty))
 
-        smooth_str = "ON" if self.show_smooth_trajectory else "OFF"
+        cubic_str = f"ON ({len(self.cubic_map_x)})" if self.show_cubic_trajectory else "OFF"
+        minsnap_str = f"ON ({len(self.minsnap_map_x)})" if self.show_minsnap_trajectory else "OFF"
         vel_str = "ON" if self.show_velocity_arrows else "OFF"
 
         if self.drone_pose_world is None:
             self.status_text.set_text(
                 f"Target: map=({tx},{ty}) world=({txw:.2f},{tyw:.2f})\n"
                 f"Drone: waiting for pose...\n"
-                f"Smooth: {smooth_str} | Velocity: {vel_str}"
+                f"[s] CubicSpline: {cubic_str} | [m] MinSnap: {minsnap_str} | [v] Vel: {vel_str}"
             )
         else:
             dxw, dyw = self.drone_pose_world
@@ -406,8 +459,8 @@ class RouteMapViewer(Node):
             self.status_text.set_text(
                 f"Drone: world=({dxw:.2f},{dyw:.2f}) map=({dxm:.1f},{dym:.1f})\n"
                 f"Target: map=({tx},{ty}) world=({txw:.2f},{tyw:.2f})\n"
-                f"Waypoints: {len(self.route_map_x)} | Smooth: {len(self.smooth_map_x)} pts\n"
-                f"[s] Smooth: {smooth_str} | [v] Velocity: {vel_str}"
+                f"RRT* waypoints: {len(self.route_map_x)}\n"
+                f"[s] CubicSpline: {cubic_str} | [m] MinSnap: {minsnap_str} | [v] Vel: {vel_str}"
             )
 
         self.fig.canvas.draw_idle()
@@ -420,9 +473,19 @@ class RouteMapViewer(Node):
         if event.key == "t":
             self._handle_type_target()
         elif event.key == "s":
-            self.show_smooth_trajectory = not self.show_smooth_trajectory
-            state = "ON" if self.show_smooth_trajectory else "OFF"
-            self.get_logger().info(f"Smooth trajectory: {state}")
+            if HAS_CUBIC:
+                self.show_cubic_trajectory = not self.show_cubic_trajectory
+                state = "ON" if self.show_cubic_trajectory else "OFF"
+                self.get_logger().info(f"CubicSpline trajectory: {state}")
+            else:
+                self.get_logger().warn("CubicSpline not available")
+        elif event.key == "m":
+            if HAS_MINSNAP:
+                self.show_minsnap_trajectory = not self.show_minsnap_trajectory
+                state = "ON" if self.show_minsnap_trajectory else "OFF"
+                self.get_logger().info(f"MinSnap trajectory: {state}")
+            else:
+                self.get_logger().warn("MinSnap not available - install: pip install minsnap-trajectories")
         elif event.key == "v":
             self.show_velocity_arrows = not self.show_velocity_arrows
             state = "ON" if self.show_velocity_arrows else "OFF"

@@ -18,7 +18,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/PlanPath.srv"
 )
 
-# Build C++ RRT planner service (planning only)
+# Build C++ RRT planner service (original with interpolation)
 add_executable(rrt_planner_service src/rrt_planner_service.cpp)
 
 target_include_directories(rrt_planner_service PRIVATE ${OpenCV_INCLUDE_DIRS})

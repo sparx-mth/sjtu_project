@@ -34,9 +34,9 @@ public:
         declare_parameter("safety_margin", 10);
         declare_parameter("planning_timeout", 3.0);
         declare_parameter("desired_speed", 0.4);
-        declare_parameter("clearance_weight", 5.0);
+        declare_parameter("clearance_weight", 10.0);
         declare_parameter("min_clearance_for_smooth", 15.0);
-        declare_parameter("interpolation_spacing", 3.0);  // meters between interpolated points
+        declare_parameter("interpolation_spacing", 2.0);  // meters between interpolated points
 
         std::string map_path = get_parameter("map_yaml").as_string();
         safety_margin_ = get_parameter("safety_margin").as_int();
