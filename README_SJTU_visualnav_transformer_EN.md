@@ -29,7 +29,7 @@ docker run -it --rm \
   --gpus all \
   --net=host \
   -e DISPLAY=$DISPLAY \
-  -e ROS_DOMAIN_ID=$ROS_DOMAIN_ID \
+  -e ROS_DOMAIN_ID=23 \
   -v /tmp/.X11-unix:/tmp/.X11-unix \
   visualnav_transformer:latest
 ```
