@@ -57,22 +57,7 @@
   </joint>
   <link name="front_cam_link"/>
 
-  <!-- 2D LiDAR link -->
-  <joint name="lidar_joint" type="fixed">
-    <origin rpy="0 0 0" xyz="0.15 0 0.05"/>
-    <parent link="base_link"/>
-    <child link="lidar_link"/>
-  </joint>
-  <link name="lidar_link"/>
-  
-  <!-- Depth camera link (aligned with the front camera) -->
-  <joint name="front_depth_joint" type="fixed">
-    <origin rpy="0 0 0" xyz="0.2 0 0"/>
-    <parent link="base_link" />
-    <child link="front_depth_link" />
-  </joint>
-  <link name="front_depth_link"/>
-<joint name="bottom_cam_joint" type="fixed">
+  <joint name="bottom_cam_joint" type="fixed">
     <origin rpy="0 ${M_PI/2} 0" xyz="0 0 0"/>
     <parent link="base_link" />
     <child link="bottom_cam_link" />
@@ -237,44 +222,7 @@
   </gazebo>
 
 
-  
-  <!-- Front depth camera (ROS2-friendly) -->
-  <gazebo reference="front_depth_link">
-    <sensor name="front_depth_camera" type="camera">
-      <always_on>1</always_on>
-      <visualize>1</visualize>
-      <update_rate>15</update_rate>
-
-      <!-- depth_camera inside camera sensor -->
-      <camera>
-        <horizontal_fov>1.047</horizontal_fov>
-        <image>
-          <width>640</width>
-          <height>360</height>
-          <format>R8G8B8</format>
-        </image>
-        <clip>
-          <near>0.1</near>
-          <far>10.0</far>
-        </clip>
-      </camera>
-
-      <plugin name="camera_front_depth" filename="libgazebo_ros_camera.so">
-        <ros>
-          <namespace>${mp['namespace']}</namespace>
-        </ros>
-
-        <camera_name>front_depth</camera_name>
-        <frame_name>${mp['namespace']}/front_depth_link</frame_name>
-
-        <image_topic_name>front_depth/image_raw</image_topic_name>
-        <camera_info_topic_name>front_depth/camera_info</camera_info_topic_name>
-      </plugin>
-    </sensor>
-  </gazebo>
-
-
-<!-- downward looking camera -->
+  <!-- downward looking camera -->
   <gazebo reference="bottom_cam_link">
     <sensor name="down_camera" type="camera">
       <always_on>1</always_on>
@@ -310,44 +258,6 @@
     </sensor>
   </gazebo>
 
-
-  <gazebo reference="lidar_link">
-    <sensor name="lidar" type="ray">
-      <always_on>1</always_on>
-      <visualize>1</visualize>
-      <update_rate>15</update_rate>
-
-      <ray>
-        <scan>
-          <horizontal>
-            <samples>720</samples>
-            <resolution>1</resolution>
-            <min_angle>-3.14159</min_angle>
-            <max_angle>3.14159</max_angle>
-          </horizontal>
-        </scan>
-        <range>
-          <min>0.12</min>
-          <max>12.0</max>
-          <resolution>0.01</resolution>
-        </range>
-        <noise>
-          <type>gaussian</type>
-          <mean>0.0</mean>
-          <stddev>0.01</stddev>
-        </noise>
-      </ray>
-
-      <plugin filename="libgazebo_ros_ray_sensor.so" name="lidar_plugin">
-        <ros>
-          <namespace>${mp['namespace']}</namespace>
-          <remapping>~/out:=${mp['namespace']}/scan</remapping>
-        </ros>
-        <frame_name>${mp['namespace']}/lidar_link</frame_name>
-        <output_type>sensor_msgs/LaserScan</output_type>
-      </plugin>
-    </sensor>
-  </gazebo>
 
   <gazebo reference="base_link">
     <sensor name="gps" type="gps">

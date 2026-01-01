@@ -28,9 +28,14 @@ Run:
 ```bash
 cd /sjtu_project/sjtu_drone
 chmod +x run.sh
-./run.sh --no-map hospital.world
-```
+./run.sh --no-map hospital.world 
 
+```
+or 
+```bash
+cd /sjtu_project/sjtu_drone
+./run_playground.sh NoMaD_world.world
+```
 ---
 
 ## 📂 Folder Structure
