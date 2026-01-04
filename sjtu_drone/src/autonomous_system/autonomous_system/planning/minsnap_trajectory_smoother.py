@@ -37,9 +37,9 @@ class TrajectoryPoint:
 @dataclass
 class DroneConstraints:
     """Physical limits for the drone."""
-    max_velocity: float = 2.0  # m/s
-    max_acceleration: float = 3.0  # m/s²
-    max_jerk: float = 10.0  # m/s³
+    max_velocity: float = 0.5  # m/s - REDUCED to match Pure Pursuit
+    max_acceleration: float = 1.0  # m/s² - REDUCED for smoother motion
+    max_jerk: float = 5.0  # m/s³ - REDUCED
 
 
 class SmoothTrajectory:
@@ -121,8 +121,9 @@ class SmoothTrajectory:
         """Allocate time for each segment based on distance and constraints."""
         times = [0.0]
 
-        # Effective max velocity (minsnap peak is ~1.5x average)
-        v_eff = self.constraints.max_velocity / 1.6
+        # CHANGED: More conservative velocity for time allocation
+        # Use 60% of max velocity to ensure trajectory stays within limits
+        v_eff = self.constraints.max_velocity * 0.6
         a_max = self.constraints.max_acceleration
 
         for i in range(1, len(xs)):
@@ -133,7 +134,7 @@ class SmoothTrajectory:
             )
 
             if dist < 0.01:
-                times.append(times[-1] + 0.1)
+                times.append(times[-1] + 0.2)  # CHANGED: Minimum segment time increased
                 continue
 
             # Trapezoidal velocity profile estimation
@@ -147,8 +148,8 @@ class SmoothTrajectory:
                 # Long segment: trapezoidal profile
                 seg_time = 2 * t_accel + (dist - 2 * d_accel) / v_eff
 
-            # Add margin for safety
-            seg_time = max(seg_time * 1.3, 0.8)
+            # CHANGED: Increased margin significantly for smoother motion
+            seg_time = max(seg_time * 1.8, 1.2)  # Was 1.3 and 0.8
             times.append(times[-1] + seg_time)
 
         return times

@@ -28,10 +28,10 @@ from autonomous_system.planning.minsnap_trajectory_smoother import SmoothTraject
 
 @dataclass
 class TrackerGains:
-    """Controller gains."""
-    kp_xy: float = 1.5   # Position gain (horizontal)
-    kp_z: float = 1.2    # Position gain (vertical)
-    kd_xy: float = 0.5   # Velocity gain (horizontal) - damping
+    """Controller gains - tuned for stable tracking."""
+    kp_xy: float = 0.8   # Position gain (horizontal) - REDUCED from 1.5
+    kp_z: float = 1.0    # Position gain (vertical) - REDUCED from 1.2
+    kd_xy: float = 0.4   # Velocity gain (horizontal) - damping - REDUCED from 0.5
     kd_z: float = 0.3    # Velocity gain (vertical)
 
 
@@ -56,18 +56,24 @@ class MinSnapTracker(Node):
         # Gains
         self.gains = TrackerGains()
 
-        # Limits
-        self.max_speed_xy = 0.6
+        # Limits - MATCHED to Pure Pursuit values
+        self.max_speed_xy = 0.5  # REDUCED from 0.6
         self.max_speed_z = 0.3
-        self.max_yaw_rate = 0.5
+        self.max_yaw_rate = 0.35  # REDUCED from 0.5 (matches Pure Pursuit)
 
         # Tolerances
         self.goal_tolerance = 0.15
         self.max_tracking_error = 1.5
 
-        # Yaw control
-        self.yaw_kp = 0.8
-        self.yaw_deadband = 0.1
+        # Yaw control - MATCHED to Pure Pursuit
+        self.yaw_kp = 0.5  # REDUCED from 0.8 (matches Pure Pursuit)
+        self.yaw_deadband = 0.15  # INCREASED from 0.1 (matches Pure Pursuit)
+
+        # Speed smoothing - NEW
+        self._speed_alpha = 0.3  # Smoothing factor (lower = smoother)
+        self._current_speed = 0.0  # Smoothed speed state
+        self._current_yaw_rate = 0.0  # Smoothed yaw rate state
+        self._yaw_rate_alpha = 0.15  # Yaw rate smoothing
 
         # Control rate
         self.control_rate = 50
@@ -87,6 +93,7 @@ class MinSnapTracker(Node):
 
         self.get_logger().info("MinSnapTracker initialized (Full State Feedback)")
         self.get_logger().info(f"  Kp={self.gains.kp_xy}, Kd={self.gains.kd_xy}")
+        self.get_logger().info(f"  max_speed={self.max_speed_xy}, max_yaw_rate={self.max_yaw_rate}")
 
     # ----------------------------------------------------------------
     # State callbacks
@@ -177,6 +184,10 @@ class MinSnapTracker(Node):
         """
         self.clear_abort()
 
+        # Reset smoothing states
+        self._current_speed = 0.0
+        self._current_yaw_rate = 0.0
+
         if not self._wait_for_pose():
             return False, False
 
@@ -220,9 +231,9 @@ class MinSnapTracker(Node):
             else:
                 ref = trajectory.get_state_at_time(trajectory.total_time)
 
-            # Position error
-            e_px = self._clamp(ref.x - px, 1.0)
-            e_py = self._clamp(ref.y - py, 1.0)
+            # Position error - REDUCED clamp for less aggressive correction
+            e_px = self._clamp(ref.x - px, 0.5)  # REDUCED from 1.0
+            e_py = self._clamp(ref.y - py, 0.5)  # REDUCED from 1.0
             e_pz = target_altitude - pz
 
             # Velocity error
@@ -235,20 +246,41 @@ class MinSnapTracker(Node):
             vy_cmd = ref.vy + self.gains.kp_xy * e_py + self.gains.kd_xy * e_vy
             vz_cmd = self.gains.kp_z * e_pz + self.gains.kd_z * e_vz
 
-            # Speed limits
+            # Speed limits with smoothing
             speed = math.hypot(vx_cmd, vy_cmd)
             if speed > self.max_speed_xy:
                 vx_cmd *= self.max_speed_xy / speed
                 vy_cmd *= self.max_speed_xy / speed
+                speed = self.max_speed_xy
+
+            # Smooth speed changes - NEW
+            self._current_speed = (self._speed_alpha * speed +
+                                   (1 - self._speed_alpha) * self._current_speed)
+            if speed > 0.01:
+                scale = self._current_speed / speed
+                vx_cmd *= scale
+                vy_cmd *= scale
+
             vz_cmd = self._clamp(vz_cmd, self.max_speed_z)
 
-            # Yaw control
+            # Yaw control with deadband and smoothing
             if speed > 0.05:
                 des_yaw = math.atan2(vy_cmd, vx_cmd)
                 yaw_err = self._normalize_angle(des_yaw - yaw)
-                yaw_rate = self._clamp(self.yaw_kp * yaw_err, self.max_yaw_rate)
+
+                # Apply deadband - NEW
+                if abs(yaw_err) < self.yaw_deadband:
+                    target_yaw_rate = 0.0
+                else:
+                    target_yaw_rate = self._clamp(self.yaw_kp * yaw_err, self.max_yaw_rate)
+
+                # Smooth yaw rate - NEW
+                self._current_yaw_rate = (self._yaw_rate_alpha * target_yaw_rate +
+                                          (1 - self._yaw_rate_alpha) * self._current_yaw_rate)
+                yaw_rate = self._current_yaw_rate
             else:
                 yaw_rate = 0.0
+                self._current_yaw_rate = 0.0
 
             # Body frame
             vx_body, vy_body = self._world_to_body(vx_cmd, vy_cmd, yaw)
@@ -267,7 +299,8 @@ class MinSnapTracker(Node):
                 pos_err = math.hypot(e_px, e_py)
                 vel_err = math.hypot(e_vx, e_vy)
                 self.get_logger().info(
-                    f"t={t:.1f}s pos_err={pos_err:.2f}m vel_err={vel_err:.2f}m/s"
+                    f"t={t:.1f}s pos_err={pos_err:.2f}m vel_err={vel_err:.2f}m/s "
+                    f"speed={self._current_speed:.2f}m/s"
                 )
 
             # Timeout
