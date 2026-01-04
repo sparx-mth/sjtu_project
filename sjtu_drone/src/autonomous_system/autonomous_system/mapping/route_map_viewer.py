@@ -2,7 +2,7 @@
 """
 route_map_viewer.py
 -------------------
-Live 2D occupancy-map viewer + RRT* route overlay with BOTH smooth trajectories.
+Live 2D occupancy-map viewer + RRT* route overlay with multiple smooth trajectories.
 
 Features:
 - Subscribes to drone pose: /simple_drone/gt_pose (geometry_msgs/Pose)
@@ -12,6 +12,7 @@ Features:
 - Calls planner service: /plan_path_rrt (autonomous_system/srv/PlanPath)
 - Draws:
     * Raw waypoints from planner (blue dots)
+    * Bezier trajectory (cyan curve) - heading-aware
     * CubicSpline trajectory (green curve)
     * MinSnap trajectory (magenta curve)
     * Velocity arrows (optional)
@@ -19,6 +20,7 @@ Features:
 Controls:
 - Click: Set target
 - 't': Type target coordinates
+- 'b': Toggle Bezier trajectory display
 - 's': Toggle CubicSpline trajectory display
 - 'm': Toggle MinSnap trajectory display
 - 'v': Toggle velocity arrows
@@ -41,7 +43,15 @@ from geometry_msgs.msg import Pose
 
 from autonomous_system.srv import PlanPath
 
-# Try to import both smoothers
+# Try to import all smoothers
+try:
+    from autonomous_system.planning.bezier_trajectory_smoother import smooth_waypoints as bezier_smooth
+    HAS_BEZIER = True
+except ImportError:
+    HAS_BEZIER = False
+    bezier_smooth = None
+    print("[WARN] Bezier smoother not available")
+
 try:
     from autonomous_system.planning.minsnap_trajectory_smoother import smooth_waypoints as minsnap_smooth
     HAS_MINSNAP = True
@@ -75,6 +85,7 @@ class RouteMapViewer(Node):
         self.declare_parameter("replan_period_sec", 0.5)
         self.declare_parameter("replan_if_start_moved_m", 0.75)
         self.declare_parameter("show_velocity_arrows", True)
+        self.declare_parameter("show_bezier_trajectory", True)
         self.declare_parameter("show_cubic_trajectory", True)
         self.declare_parameter("show_minsnap_trajectory", True)
         self.declare_parameter("velocity_arrow_stride", 4)
@@ -91,6 +102,7 @@ class RouteMapViewer(Node):
         self.replan_if_start_moved_m = float(self.get_parameter("replan_if_start_moved_m").value)
 
         self.show_velocity_arrows = bool(self.get_parameter("show_velocity_arrows").value)
+        self.show_bezier_trajectory = bool(self.get_parameter("show_bezier_trajectory").value) and HAS_BEZIER
         self.show_cubic_trajectory = bool(self.get_parameter("show_cubic_trajectory").value) and HAS_CUBIC
         self.show_minsnap_trajectory = bool(self.get_parameter("show_minsnap_trajectory").value) and HAS_MINSNAP
         self.velocity_arrow_stride = int(self.get_parameter("velocity_arrow_stride").value)
@@ -139,6 +151,10 @@ class RouteMapViewer(Node):
         self.cubic_map_x: List[float] = []
         self.cubic_map_y: List[float] = []
 
+        # Bezier trajectory points (map coords)
+        self.bezier_map_x: List[float] = []
+        self.bezier_map_y: List[float] = []
+
         # MinSnap trajectory points (map coords)
         self.minsnap_map_x: List[float] = []
         self.minsnap_map_y: List[float] = []
@@ -164,7 +180,7 @@ class RouteMapViewer(Node):
         # ----------------------------
         plt.ion()
         self.fig, self.ax = plt.subplots(figsize=(10, 10))
-        self.ax.set_title("Route Map Viewer - [s]=CubicSpline [m]=MinSnap [v]=velocity")
+        self.ax.set_title("Route Map Viewer - [b]=Bezier [s]=CubicSpline [m]=MinSnap [v]=velocity")
 
         self.im = self.ax.imshow(self.map_data, cmap="gray", origin="lower")
 
@@ -178,6 +194,9 @@ class RouteMapViewer(Node):
         # Raw waypoints - line + dots (blue)
         self.route_line, = self.ax.plot([], [], "b-", linewidth=1.5, alpha=0.7, label="RRT* waypoints")
         self.route_dots, = self.ax.plot([], [], "bo", markersize=6, alpha=0.9)
+
+        # Bezier trajectory (cyan, thick)
+        self.bezier_line, = self.ax.plot([], [], "c-", linewidth=3, alpha=0.8, label="Bezier")
 
         # CubicSpline trajectory (green, thick)
         self.cubic_line, = self.ax.plot([], [], "g-", linewidth=3, alpha=0.8, label="CubicSpline")
@@ -210,9 +229,10 @@ class RouteMapViewer(Node):
         self.create_timer(self.replan_period_sec, self._maybe_replan)
 
         self.get_logger().info("RouteMapViewer ready.")
+        self.get_logger().info(f"  Bezier: {'available' if HAS_BEZIER else 'NOT available'}")
         self.get_logger().info(f"  CubicSpline: {'available' if HAS_CUBIC else 'NOT available'}")
         self.get_logger().info(f"  MinSnap: {'available' if HAS_MINSNAP else 'NOT available'}")
-        self.get_logger().info("  Controls: click=target, t=type, s=cubic, m=minsnap, v=velocity")
+        self.get_logger().info("  Controls: click=target, t=type, b=bezier, s=cubic, m=minsnap, v=velocity")
 
     # ----------------------------
     # Coordinate conversions
@@ -309,15 +329,37 @@ class RouteMapViewer(Node):
                 self.route_vel_map_u.append(res.velocities_x[i] * scale)
                 self.route_vel_map_v.append(res.velocities_y[i] * scale)
 
-        # Generate BOTH smooth trajectories
+        # Generate ALL smooth trajectories
+        self._generate_bezier_trajectory(wx_list, wy_list)
         self._generate_cubic_trajectory(wx_list, wy_list)
         self._generate_minsnap_trajectory(wx_list, wy_list)
 
         self.get_logger().info(
             f"Route: {n} waypoints | "
+            f"Bezier: {len(self.bezier_map_x)} pts | "
             f"Cubic: {len(self.cubic_map_x)} pts | "
             f"MinSnap: {len(self.minsnap_map_x)} pts"
         )
+
+    def _generate_bezier_trajectory(self, wx_list: List[float], wy_list: List[float]) -> None:
+        """Generate Bezier trajectory from world waypoints."""
+        self.bezier_map_x, self.bezier_map_y = [], []
+
+        if not HAS_BEZIER or len(wx_list) < 2:
+            return
+
+        try:
+            trajectory = bezier_smooth(wx_list, wy_list)
+            if trajectory is None:
+                return
+
+            points = trajectory.sample_trajectory(spacing=self.smooth_sample_spacing)
+            for pt in points:
+                mx, my = self.world_to_map_f(pt.x, pt.y)
+                self.bezier_map_x.append(mx)
+                self.bezier_map_y.append(my)
+        except Exception as e:
+            self.get_logger().warn(f"Bezier failed: {e}")
 
     def _generate_cubic_trajectory(self, wx_list: List[float], wy_list: List[float]) -> None:
         """Generate CubicSpline trajectory from world waypoints."""
@@ -363,6 +405,7 @@ class RouteMapViewer(Node):
         """Clear all route data."""
         self.route_map_x, self.route_map_y = [], []
         self.route_vel_map_u, self.route_vel_map_v = [], []
+        self.bezier_map_x, self.bezier_map_y = [], []
         self.cubic_map_x, self.cubic_map_y = [], []
         self.minsnap_map_x, self.minsnap_map_y = [], []
 
@@ -409,6 +452,14 @@ class RouteMapViewer(Node):
             self.cubic_line.set_data([], [])
             self.cubic_line.set_visible(False)
 
+        # Update Bezier trajectory (cyan)
+        if self.show_bezier_trajectory and len(self.bezier_map_x) >= 2:
+            self.bezier_line.set_data(self.bezier_map_x, self.bezier_map_y)
+            self.bezier_line.set_visible(True)
+        else:
+            self.bezier_line.set_data([], [])
+            self.bezier_line.set_visible(False)
+
         # Update MinSnap trajectory (magenta)
         if self.show_minsnap_trajectory and len(self.minsnap_map_x) >= 2:
             self.minsnap_line.set_data(self.minsnap_map_x, self.minsnap_map_y)
@@ -443,6 +494,7 @@ class RouteMapViewer(Node):
         tx, ty = self.target_map
         txw, tyw = self.map_to_world(float(tx), float(ty))
 
+        bezier_str = f"ON ({len(self.bezier_map_x)})" if self.show_bezier_trajectory else "OFF"
         cubic_str = f"ON ({len(self.cubic_map_x)})" if self.show_cubic_trajectory else "OFF"
         minsnap_str = f"ON ({len(self.minsnap_map_x)})" if self.show_minsnap_trajectory else "OFF"
         vel_str = "ON" if self.show_velocity_arrows else "OFF"
@@ -451,7 +503,7 @@ class RouteMapViewer(Node):
             self.status_text.set_text(
                 f"Target: map=({tx},{ty}) world=({txw:.2f},{tyw:.2f})\n"
                 f"Drone: waiting for pose...\n"
-                f"[s] CubicSpline: {cubic_str} | [m] MinSnap: {minsnap_str} | [v] Vel: {vel_str}"
+                f"[b] Bezier: {bezier_str} | [s] Cubic: {cubic_str} | [m] MinSnap: {minsnap_str} | [v] Vel: {vel_str}"
             )
         else:
             dxw, dyw = self.drone_pose_world
@@ -460,7 +512,7 @@ class RouteMapViewer(Node):
                 f"Drone: world=({dxw:.2f},{dyw:.2f}) map=({dxm:.1f},{dym:.1f})\n"
                 f"Target: map=({tx},{ty}) world=({txw:.2f},{tyw:.2f})\n"
                 f"RRT* waypoints: {len(self.route_map_x)}\n"
-                f"[s] CubicSpline: {cubic_str} | [m] MinSnap: {minsnap_str} | [v] Vel: {vel_str}"
+                f"[b] Bezier: {bezier_str} | [s] Cubic: {cubic_str} | [m] MinSnap: {minsnap_str} | [v] Vel: {vel_str}"
             )
 
         self.fig.canvas.draw_idle()
@@ -472,6 +524,13 @@ class RouteMapViewer(Node):
     def _on_key(self, event) -> None:
         if event.key == "t":
             self._handle_type_target()
+        elif event.key == "b":
+            if HAS_BEZIER:
+                self.show_bezier_trajectory = not self.show_bezier_trajectory
+                state = "ON" if self.show_bezier_trajectory else "OFF"
+                self.get_logger().info(f"Bezier trajectory: {state}")
+            else:
+                self.get_logger().warn("Bezier not available")
         elif event.key == "s":
             if HAS_CUBIC:
                 self.show_cubic_trajectory = not self.show_cubic_trajectory

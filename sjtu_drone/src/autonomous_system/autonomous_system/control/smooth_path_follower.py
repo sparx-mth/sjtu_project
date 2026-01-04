@@ -88,10 +88,16 @@ class SmoothPathFollower(Node):
         # ========================================
         # Yaw Control Parameters (subtle, smooth)
         # ========================================
-        self.yaw_kp = 0.6  # Low gain for subtle yaw corrections
-        self.max_yaw_rate = 0.4  # Maximum yaw rate (rad/s) - ~23 deg/s
+        self.yaw_kp = 0.5  # Low gain for subtle yaw corrections
+        self.max_yaw_rate = 0.35  # Maximum yaw rate (rad/s) - ~20 deg/s
         self.yaw_deadband = 0.15  # Ignore small yaw errors (rad, ~8.5 degrees)
         self.yaw_speed_threshold = 0.05  # Only adjust yaw when moving faster than this
+        self.yaw_rate_smoothing = 0.15  # Smoothing factor for yaw rate (lower = smoother)
+        self._current_yaw_rate = 0.0  # Smoothed yaw rate state
+
+        # Initial alignment parameters
+        self.initial_align_tolerance = 0.25  # Acceptable initial yaw error (rad, ~14 deg)
+        self.initial_align_timeout = 5.0  # Max time to spend aligning (s)
 
         # Control loop
         self.control_rate = 50
@@ -255,6 +261,7 @@ class SmoothPathFollower(Node):
     ) -> float:
         """
         Compute smooth yaw rate to align with direction of flight.
+        Uses smoothing to prevent oscillation.
 
         Args:
             current_yaw: Current yaw angle (rad)
@@ -266,22 +273,86 @@ class SmoothPathFollower(Node):
         """
         # Don't adjust yaw when nearly stationary
         if current_speed < self.yaw_speed_threshold:
-            return 0.0
+            # Smoothly decay yaw rate to zero when stopping
+            self._current_yaw_rate *= 0.8
+            return self._current_yaw_rate
 
         # Compute yaw error (normalized to [-pi, pi])
         yaw_error = self._normalize_angle(desired_yaw - current_yaw)
 
         # Apply deadband - don't correct small errors
         if abs(yaw_error) < self.yaw_deadband:
-            return 0.0
+            # Smoothly decay yaw rate to zero
+            self._current_yaw_rate *= 0.7
+            return self._current_yaw_rate
 
         # Proportional control with saturation
-        yaw_rate = self.yaw_kp * yaw_error
+        target_yaw_rate = self.yaw_kp * yaw_error
 
         # Clamp to maximum yaw rate
-        yaw_rate = max(-self.max_yaw_rate, min(yaw_rate, self.max_yaw_rate))
+        target_yaw_rate = max(-self.max_yaw_rate, min(target_yaw_rate, self.max_yaw_rate))
 
-        return yaw_rate
+        # Smooth the yaw rate to prevent oscillation
+        self._current_yaw_rate = (
+                self.yaw_rate_smoothing * target_yaw_rate +
+                (1 - self.yaw_rate_smoothing) * self._current_yaw_rate
+        )
+
+        return self._current_yaw_rate
+
+    def _align_initial_yaw(self, desired_yaw: float) -> bool:
+        """
+        Rotate in place to face the initial direction before starting movement.
+
+        Args:
+            desired_yaw: Target yaw angle (rad)
+
+        Returns:
+            True if aligned successfully, False if timeout or aborted
+        """
+        start_time = time.time()
+
+        self.get_logger().info(
+            f"Aligning initial yaw to {math.degrees(desired_yaw):.0f}°..."
+        )
+
+        while True:
+            # Check abort
+            if self.is_aborted():
+                self.stop()
+                return False
+
+            # Check timeout
+            if time.time() - start_time > self.initial_align_timeout:
+                self.get_logger().warn("Initial yaw alignment timeout - proceeding anyway")
+                self.stop()
+                return True  # Continue anyway, don't fail the mission
+
+            # Get current yaw
+            current = self.pose
+            current_yaw = self._quaternion_to_yaw(current.orientation)
+
+            # Compute yaw error
+            yaw_error = self._normalize_angle(desired_yaw - current_yaw)
+
+            # Check if aligned enough
+            if abs(yaw_error) < self.initial_align_tolerance:
+                self.stop()
+                self.get_logger().info(
+                    f"Initial yaw aligned (error={math.degrees(yaw_error):.1f}°)"
+                )
+                return True
+
+            # Rotate in place with proportional control
+            yaw_rate = self.yaw_kp * yaw_error
+            yaw_rate = max(-self.max_yaw_rate, min(yaw_rate, self.max_yaw_rate))
+
+            # Publish rotation command (no linear velocity)
+            twist = Twist()
+            twist.angular.z = yaw_rate
+            self.cmd_pub.publish(twist)
+
+            time.sleep(self.control_period)
 
     # ----------------------------------------------------------------
     # Main follow method
@@ -306,12 +377,31 @@ class SmoothPathFollower(Node):
         """
         self.clear_abort()
 
+        # Reset yaw rate state
+        self._current_yaw_rate = 0.0
+
         # Wait for pose
         if not self._wait_for_pose():
             return False, False
 
         goal_x, goal_y = trajectory.end
         current_s = 0.0  # Current progress along trajectory
+
+        # Get current position
+        current = self.pose
+        px, py = current.position.x, current.position.y
+
+        # Compute initial desired yaw (direction to first lookahead point)
+        initial_lookahead_s = min(self.base_lookahead, trajectory.total_length)
+        initial_target = trajectory.get_point(initial_lookahead_s)
+        dx = initial_target.x - px
+        dy = initial_target.y - py
+
+        if math.hypot(dx, dy) > 0.1:
+            initial_desired_yaw = math.atan2(dy, dx)
+            # Align yaw before starting movement
+            if not self._align_initial_yaw(initial_desired_yaw):
+                return False, True  # Aborted during alignment
 
         start_time = time.time()
         loop_count = 0
