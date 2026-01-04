@@ -8,8 +8,10 @@ x = tum[:,1]
 y = tum[:,2]
 
 # goal from RViz (/goal_pose)
-goal_x = -4.103214263916016
-goal_y = -0.7614188194274902
+goal_x =  -6.004440784454346
+
+goal_y =  6.920757293701172
+
 
 plt.figure(figsize=(6,6))
 
