@@ -36,3 +36,15 @@ __pycache__/
 /NoMaD/bags_altitude/
 *.rviz
 *.tum
+*.csv
+*.npy
+*.h5
+*.db
+/NoMaD/runs/
+/NoMaD/models/
+/NoMaD/figures/
+*.json  
+*.db3
+*yaml
+
+
