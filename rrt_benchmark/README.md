@@ -1,18 +1,25 @@
-# RRT* Path Planning Benchmark
+# RRT Path Planning Benchmark Suite
 
-Standalone benchmark suite for RRT* path planning with clearance optimization.
+Standalone benchmark suite for RRT path planning, containing two benchmarks:
+
+1. **RRT* Optimization Benchmark** - Measures path improvement over time using RRT*/InformedRRT*/BIT*
+2. **RRT First-Solution Benchmark** - Measures time to find first valid path using regular RRT
 
 ## Structure
 
 ```
 rrt_benchmark/
 ├── include/
-│   └── rrt_benchmark.h      # Header file
+│   ├── rrt_benchmark.h          # RRT* benchmark header
+│   └── rrt_first_solution.h     # RRT first-solution header
 ├── src/
-│   ├── rrt_benchmark.cpp    # Implementation
-│   └── main.cpp             # Entry point
+│   ├── rrt_benchmark.cpp        # RRT* implementation
+│   ├── main.cpp                 # RRT* entry point
+│   ├── rrt_first_solution.cpp   # RRT first-solution implementation
+│   └── rrt_first_solution_main.cpp  # RRT first-solution entry point
 ├── scripts/
-│   ├── analyze.py           # Generate plots
+│   ├── analyze.py               # RRT* plots
+│   ├── visualize_first_routes.py    # RRT first-solution plots
 │   └── smoothing_benchmark.py
 ├── CMakeLists.txt
 └── README.md
@@ -42,7 +49,7 @@ sudo apt-get install \
 ### Python Dependencies
 
 ```bash
-pip3 install numpy scipy matplotlib
+pip3 install numpy scipy matplotlib pyyaml
 ```
 
 ## Build
@@ -54,13 +61,20 @@ cmake ..
 make
 ```
 
-## Usage
+This builds two executables:
+- `rrt_benchmark` - RRT* optimization benchmark
+- `rrt_first_benchmark` - RRT first-solution benchmark
 
-### Run Benchmark
+---
+
+## Benchmark 1: RRT* Optimization Benchmark
+
+Measures how RRT*/InformedRRT*/BIT* improves path quality over time.
+
+### Usage
 
 ```bash
 # Basic run with BIT* (default algorithm)
-cd rrt_benchmark
 ./build/rrt_benchmark -m /path/to/map.yaml
 
 # Quick test
@@ -92,16 +106,27 @@ cd rrt_benchmark
 ### Analyze Results
 
 ```bash
-# Generate plots
 python3 scripts/analyze.py results/benchmark_XXXX.json
-
-# Without display (server mode)
-python3 scripts/analyze.py results/benchmark_XXXX.json --no-show
 ```
 
-## Output
+### What It Measures
 
-### Files
+1. **First Solution Time** - How long until a valid path is found
+2. **Path Improvement** - How RRT* optimizes the path over time
+3. **Final Path Quality** - Length compared to air distance
+4. **Success Rate** - Percentage of successful planning attempts
+
+### Available Algorithms
+
+| Algorithm | Description |
+|-----------|-------------|
+| **RRTstar** | Standard RRT* with clearance optimization. Good baseline. |
+| **InformedRRTstar** | RRT* with informed sampling using ellipsoidal heuristic. Faster convergence after finding initial solution. |
+| **BITstar** | Batch Informed Trees. Combines best of RRT* and graph-based planners. Often fastest convergence. |
+
+**Note:** InformedRRTstar and BITstar use path length optimization (required for informed sampling heuristics). RRTstar uses clearance-weighted optimization.
+
+### Output Files
 
 ```
 results/
@@ -113,29 +138,96 @@ results/
 └── per_pair_summary.png
 ```
 
-### Key Plots
+---
 
-1. **improvement_over_time.png** - Path distance vs time showing RRT* optimization
-2. **first_solution_dist.png** - Distribution of first solution times
-3. **quality_metrics.png** - Path lengths, improvements, efficiency
-4. **per_pair_summary.png** - Statistics per point pair
+## Benchmark 2: RRT First-Solution Benchmark
 
-## What It Measures
+Measures time to find the **first valid path** using regular RRT (no optimization).
 
-1. **First Solution Time** - How long until a valid path is found
-2. **Path Improvement** - How RRT* optimizes the path over time
-3. **Final Path Quality** - Length compared to air distance
-4. **Success Rate** - Percentage of successful planning attempts
+### Usage
 
-## Available Algorithms
+```bash
+# Basic run
+./build/rrt_first_benchmark -m /path/to/map.yaml
 
-| Algorithm | Description |
-|-----------|-------------|
-| **RRTstar** | Standard RRT* with clearance optimization. Good baseline. |
-| **InformedRRTstar** | RRT* with informed sampling using ellipsoidal heuristic. Faster convergence after finding initial solution. |
-| **BITstar** | Batch Informed Trees. Combines best of RRT* and graph-based planners. Often fastest convergence. |
+# Quick test
+  
 
-**Note:** InformedRRTstar and BITstar use path length optimization (required for informed sampling heuristics). RRTstar uses clearance-weighted optimization.
+# Full benchmark: K=20 pairs, I=100 iterations, M=30m min distance
+./build/rrt_first_benchmark -m map.yaml -k 20 -i 100 -d 30
+
+# With reproducible seed
+./build/rrt_first_benchmark -m map.yaml -k 20 -i 100 -d 30 -t 4 -s 42
+```
+
+### Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-m, --map` | Map YAML file | maps/hospital_map_cropped.yaml |
+| `-o, --output` | Output directory | results |
+| `-k, --pairs` | Number of point pairs (K) | 20 |
+| `-i, --iterations` | Iterations per pair (I) | 100 |
+| `-d, --distance` | Min air distance between points (M) in meters | 30.0 |
+| `-t, --timeout` | Planning timeout (skip if no solution) | 4.0 |
+| `-g, --goal-bias` | RRT goal bias | 0.05 |
+| `-r, --range` | RRT step range (0 = auto) | 0 |
+| `-s, --seed` | Random seed | random |
+| `-q, --quiet` | Less output | false |
+
+### Visualize Results
+
+```bash
+python3 scripts/visualize_first_routes.py results/rrt_first_XXXX.json
+```
+
+### What It Measures
+
+1. **Planning Time** - Time for RRT to find first valid path
+2. **Route Generation** - Complete processed route (smoothed + interpolated)
+3. **Path Length** - Final path length in meters
+4. **Success Rate** - Paths found within timeout
+
+### Output Files
+
+```
+results/
+├── rrt_first_YYYYMMDD_HHMMSS.json   # Complete data (all routes)
+├── rrt_first_YYYYMMDD_HHMMSS.txt    # Summary
+├── rrt_first_YYYYMMDD_HHMMSS.csv    # For analysis
+├── rrt_first_*_overview.png         # All routes on map
+├── rrt_first_*_pair01.png           # Individual pair routes
+├── rrt_first_*_histograms.png       # Time/length distributions
+└── rrt_first_*_comparison.png       # Per-pair comparison
+```
+
+### Output Data Format
+
+Each iteration stores the complete route:
+```json
+{
+  "iteration_id": 0,
+  "success": true,
+  "planning_time_ms": 45.23,
+  "path_length": 42.567,
+  "path_x": [x0, x1, x2, ...],
+  "path_y": [y0, y1, y2, ...]
+}
+```
+
+---
+
+## Comparison of Benchmarks
+
+| Feature | RRT* Benchmark | RRT First-Solution |
+|---------|---------------|-------------------|
+| Algorithm | RRT* / BIT* / InformedRRT* | Regular RRT |
+| Goal | Measure optimization over time | Measure time to first path |
+| Timeout behavior | Continue optimizing | Skip pair |
+| Output paths | First + Final | First only (complete route) |
+| Use case | Path quality study | Planning speed study |
+
+---
 
 ## Map Format
 
