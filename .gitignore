@@ -40,3 +40,19 @@ cmake-build-*/
 *.mov
 *.zip
 *.tar.gz
+
+*.png
+*.jpg
+*.jpeg
+* .mp4
+*.avi
+*.mkv
+*.mov
+*.gif
+*.zip
+*.tar.gz
+
+/NoMaD/bags/
+/NoMaD/bags_altitude/
+*.rviz
+*.tum
