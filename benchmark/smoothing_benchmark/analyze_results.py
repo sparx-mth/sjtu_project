@@ -32,7 +32,9 @@ except ImportError:
     print("Warning: matplotlib not installed. Plotting disabled. Run: pip install matplotlib")
 
 # Default paths
-DEFAULT_RESULTS_DIR = "/home/nadavc/PycharmProjects/sjtu_project/benchmark/smoothing_benchmark/results"
+_THIS_DIR = Path(__file__).resolve().parent
+
+DEFAULT_RESULTS_DIR = str((_THIS_DIR / "results").resolve())
 
 
 def find_most_recent_results(results_dir: str) -> Optional[str]:

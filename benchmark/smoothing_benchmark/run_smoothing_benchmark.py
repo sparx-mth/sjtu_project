@@ -38,9 +38,11 @@ except ImportError:
     MINSNAP_AVAILABLE = False
     MinSnapSmoother = None
 
-# Default paths
-DEFAULT_RRT_RESULTS_DIR = "/home/nadavc/PycharmProjects/sjtu_project/benchmark/rrt_benchmark/results"
-DEFAULT_OUTPUT_DIR = "/home/nadavc/PycharmProjects/sjtu_project/benchmark/smoothing_benchmark/results"
+# Default paths (relative to this file, not to current working directory)
+_THIS_DIR = Path(__file__).resolve().parent
+DEFAULT_RRT_RESULTS_DIR = str((_THIS_DIR.parent / "rrt_benchmark" / "results").resolve())
+DEFAULT_OUTPUT_DIR = str((_THIS_DIR / "results").resolve())
+
 
 
 def find_most_recent_rrt_file(results_dir: str) -> Optional[str]:
