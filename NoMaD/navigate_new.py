@@ -24,6 +24,10 @@ import csv
 import math
 from pathlib import Path
 
+import signal
+import subprocess
+import time
+from pathlib import Path
 import numpy as np
 import rclpy
 import torch
@@ -58,6 +62,17 @@ ROBOT_CONFIG_PATH = "config/robot.yaml"
 MODEL_CONFIG_PATH = "config/models.yaml"
 TOPOMAP_IMAGES_DIR = "topomaps/images"
 
+BAG_TOPICS = [
+    "/simple_drone/odom",
+    "/simple_drone/gt_pose",
+    "/simple_drone/cmd_vel",
+    "/simple_drone/front/image_raw",
+    "/simple_drone/front/camera_info",
+    "/tf",
+    "/tf_static",
+    "/clock",   
+]
+
 with open(ROBOT_CONFIG_PATH, "r") as f:
     robot_config = yaml.safe_load(f)
 MAX_V = robot_config["max_v"]
@@ -83,15 +98,62 @@ def callback_obs(msg):
             context_queue.pop(0)
             context_queue.append(obs_img)
 
+class BagRecorder:
+    def __init__(self, out_dir: str, bag_name: str, topics: list[str]):
+        self.out_dir = Path(out_dir)
+        self.bag_name = bag_name
+        self.topics = topics
+        self.proc: subprocess.Popen | None = None
+
+    def start(self):
+        self.out_dir.mkdir(parents=True, exist_ok=True)
+        bag_path = str(self.out_dir / self.bag_name)
+
+        cmd = ["ros2", "bag", "record", "-o", bag_path] + self.topics
+
+        self.proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            start_new_session=True,
+        )
+        print(f"[BagRecorder] Started: {' '.join(cmd)}")
+
+    def stop(self, timeout_s: float = 10.0):
+        if self.proc is None or self.proc.poll() is not None:
+            return
+
+        print("[BagRecorder] Stopping bag recording (SIGINT)...")
+
+        try:
+            os.killpg(os.getpgid(self.proc.pid), signal.SIGINT)
+        except ProcessLookupError:
+            return
+
+        t0 = time.time()
+        while time.time() - t0 < timeout_s:
+            if self.proc.poll() is not None:
+                print("[BagRecorder] Bag recorder stopped cleanly.")
+                return
+            time.sleep(0.1)
+
+        print("[BagRecorder] Recorder did not stop in time. Sending SIGTERM...")
+        try:
+            os.killpg(os.getpgid(self.proc.pid), signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+
 
 class RunLogger:
     """Handles writing traj + summary to disk."""
 
-    def __init__(self, out_dir: Path, goal_x: float, goal_y: float, success_radius: float):
+    def __init__(self, out_dir: Path, goal_x: float, goal_y: float, success_radius: float, snap_x:float,snap_y:float,progress_margin:float=0.3):
         self.out_dir = out_dir
         self.goal_x = float(goal_x)
         self.goal_y = float(goal_y)
         self.success_radius = float(success_radius)
+        
 
         self.out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -123,6 +185,10 @@ class RunLogger:
         self.reached_goal_topological = False
         self.dist_to_goal_xy_m = None
         self.success = None
+        self.snap_x = float(snap_x)
+        self.snap_y = float(snap_y)
+        self.snap_dist_to_goal_xy_m = math.hypot(self.snap_x - self.goal_x, self.snap_y - self.goal_y)
+        self.progress_margin = float(progress_margin)
 
     def close(self):
         for f in (self._odom_f, self._gt_f, self._steps_f):
@@ -172,17 +238,29 @@ class RunLogger:
         ])
 
     def verify_on_reached_goal(self):
-        """Called exactly when the original logic reaches 'Reached goal! Stopping...'."""
         self.reached_goal_topological = True
-        if self.final_odom is None:
+
+        # Prefer GT, fallback to ODOM
+        if self.final_gt is not None:
+            src = self.final_gt
+            self.dist_source = "gt"
+        elif self.final_odom is not None:
+            src = self.final_odom
+            self.dist_source = "odom"
+        else:
             self.dist_to_goal_xy_m = None
             self.success = False
+            self.success_reason = "no_pose"
             return
 
-        dx = self.final_odom["x"] - self.goal_x
-        dy = self.final_odom["y"] - self.goal_y
-        self.dist_to_goal_xy_m = float(math.sqrt(dx * dx + dy * dy))
-        self.success = bool(self.dist_to_goal_xy_m <= self.success_radius)
+        self.dist_to_goal_xy_m = float(math.hypot(src["x"] - self.goal_x, src["y"] - self.goal_y))
+
+        self.progress_threshold_m = float(self.snap_dist_to_goal_xy_m + self.progress_margin)
+        self.within_progress = bool(self.dist_to_goal_xy_m <= self.progress_threshold_m)
+
+        # SUCCESS = only progress threshold (acts as your radius)
+        self.success = self.within_progress
+        self.success_reason = "within_progress_threshold" if self.success else "fail"
 
     def write_summary(self, args: argparse.Namespace):
         payload = {
@@ -190,21 +268,46 @@ class RunLogger:
             "timestamp_unix": int(time.time()),
             "model": str(args.model),
             "topomap_dir": str(args.dir),
-            "goal_node": int(args.goal_node),
-            "goal_node_resolved": int(getattr(args, "_goal_node_resolved", args.goal_node)),
-            "goal_xy": {"x": self.goal_x, "y": self.goal_y},
-            "success_radius_m": self.success_radius,
-            "reached_goal_topological": bool(self.reached_goal_topological),
-            "dist_to_goal_xy_m": self.dist_to_goal_xy_m,
-            "success": bool(self.success) if self.success is not None else None,
-            "final_odom": self.final_odom,
+
+            # Goal definition
+            "goal_xy": {
+                "x": self.goal_x,
+                "y": self.goal_y,
+            },
+
+            # Snapshot reference (where the goal was originally captured from)
+            "snap_xy": {
+                "x": self.snap_x,
+                "y": self.snap_y,
+            },
+            "original_dist_to_goal_xy_m": self.snap_dist_to_goal_xy_m,
+
+            # Final distance measurement
+            "final_dist_to_goal_xy_m": self.dist_to_goal_xy_m,
+            "dist_source": getattr(self, "dist_source", None),
+
+            # Progress-based success logic
+            "progress_margin_m": self.progress_margin,
+            "progress_threshold_m": self.progress_threshold_m,
+            "within_progress_threshold": self.within_progress,
+            "success": self.success,
+            "success_reason": self.success_reason,
+
+            # Navigation logic outcome
+            "reached_goal_topological": self.reached_goal_topological,
+
+            # Final poses (for analysis/debug)
             "final_gt": self.final_gt,
+            "final_odom": self.final_odom,
+
+            # Artifacts
             "artifacts": {
                 "traj_odom_csv": str(self.odom_csv_path),
                 "traj_gt_csv": str(self.gt_csv_path),
                 "steps_csv": str(self.steps_csv_path),
             },
         }
+
         self.summary_path.write_text(json.dumps(payload, indent=2))
 
 
@@ -297,14 +400,34 @@ def main(args: argparse.Namespace):
     out_root = Path(args.out)
     run_id = args.run_id or f"run_{int(time.time())}"
     out_dir = out_root / run_id
-    logger = RunLogger(out_dir=out_dir, goal_x=args.goal_x, goal_y=args.goal_y, success_radius=args.success_radius)
+    logger = RunLogger(
+        out_dir=out_dir,
+        goal_x=args.goal_x,
+        goal_y=args.goal_y,
+        success_radius=args.success_radius,
+        snap_x=args.snap_x,
+        snap_y=args.snap_y,
+        progress_margin=args.progress_margin,
+    )
+
 
     # ROS
     rclpy.init()
     node = NavigationNode(logger=logger)
 
+    bag_recorder = None
+    if args.record_bag:
+        bag_recorder = BagRecorder(
+            out_dir=str(out_dir),  
+            bag_name=args.bag_name,
+            topics=BAG_TOPICS,
+        )
+        bag_recorder.start()
+
     try:
         while rclpy.ok():
+            rclpy.spin_once(node, timeout_sec=0.0)
+
             loop_start_time = time.time()
 
             waypoint_msg = Float32MultiArray()
@@ -408,16 +531,22 @@ def main(args: argparse.Namespace):
             if reached_goal:
                 print("Reached goal! Stopping...")
 
-                # --- NEW: verify by physical distance to fixed goal using latest ODOM ---
+                if bag_recorder is not None:
+                    bag_recorder.stop()
+                # --- NEW: verify by physical distance to fixed goal using latest GT ---
+                t_end = time.time() + 1.0
+                while time.time() < t_end and rclpy.ok():
+                    rclpy.spin_once(node, timeout_sec=0.05)
                 logger.verify_on_reached_goal()
                 if logger.dist_to_goal_xy_m is None:
-                    print("[VERIFY] No ODOM received -> FAIL")
+                    print("[VERIFY] No GT received -> FAIL")
                 else:
                     verdict = "SUCCESS" if logger.success else "FAIL"
                     print(
-                        f"[VERIFY] goal=({args.goal_x:.3f},{args.goal_y:.3f}) "
-                        f"dist_xy={logger.dist_to_goal_xy_m:.3f}m "
-                        f"radius={args.success_radius:.3f}m => {verdict}"
+                        f"[VERIFY] src={logger.dist_source} "
+                        f"dist_xy={logger.dist_to_goal_xy_m:.3f}m | "
+                        f"thr=(snap_dist {logger.snap_dist_to_goal_xy_m:.3f} + margin {logger.progress_margin:.3f})="
+                        f"{logger.progress_threshold_m:.3f}m => {verdict}"
                     )
 
                 logger.write_summary(args)
@@ -427,6 +556,8 @@ def main(args: argparse.Namespace):
             rclpy.spin_once(node, timeout_sec=0)
 
     finally:
+        if bag_recorder is not None:
+            bag_recorder.stop()
         try:
             logger.close()
         except Exception:
@@ -488,6 +619,7 @@ if __name__ == "__main__":
         type=int,
         help="number of actions sampled from the model (default: 8)",
     )
+    
 
     # --- NEW: verification / output args ---
     parser.add_argument("--goal-x", type=float, required=True, help="fixed goal x in the same frame as /simple_drone/odom")
@@ -495,6 +627,13 @@ if __name__ == "__main__":
     parser.add_argument("--success-radius", type=float, default=0.5, help="success radius in meters (default: 0.5)")
     parser.add_argument("--out", type=str, default="runs_nomad", help="output root directory (default: runs_nomad)")
     parser.add_argument("--run-id", type=str, default=None, help="run id folder name (default: run_<unix>)")
+    parser.add_argument("--record-bag", action="store_true",
+                        help="Record a ros2 bag during the run until reaching the goal.")
+    parser.add_argument("--bag-name", default="run_006_bag",
+                        help="Output bag folder name (under the run output directory).")
+    parser.add_argument("--snap-x", type=float, required=True, help="x at the time you captured the goal")
+    parser.add_argument("--snap-y", type=float, required=True, help="y at the time you captured the goal")
+    parser.add_argument("--progress-margin", type=float, default=0.3, help="extra tolerance (m) for progress check")
 
     args = parser.parse_args()
     print(f"Using {device}")
