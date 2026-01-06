@@ -38,9 +38,16 @@ DEFAULT_RESULTS_DIR = str((_THIS_DIR / "results").resolve())
 
 
 def find_most_recent_results(results_dir: str) -> Optional[str]:
-    """Find the most recent smoothing results CSV file."""
-    pattern = os.path.join(results_dir, "smoothing_*.csv")
-    files = glob.glob(pattern)
+    """Find the most recent results CSV file (smoothing or RRT)."""
+    # Look for both smoothing and RRT result files
+    patterns = [
+        os.path.join(results_dir, "smoothing_*.csv"),
+        os.path.join(results_dir, "rrt_first_*.csv"),
+    ]
+
+    files = []
+    for pattern in patterns:
+        files.extend(glob.glob(pattern))
 
     if not files:
         return None
@@ -50,9 +57,16 @@ def find_most_recent_results(results_dir: str) -> Optional[str]:
 
 
 def find_all_results(results_dir: str) -> List[str]:
-    """Find all smoothing results CSV files."""
-    pattern = os.path.join(results_dir, "smoothing_*.csv")
-    files = glob.glob(pattern)
+    """Find all results CSV files (smoothing and RRT)."""
+    patterns = [
+        os.path.join(results_dir, "smoothing_*.csv"),
+        os.path.join(results_dir, "rrt_first_*.csv"),
+    ]
+
+    files = []
+    for pattern in patterns:
+        files.extend(glob.glob(pattern))
+
     files.sort(key=os.path.getmtime, reverse=True)
     return files
 
@@ -118,6 +132,21 @@ def analyze_file(filepath: str, verbose: bool = True) -> Dict:
         print(f"Warning: No data in {filepath}")
         return {}
 
+    # Check if there's an RRT success column (present in rrt_first_*.csv, not in smoothing_*.csv)
+    has_rrt_success_column = 'success' in rows[0]
+
+    # Filter to only successful RRT solutions
+    total_rows = len(rows)
+    if has_rrt_success_column:
+        rows = [row for row in rows if int(row.get('success', 0)) == 1]
+        filtered_count = total_rows - len(rows)
+        if verbose and filtered_count > 0:
+            print(f"Filtered out {filtered_count} failed RRT solutions ({total_rows} total -> {len(rows)} successful)")
+
+    if not rows:
+        print(f"Warning: No successful solutions in {filepath}")
+        return {}
+
     # Extract timing data
     rrt_times = []
     cubic_spline_times = []
@@ -134,13 +163,13 @@ def analyze_file(filepath: str, verbose: bool = True) -> Dict:
     min_snap_success = 0
 
     for row in rows:
-        # RRT time
-        rrt_time = float(row.get('rrt_time_ms', 0))
+        # RRT time (only from successful solutions now)
+        rrt_time = float(row.get('rrt_time_ms', row.get('planning_time_ms', 0)))
         if rrt_time > 0:
             rrt_times.append(rrt_time)
 
         # Path info
-        num_wp = int(row.get('num_waypoints', 0))
+        num_wp = int(row.get('num_waypoints', row.get('num_final_points', 0)))
         if num_wp > 0:
             num_waypoints_list.append(num_wp)
 
@@ -174,6 +203,7 @@ def analyze_file(filepath: str, verbose: bool = True) -> Dict:
     results = {
         'file': filepath,
         'total_paths': total_paths,
+        'total_rows_before_filter': total_rows if has_rrt_success_column else total_paths,
         'rrt': {
             'stats': compute_stats(rrt_times),
         },
@@ -277,7 +307,15 @@ def print_summary(results: Dict):
     print("=" * 80)
 
     print(f"\nFile: {results['file']}")
-    print(f"Total Paths: {results['total_paths']}")
+    print(f"Total Successful Paths: {results['total_paths']}")
+
+    # Show filter statistics if applicable
+    total_before = results.get('total_rows_before_filter', results['total_paths'])
+    if total_before != results['total_paths']:
+        filtered = total_before - results['total_paths']
+        success_rate = (results['total_paths'] / total_before * 100) if total_before > 0 else 0
+        print(f"RRT Success Rate: {results['total_paths']}/{total_before} ({success_rate:.1f}%)")
+        print(f"Filtered Out: {filtered} failed solutions")
 
     # Success rates
     print("\n" + "-" * 40)
@@ -457,7 +495,7 @@ def create_timing_bar_chart(results: Dict, output_path: str):
     print(f"Saved: {output_path}")
 
 
-def create_timing_box_plot(raw_data: Dict, output_path: str):
+def create_timing_box_plot(raw_data: Dict, output_path: str, computer_name: str = "PC"):
     """Create box plots showing timing distributions with appropriate Y-axis scales for each method."""
     if not PLOTTING_AVAILABLE:
         return
@@ -469,6 +507,9 @@ def create_timing_box_plot(raw_data: Dict, output_path: str):
 
     fig = plt.figure(figsize=(20, 10), dpi=200)
     fig.patch.set_facecolor('#ffffff')
+
+    # Add computer name to figure title
+    fig.suptitle(f'Timing Analysis - {computer_name}', fontsize=16, fontweight='bold', y=0.98)
 
     # Create grid: top row has overview, bottom row has individual methods
     gs = fig.add_gridspec(2, 4, height_ratios=[1, 1.2], hspace=0.35, wspace=0.3,
@@ -629,7 +670,7 @@ def create_timing_box_plot(raw_data: Dict, output_path: str):
     print(f"Saved: {output_path}")
 
 
-def create_histogram_grid(raw_data: Dict, output_path: str):
+def create_histogram_grid(raw_data: Dict, output_path: str, computer_name: str = "PC"):
     """Create histograms for each method's timing distribution with improved visualization."""
     if not PLOTTING_AVAILABLE:
         return
@@ -641,6 +682,9 @@ def create_histogram_grid(raw_data: Dict, output_path: str):
 
     fig, axes = plt.subplots(2, 2, figsize=(16, 14), dpi=200)
     fig.patch.set_facecolor('#ffffff')
+
+    # Add computer name to figure title
+    fig.suptitle(f'Timing Histograms - {computer_name}', fontsize=16, fontweight='bold', y=0.98)
 
     data_sets = [
         ('rrt_times', 'RRT Planning Time', COLORS['rrt']),
@@ -1052,7 +1096,7 @@ def create_pipeline_time_chart(results: Dict, output_path: str):
     print(f"Saved: {output_path}")
 
 
-def create_summary_dashboard(results: Dict, raw_data: Dict, output_path: str):
+def create_summary_dashboard(results: Dict, raw_data: Dict, output_path: str, computer_name: str = "PC"):
     """Create a high-quality summary dashboard with statistics table and pipeline time charts."""
     if not PLOTTING_AVAILABLE:
         return
@@ -1066,8 +1110,8 @@ def create_summary_dashboard(results: Dict, raw_data: Dict, output_path: str):
     fig = plt.figure(figsize=(18, 14), dpi=200)
     fig.patch.set_facecolor('#ffffff')
 
-    # Title
-    fig.suptitle('Smoothing Benchmark Results', fontsize=22, fontweight='bold',
+    # Title with computer name
+    fig.suptitle(f'Smoothing Benchmark Results - {computer_name}', fontsize=22, fontweight='bold',
                  color='#1a1a2e', y=0.97)
 
     # Create grid: table on top (larger), 3 pipeline charts on bottom
@@ -1239,7 +1283,91 @@ def create_summary_dashboard(results: Dict, raw_data: Dict, output_path: str):
     print(f"Saved: {output_path}")
 
 
-def generate_all_plots(filepath: str, results: Dict, output_dir: str):
+def create_path_length_plot(raw_data: Dict, output_path: str, computer_name: str = "PC"):
+    """Create a plot showing path length statistics (mean, median, min, max)."""
+    if not PLOTTING_AVAILABLE:
+        return
+
+    path_lengths = raw_data.get('path_lengths', [])
+    if not path_lengths:
+        print("No path length data available for plotting")
+        return
+
+    # High quality settings
+    plt.rcParams['font.family'] = 'sans-serif'
+    plt.rcParams['font.size'] = 11
+    plt.rcParams['axes.linewidth'] = 1.2
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6), dpi=200)
+    fig.patch.set_facecolor('#ffffff')
+    fig.suptitle(f'Path Length Analysis - {computer_name}', fontsize=16, fontweight='bold', y=0.98)
+
+    # Calculate statistics
+    mean_val = statistics.mean(path_lengths)
+    median_val = statistics.median(path_lengths)
+    min_val = min(path_lengths)
+    max_val = max(path_lengths)
+    std_val = statistics.stdev(path_lengths) if len(path_lengths) > 1 else 0
+
+    # Left plot: Histogram with statistics
+    ax1 = axes[0]
+    ax1.set_facecolor('#f8f9fa')
+
+    n, bins, patches = ax1.hist(path_lengths, bins=40, color='#3498db', edgecolor='white', alpha=0.8)
+
+    # Add statistics lines
+    ax1.axvline(mean_val, color='#e74c3c', linestyle='--', linewidth=2, label=f'Mean: {mean_val:.2f}m')
+    ax1.axvline(median_val, color='#f39c12', linestyle=':', linewidth=2, label=f'Median: {median_val:.2f}m')
+    ax1.axvline(min_val, color='#27ae60', linestyle='-', linewidth=1.5, label=f'Min: {min_val:.2f}m')
+    ax1.axvline(max_val, color='#9b59b6', linestyle='-', linewidth=1.5, label=f'Max: {max_val:.2f}m')
+
+    ax1.set_xlabel('Path Length (meters)', fontsize=12, fontweight='bold')
+    ax1.set_ylabel('Frequency', fontsize=12, fontweight='bold')
+    ax1.set_title('Path Length Distribution', fontsize=14, fontweight='bold', pad=10)
+    ax1.legend(loc='upper right', fontsize=10, framealpha=0.9)
+    ax1.grid(axis='y', linestyle='--', alpha=0.5, color='#cccccc')
+    ax1.spines['top'].set_visible(False)
+    ax1.spines['right'].set_visible(False)
+
+    # Right plot: Bar chart of statistics
+    ax2 = axes[1]
+    ax2.set_facecolor('#f8f9fa')
+
+    stats_names = ['Mean', 'Median', 'Min', 'Max', 'Std Dev']
+    stats_values = [mean_val, median_val, min_val, max_val, std_val]
+    colors = ['#e74c3c', '#f39c12', '#27ae60', '#9b59b6', '#3498db']
+
+    bars = ax2.bar(stats_names, stats_values, color=colors, edgecolor='white', linewidth=2)
+
+    # Add value labels on bars
+    for bar, val in zip(bars, stats_values):
+        height = bar.get_height()
+        ax2.annotate(f'{val:.2f}m',
+                     xy=(bar.get_x() + bar.get_width() / 2, height),
+                     xytext=(0, 5), textcoords='offset points',
+                     ha='center', va='bottom', fontsize=11, fontweight='bold')
+
+    ax2.set_ylabel('Path Length (meters)', fontsize=12, fontweight='bold')
+    ax2.set_title('Path Length Statistics', fontsize=14, fontweight='bold', pad=10)
+    ax2.grid(axis='y', linestyle='--', alpha=0.5, color='#cccccc')
+    ax2.spines['top'].set_visible(False)
+    ax2.spines['right'].set_visible(False)
+
+    # Add total count annotation
+    fig.text(0.5, 0.02, f'Total paths analyzed: {len(path_lengths):,}',
+             ha='center', fontsize=11, style='italic', color='#666666')
+
+    plt.tight_layout(rect=[0, 0.05, 1, 0.95])
+    plt.savefig(output_path, dpi=200, facecolor='#ffffff', edgecolor='none', bbox_inches='tight')
+    plt.close()
+
+    # Reset rcParams
+    plt.rcParams.update(plt.rcParamsDefault)
+
+    print(f"Saved: {output_path}")
+
+
+def generate_all_plots(filepath: str, results: Dict, output_dir: str, computer_name: str = "PC"):
     """Generate all visualization plots."""
     if not PLOTTING_AVAILABLE:
         print("Plotting not available. Install matplotlib: pip install matplotlib")
@@ -1253,11 +1381,12 @@ def generate_all_plots(filepath: str, results: Dict, output_dir: str):
     print("\nGenerating visualizations...")
 
     # Generate individual plots (only the essential ones)
-    create_timing_box_plot(raw_data, os.path.join(output_dir, f"{base_name}_timing_boxplot.png"))
-    create_histogram_grid(raw_data, os.path.join(output_dir, f"{base_name}_histograms.png"))
+    create_timing_box_plot(raw_data, os.path.join(output_dir, f"{base_name}_timing_boxplot.png"), computer_name)
+    create_histogram_grid(raw_data, os.path.join(output_dir, f"{base_name}_histograms.png"), computer_name)
+    create_path_length_plot(raw_data, os.path.join(output_dir, f"{base_name}_path_lengths.png"), computer_name)
 
     # Generate summary dashboard (contains table + pipeline time charts)
-    create_summary_dashboard(results, raw_data, os.path.join(output_dir, f"{base_name}_dashboard.png"))
+    create_summary_dashboard(results, raw_data, os.path.join(output_dir, f"{base_name}_dashboard.png"), computer_name)
 
     print(f"\nAll plots saved to: {output_dir}")
 
@@ -1266,17 +1395,27 @@ def load_raw_timing_data(filepath: str) -> Dict[str, List[float]]:
     """Load raw timing data from CSV for histograms/box plots."""
     rows = load_csv(filepath)
 
+    # Check if there's an RRT success column and filter by it
+    has_rrt_success_column = rows and 'success' in rows[0]
+    if has_rrt_success_column:
+        rows = [row for row in rows if int(row.get('success', 0)) == 1]
+
     raw_data = {
         'rrt_times': [],
         'cubic_spline_times': [],
         'cubic_bezier_times': [],
         'min_snap_times': [],
+        'path_lengths': [],
     }
 
     for row in rows:
-        rrt_time = float(row.get('rrt_time_ms', 0))
+        rrt_time = float(row.get('rrt_time_ms', row.get('planning_time_ms', 0)))
         if rrt_time > 0:
             raw_data['rrt_times'].append(rrt_time)
+
+        path_len = float(row.get('path_length', 0))
+        if path_len > 0:
+            raw_data['path_lengths'].append(path_len)
 
         if int(row.get('cubic_spline_success', 0)) == 1:
             time_val = float(row.get('cubic_spline_time_ms', 0))
@@ -1342,6 +1481,11 @@ Default results directory: {DEFAULT_RESULTS_DIR}
         action='store_true',
         help="Only show comparison table"
     )
+    parser.add_argument(
+        '-c', '--computer',
+        default="PC",
+        help="Computer name for plot titles (default: PC, e.g., 'jetson AGX', 'jetson Orin Nano')"
+    )
 
     args = parser.parse_args()
 
@@ -1370,7 +1514,7 @@ Default results directory: {DEFAULT_RESULTS_DIR}
 
                 if not args.no_plot:
                     output_dir = os.path.dirname(filepath)
-                    generate_all_plots(filepath, results, output_dir)
+                    generate_all_plots(filepath, results, output_dir, args.computer)
     else:
         # Analyze single file
         if args.input_csv is None:
@@ -1398,7 +1542,7 @@ Default results directory: {DEFAULT_RESULTS_DIR}
 
             if not args.no_plot:
                 output_dir = os.path.dirname(args.input_csv) or '.'
-                generate_all_plots(args.input_csv, results, output_dir)
+                generate_all_plots(args.input_csv, results, output_dir, args.computer)
 
 
 if __name__ == "__main__":
