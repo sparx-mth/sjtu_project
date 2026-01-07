@@ -151,6 +151,9 @@ poetry run python3 src/visualnav_transformer/deployment/src/navigate.py --goal-n
 ```bash
 poetry run python3 src/visualnav_transformer/deployment/src/navigate.py
 ```
+```bash
+poetry run python3 src/visualnav_transformer/deployment/src/navigate_new.py   --model nomad   --dir topomap   --goal-node -1   --goal-x -5.499710   --goal-y 7.285320   --snap-x -7.433326   --snap-y 0.593377   --progress-margin 0.3   --record-bag   --bag-name run_001_bag
+```
 
 2) **Velocity Publisher**
 ```bash
