@@ -1484,7 +1484,7 @@ Default results directory: {DEFAULT_RESULTS_DIR}
     parser.add_argument(
         '-c', '--computer',
         default="PC",
-        help="Computer name for plot titles (default: PC, e.g., 'jetson AGX', 'jetson Orin Nano')"
+        help="Computer name for plot titles (default: PC, e.g., 'jetson_AGX', 'jetson_Orin_Nano')"
     )
 
     args = parser.parse_args()

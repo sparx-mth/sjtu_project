@@ -1,0 +1,22 @@
+============================================================
+SMOOTHING BENCHMARK SUMMARY
+============================================================
+
+Input file: /home/user/GIT/benchmark/rrt_benchmark/results/rrt_first_20260106_102623.json
+Timestamp: 20260106_120246
+Smoothing iterations per path: 1
+
+PATHS PROCESSED:
+  Total paths: 98070
+  Successfully processed: 98070
+
+SUCCESS RATES:
+  Cubic Spline: 98070/98070 (100.0%)
+  Cubic Bezier: 98070/98070 (100.0%)
+  Minimum Snap: 98070/98070 (100.0%)
+
+TIMING STATISTICS:
+  RRT Planning:  37.085 ± 95.042 ms (min=0.060, max=1000.050)
+  Cubic Spline:  1.250 ± 1.038 ms (min=1.057, max=28.736)
+  Cubic Bezier:  1.762 ± 0.974 ms (min=1.211, max=21.822)
+  Minimum Snap:  94.411 ± 44.701 ms (min=17.264, max=934.885)
