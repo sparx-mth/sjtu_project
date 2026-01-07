@@ -170,6 +170,20 @@ poetry run python3 scripts/visualize.py
 poetry run python3 src/visualnav_transformer/deployment/src/create_topomap.py -t 1
 ```
 
+5) **save altitude script:**
+```bash
+ poetry run python3 altitude_mux.py 
+```
+
+***from the sjtu docker - 
+5) **run the map with the drone traj:**
+
+```bash
+cd /ros2_ws/maps
+python3 show_drone_trajectory.py
+```
+
+
 ---
 
 ## 10) Save Your Changes (Docker Commit)
