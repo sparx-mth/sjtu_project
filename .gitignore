@@ -53,6 +53,25 @@ cmake-build-*/
 *.tar.gz
 
 /NoMaD/bags/
+/NoMaD/runs_nomad/
+/NoMaD/run_nomad_OLD/
 /NoMaD/bags_altitude/
 *.rviz
 *.tum
+
+bin/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.csv
+*.log
+*.jsonl
+*.json
+*.yaml
+.vscode/
+.idea/
+*.db3/
+*.mtl
+*.obj
+*.pcd
