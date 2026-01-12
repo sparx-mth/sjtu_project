@@ -154,3 +154,6 @@ python3 -m apriltag_localization.tasks.tag_azimuth_node \
 - Visualized detections
 - JSONL log containing azimuth per image
 
+
+<img width="635" height="429" alt="Screenshot from 2026-01-12 13-13-58" src="https://github.com/user-attachments/assets/f1a85922-e4ed-4163-96ab-b196da44ff3f" />
+---
