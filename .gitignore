@@ -68,10 +68,10 @@ __pycache__/
 *.log
 *.jsonl
 *.json
-*.yaml
 .vscode/
 .idea/
-*.db3/
+*.db3
 *.mtl
 *.obj
 *.pcd
+*.srv

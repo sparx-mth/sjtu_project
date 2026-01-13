@@ -8,6 +8,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import Image
 from geometry_msgs.msg import Vector3Stamped
 from cv_bridge import CvBridge
+from sensor_msgs.msg import CameraInfo
 
 
 class OpticalFlowNode(Node):
@@ -24,6 +25,8 @@ class OpticalFlowNode(Node):
         self.declare_parameter("min_corners", 20)
         self.declare_parameter("show_debug", False)
         self.declare_parameter("camera_frame", "simple_drone/front_cam_link")
+        self.declare_parameter("height_m", 1.0)
+        self.declare_parameter("camera_info_topic", "/simple_drone/front/camera_info")
 
         image_topic = self.get_parameter("image_topic").get_parameter_value().string_value
         output_topic = self.get_parameter("output_topic").get_parameter_value().string_value
@@ -40,6 +43,20 @@ class OpticalFlowNode(Node):
         self.prev_gray = None
         self.prev_pts = None
         self.prev_stamp = None 
+
+        self.height_m = self.get_parameter("height_m").get_parameter_value().double_value
+
+        self.fx = None
+        self.fy = None
+
+        camera_info_topic = self.get_parameter("camera_info_topic").get_parameter_value().string_value
+
+        self.caminfo_sub = self.create_subscription(
+            CameraInfo,
+            camera_info_topic,
+            self.camera_info_callback,
+            10
+        )
 
         # Publisher
         self.vel_pub = self.create_publisher(Vector3Stamped, output_topic, 10)
@@ -143,11 +160,22 @@ class OpticalFlowNode(Node):
 
         vx, vy = self.robust_velocity_from_flow(good_old, good_new, dt)
 
+        if self.fx is None or self.fy is None:
+            self.get_logger().warn("No CameraInfo yet (fx/fy missing). Publishing px/s.")
+            self.prev_gray = gray
+            self.prev_pts = good_new.reshape(-1, 1, 2)
+            self.prev_stamp = curr_stamp
+            return        
+        else:
+            Z = self.height_m
+            vx_mps = Z * (vx / self.fx)
+            vy_mps = Z * (vy / self.fy)
+
         vel_msg = Vector3Stamped()
         vel_msg.header.stamp = msg.header.stamp
         vel_msg.header.frame_id = self.camera_frame
-        vel_msg.vector.x = vx
-        vel_msg.vector.y = vy
+        vel_msg.vector.x = vx_mps
+        vel_msg.vector.y = vy_mps
         vel_msg.vector.z = 0.0
         self.vel_pub.publish(vel_msg)
 
@@ -158,7 +186,8 @@ class OpticalFlowNode(Node):
                 x_old, y_old = int(x_old), int(y_old)
                 cv2.arrowedLine(vis, (x_old, y_old), (x_new, y_new),
                                 (0, 255, 0), 1, tipLength=0.3)
-            text = f"vx={vx:.1f}px/s vy={vy:.1f}px/s N={len(good_new)}"
+            text = f"vx={vx_mps:.3f} m/s vy={vy_mps:.3f} m/s N={len(good_new)}"
+
             cv2.putText(vis, text, (10, 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
             cv2.imshow("Optical Flow", vis)
@@ -168,6 +197,10 @@ class OpticalFlowNode(Node):
         self.prev_pts = good_new.reshape(-1, 1, 2)
         self.prev_stamp = curr_stamp
 
+    def camera_info_callback(self, msg: CameraInfo):
+        K = msg.k
+        self.fx = float(K[0])
+        self.fy = float(K[4])
 
 def main():
     rclpy.init()
