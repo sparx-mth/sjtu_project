@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+import os
 import time
 import math
 import yaml
@@ -208,6 +208,10 @@ class TagAzimuthOpenCVTask:
 
     def run(self):
         processed = set()
+        output_dir = "/home/shirb/shir/test_imgs_output"
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
 
         while True:
             if self.image_dir is not None:
@@ -331,6 +335,16 @@ class TagAzimuthOpenCVTask:
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2)
                     cv2.putText(frame, line3, (20, 90),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255,255,255), 2)
+                
+
+                                
+                safe_name = src_name.replace("/", "_").replace("\\", "_")
+                save_path = os.path.join(output_dir, f"out_{stamp_sec:.2f}_{safe_name}")
+                if not save_path.lower().endswith(('.png', '.jpg', '.jpeg')):
+                    save_path += ".jpg"
+                
+                cv2.imwrite(save_path, frame)
+                
                 cv2.imshow("tag_azimuth", frame)
                 k = cv2.waitKey(0) & 0xFF   # 0 = wait forever
                 if k == 27 or k == ord('q'):  # ESC או q

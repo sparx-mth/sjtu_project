@@ -41,8 +41,6 @@ cmake-build-*/
 *.zip
 *.tar.gz
 
-*.png
-*.jpg
 *.jpeg
 * .mp4
 *.avi
@@ -75,3 +73,7 @@ __pycache__/
 *.obj
 *.pcd
 *.srv
+
+*.venv
+/NoMaD/eval_runs/
+/NoMaD/topomap
