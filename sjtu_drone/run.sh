@@ -5,7 +5,7 @@ set -eo pipefail
 # Config
 # -----------------------------
 ROS_DISTRO=humble
-IMAGE_NAME="sjtu_drone_nadav:humble_ros2"
+IMAGE_NAME="sjtu_drone_omnivla:humble"
 XSOCK=/tmp/.X11-unix
 XAUTH=$HOME/.Xauthority
 
@@ -18,8 +18,16 @@ CONTAINER_WS="/root/$(basename "$WORKSPACE_DIR")"                 # e.g., /root/
 HOST_WORLDS_DIR="${WORKSPACE_DIR}/aws-robomaker-hospital-world/worlds"
 HOST_SRC_DIR="${WORKSPACE_DIR}/src"
 
+# OmniVLA (host + container)
+HOST_OMNIVLA_DIR="${WORKSPACE_DIR}/OmniVLA"
+HOST_OMNIVLA_MODELS_DIR="${WORKSPACE_DIR}/models/omnivla"
+CONTAINER_OMNIVLA_DIR="${CONTAINER_WS}/OmniVLA"
+CONTAINER_MODELS_DIR="/models"   # keep models outside workspace in container
+
 echo "[INFO] Host workspace:      ${WORKSPACE_DIR}"
 echo "[INFO] Container workspace: ${CONTAINER_WS}"
+echo "[INFO] OmniVLA repo (host): ${HOST_OMNIVLA_DIR}"
+echo "[INFO] OmniVLA models:      ${HOST_OMNIVLA_MODELS_DIR}"
 
 # -----------------------------
 # Parse arguments
@@ -56,6 +64,19 @@ fi
 if [[ ! -f "${HOST_WORLDS_DIR}/${WORLD_FILE}" ]]; then
   echo "[ERROR] World file not found: ${HOST_WORLDS_DIR}/${WORLD_FILE}"
   exit 1
+fi
+
+# --- OmniVLA host sanity (minimal, non-fatal)
+if [[ ! -d "${HOST_OMNIVLA_DIR}" ]]; then
+  echo "[WARN] OmniVLA repo not found at: ${HOST_OMNIVLA_DIR}"
+  echo "       (Mount will still be attempted; create/clone it if needed.)"
+fi
+if [[ ! -d "${HOST_OMNIVLA_MODELS_DIR}" ]]; then
+  echo "[WARN] OmniVLA models directory not found at: ${HOST_OMNIVLA_MODELS_DIR}"
+  echo "       Create it and clone weights there, e.g.:"
+  echo "         mkdir -p '${HOST_OMNIVLA_MODELS_DIR%/omnivla}'"
+  echo "         mkdir -p '${HOST_OMNIVLA_MODELS_DIR}'"
+  echo "         cd '${HOST_OMNIVLA_MODELS_DIR}' && git clone https://huggingface.co/NHirose/omnivla-original"
 fi
 
 # Clone gazebo_ros_2d_map only if needed (and not in --no-map)
@@ -102,12 +123,16 @@ docker run \
   -v "${XSOCK}:${XSOCK}" \
   -v "${XAUTH}:${XAUTH}" \
   -v "${WORKSPACE_DIR}:${CONTAINER_WS}:rw" \
+  -v "${HOST_OMNIVLA_DIR}:${CONTAINER_OMNIVLA_DIR}:rw" \
+  -v "${WORKSPACE_DIR}/models:${CONTAINER_MODELS_DIR}:ro" \
   -v "${WORKSPACE_DIR}/sjtu_drone/models/april_tag_36h11_0:/root/.gazebo/models/april_tag_36h11_0:ro" \
   -e DISPLAY="${DISPLAY}" \
   -e ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-20}" \
   -e XAUTHORITY="${XAUTH}" \
   -e QT_X11_NO_MITSHM=1 \
   -e SKIP_MAP="${SKIP_MAP}" \
+  -e OMNIVLA_ROOT="${CONTAINER_OMNIVLA_DIR}" \
+  -e OMNIVLA_CHECKPOINTS="${CONTAINER_MODELS_DIR}/omnivla" \
   --name="sjtu_drone_${WORLD_BASE}" \
   "${IMAGE_NAME}" \
   bash -c "
@@ -120,6 +145,10 @@ docker run \
     fi
     echo 'source /opt/ros/${ROS_DISTRO}/setup.bash' >> /root/.bashrc
     echo '[[ -f ${CONTAINER_WS}/install/setup.bash ]] && source ${CONTAINER_WS}/install/setup.bash' >> /root/.bashrc
+
+    # --- OmniVLA env (persist for interactive shells) ---
+    echo 'export OMNIVLA_ROOT=${CONTAINER_OMNIVLA_DIR}' >> /root/.bashrc
+    echo 'export OMNIVLA_CHECKPOINTS=${CONTAINER_MODELS_DIR}/omnivla' >> /root/.bashrc
 
     # --- Core env ---
     export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
@@ -147,6 +176,9 @@ docker run \
     echo '================================'
     echo 'Environment ready'
     echo 'World: ${WORLD_FILE}'
+    echo 'OmniVLA:'
+    echo '  OMNIVLA_ROOT='\$OMNIVLA_ROOT
+    echo '  OMNIVLA_CHECKPOINTS='\$OMNIVLA_CHECKPOINTS
     echo 'GAZEBO_MODEL_PATH entries:'
     echo \$GAZEBO_MODEL_PATH | tr ':' '\n'
     echo '================================'
@@ -155,6 +187,14 @@ docker run \
     if [[ ! -f '${CONTAINER_WS}/aws-robomaker-hospital-world/worlds/${WORLD_FILE}' ]]; then
       echo '[ERROR] World file missing inside container: ${CONTAINER_WS}/aws-robomaker-hospital-world/worlds/${WORLD_FILE}'
       exit 1
+    fi
+
+    # --- Sanity: OmniVLA mounts (non-fatal) ---
+    if [[ ! -d '${CONTAINER_OMNIVLA_DIR}' ]]; then
+      echo '[WARN] OmniVLA repo missing inside container at: ${CONTAINER_OMNIVLA_DIR}'
+    fi
+    if [[ ! -d '${CONTAINER_MODELS_DIR}/omnivla' ]]; then
+      echo '[WARN] OmniVLA checkpoints dir missing inside container at: ${CONTAINER_MODELS_DIR}/omnivla'
     fi
 
     # --- Build ---
