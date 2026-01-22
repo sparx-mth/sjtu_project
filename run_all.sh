@@ -6,7 +6,7 @@
 
 CONTAINER_NAME="sjtu_drone_hospital"
 
-PROJECT_ROOT="$HOME/sjtu_project/sjtu_drone"
+PROJECT_ROOT="$HOME/GIT/sjtu_project/sjtu_drone"
 #PROJECT_ROOT="/home/user/PycharmProjects/sjtu_project/sjtu_drone"
 
 WORLD_FILE="hospital.world"

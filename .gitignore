@@ -77,3 +77,6 @@ __pycache__/
 *.venv
 /NoMaD/eval_runs/
 /NoMaD/topomap
+
+*.gv
+*.pdf
