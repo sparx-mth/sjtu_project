@@ -1,28 +1,46 @@
-# Ignore ROS2 build artifacts
+plugins/
+bin/
+__pycache__/
+*.pyc
+build/
+install/
+log/
+*.log
+*.bag
+*.db
+*.sqlite
+
+# ROS2 / Colcon build artifacts
 build/
 install/
 log/
 
-# Ignore Python cache and other temp files
-__pycache__/
+# Python cache
+**/__pycache__/
 *.pyc
 *.pyo
 
-# Ignore VSCode / PyCharm configs
+# CMake files
+CMakeFiles/
+cmake-build-*/
+
+# VSCode
 .vscode/
+
+# JetBrains
 .idea/
 
-# Ignore Docker intermediate files (optional)
-*.log
-*.tmp
+# Misc
 *.swp
+*.swo
 
-# Allow hospital world models to be tracked
-!aws-robomaker-hospital-world/
-!aws-robomaker-hospital-world/fuel_models/
+*.mkv
+*.avi
+*.mp4
+*.mov
+*.zip
+*.tar.gz
 
-*.png
-*.jpg
 *.jpeg
 * .mp4
 *.avi
@@ -33,19 +51,34 @@ __pycache__/
 *.tar.gz
 
 /NoMaD/bags/
+/NoMaD/runs_nomad/
+/NoMaD/run_nomad_OLD/
 /NoMaD/bags_altitude/
 *.rviz
 *.tum
+
+bin/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
 *.csv
-*.npy
-*.h5
-*.db
-/NoMaD/runs/
-/NoMaD/models/
-/NoMaD/figures/
-*.json  
+*.log
+*.jsonl
+*.json
+.vscode/
+.idea/
 *.db3
-*yaml
+*.mtl
+*.obj
+*.pcd
+*.srv
 
+*.venv
+/NoMaD/eval_runs/
+/NoMaD/topomap
 
+*.gv
+*.pdf
 
+*.venv/
