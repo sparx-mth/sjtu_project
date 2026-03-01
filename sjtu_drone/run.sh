@@ -108,6 +108,9 @@ docker run \
   -e XAUTHORITY="${XAUTH}" \
   -e QT_X11_NO_MITSHM=1 \
   -e SKIP_MAP="${SKIP_MAP}" \
+  -e ROS_DOMAIN_ID=0 \
+  -e RMW_IMPLEMENTATION=rmw_fastrtps_cpp \
+  -e CYCLONEDDS_URI= \
   --name="sjtu_drone_${WORLD_BASE}" \
   "${IMAGE_NAME}" \
   bash -c "
@@ -123,6 +126,7 @@ docker run \
 
     # --- Core env ---
     export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+    unset CYCLONEDDS_URI
     export GAZEBO_MODEL_PATH=/usr/share/gazebo-11/models
     export GAZEBO_MODEL_PATH=\$GAZEBO_MODEL_PATH:${CONTAINER_WS}/aws-robomaker-hospital-world/models
     if [[ -d '${CONTAINER_WS}/aws-robomaker-hospital-world/fuel_models' ]]; then
