@@ -43,6 +43,9 @@ class FalconAdapter:
         # Whether to auto-takeoff or assume drone is already airborne
         self.auto_takeoff = rospy.get_param("~auto_takeoff", True)
 
+        # ── Odom throttle: max rate for gt_pose processing ──
+        self.odom_min_dt = rospy.get_param("~odom_min_dt", 0.02)  # 50 Hz max
+
         # State
         self.cur_pose = None
         self.prev_time = None
@@ -91,6 +94,8 @@ class FalconAdapter:
         rospy.loginfo("  FALCON <-> Drone Adapter")
         rospy.loginfo("  Drone: %s", self.drone_ns)
         rospy.loginfo("  auto_takeoff: %s", self.auto_takeoff)
+        rospy.loginfo("  odom_min_dt: %.3f s (max %.0f Hz)",
+                       self.odom_min_dt, 1.0 / self.odom_min_dt)
         rospy.loginfo("══════════════════════════════════")
 
     def try_takeoff(self, _):
@@ -125,15 +130,21 @@ class FalconAdapter:
     def gt_pose_cb(self, msg):
         now = rospy.Time.now()
 
-        # Estimate velocity via finite difference
-        if self.cur_pose is not None and self.prev_time is not None:
+        # ── THROTTLE: skip if called too fast (bridge can push 800+ Hz) ──
+        if self.prev_time is not None:
             dt = (now - self.prev_time).to_sec()
-            if dt > 1e-6:
-                self.vel = np.array([
-                    (msg.position.x - self.cur_pose.position.x) / dt,
-                    (msg.position.y - self.cur_pose.position.y) / dt,
-                    (msg.position.z - self.cur_pose.position.z) / dt,
-                ])
+            if dt < self.odom_min_dt:
+                return
+        else:
+            dt = 0.0
+
+        # Estimate velocity via finite difference
+        if self.cur_pose is not None and dt > 1e-6:
+            self.vel = np.array([
+                (msg.position.x - self.cur_pose.position.x) / dt,
+                (msg.position.y - self.cur_pose.position.y) / dt,
+                (msg.position.z - self.cur_pose.position.z) / dt,
+            ])
         self.prev_time = now
         self.cur_pose = msg
 
@@ -184,15 +195,6 @@ class FalconAdapter:
         _, _, yaw = tf.transformations.euler_from_quaternion([q.x, q.y, q.z, q.w])
         self.target_yaw = yaw
 
-    @staticmethod
-    def _world_to_body(vx_world, vy_world, yaw):
-        """Transform world-frame velocity to body-frame velocity."""
-        cos_yaw = math.cos(yaw)
-        sin_yaw = math.sin(yaw)
-        vx_body = vx_world * cos_yaw + vy_world * sin_yaw
-        vy_body = -vx_world * sin_yaw + vy_world * cos_yaw
-        return vx_body, vy_body
-
     def control_loop(self, _):
         if self.cur_pose is None or self.target_pos is None:
             return
@@ -220,14 +222,13 @@ class FalconAdapter:
         ye = (self.target_yaw - yaw + math.pi) % (2 * math.pi) - math.pi
         yr = np.clip(self.kp_yaw * ye, -self.max_yaw_rate, self.max_yaw_rate)
 
-        # ── FIX: transform world-frame XY velocity to body frame ──
-        vx_body, vy_body = self._world_to_body(vxy[0], vxy[1], yaw)
-
+        # ── FIX: sjtu_drone cmd_vel expects WORLD-frame velocities ──
+        # No world-to-body transform needed.
         cmd = Twist()
-        cmd.linear.x = vx_body
-        cmd.linear.y = vy_body
-        cmd.linear.z = vz
-        cmd.angular.z = yr
+        cmd.linear.x = float(vxy[0])
+        cmd.linear.y = float(vxy[1])
+        cmd.linear.z = float(vz)
+        cmd.angular.z = float(yr)
         self.cmd_pub.publish(cmd)
 
 

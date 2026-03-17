@@ -206,7 +206,7 @@ docker build --build-arg CUDA_ARCH=120 -t falcon-ros:noetic .
 
 ## Running the Exploration
 
-You need **5 terminals**. Order matters — each step must complete before the next.
+You need **4 terminals**. Order matters — each step must complete before the next.
 
 > **DDS critical note:** The sim (Humble) and bridge (Foxy) must both use
 > **CycloneDDS**. FastRTPS versions between Humble and Foxy are incompatible
@@ -214,32 +214,7 @@ You need **5 terminals**. Order matters — each step must complete before the n
 
 ### Terminal 1 — Gazebo Simulation
 
-The sim's `run.sh` must use CycloneDDS. In `sjtu_drone/run.sh`, make two changes
-inside the `bash -c` block:
-
-**Change 1** — find this line near the top:
-
-```bash
-export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-```
-
-Replace it with:
-
-```bash
-# Install CycloneDDS for bridge compatibility (one-time per container start)
-apt-get update -qq && apt-get install -y -qq ros-humble-rmw-cyclonedds-cpp >/dev/null 2>&1 || true
-export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-```
-
-**Change 2** — find the `colcon build` line and remove the FastRTPS cmake arg:
-
-```bash
-# BEFORE:
-colcon build ... --cmake-args -DBUILD_TESTING=OFF -DRMW_IMPLEMENTATION=rmw_fastrtps_cpp
-# AFTER:
-colcon build ... --cmake-args -DBUILD_TESTING=OFF
-```
-
+The sim's `run.sh` must use CycloneDDS. In `sjtu_drone/run.sh`.
 Then launch:
 
 ```bash
@@ -292,10 +267,10 @@ docker exec ros1_bridge bash -c \
   "source /opt/ros/foxy/setup.bash && \
    source /bridge_ws/install/setup.bash && \
    export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp && \
-   ROS_DOMAIN_ID=20 ros2 topic list 2>/dev/null | head -10"
+   ROS_DOMAIN_ID=20 ros2 topic list 2>/dev/null | head -20"
 ```
 
-**Stop here — you must see `/simple_drone/*` topics before continuing.**
+** you must see `/simple_drone/*` topics before continuing.**
 If you only see `/parameter_events`, `/rosout`, `/rosout_agg`, the bridge
 cannot discover the sim. Check that both use CycloneDDS and Domain ID 20.
 
@@ -329,29 +304,28 @@ Notes on the flags:
 **Inside the container:**
 
 ```bash
-roslaunch falcon_adapter gazebo_exploration.launch &
+roslaunch falcon_adapter gazebo_exploration.launch 
+```
+
+```bash
+docker exec -it falcon bash
 roslaunch exploration_manager rviz.launch
 ```
+
+The first command (backgrounded with `&`) starts the exploration planner, trajectory
+server, and adapter. The second opens the RViz window.
 
 You should see:
 - `[Adapter] Sending takeoff...` (retries until bridge is ready)
 - `[Adapter] Drone is airborne` once the drone lifts off
 - RViz window opens
+- FALCON begins autonomous exploration and the map builds in RViz
 
 > **Manual takeoff:** If you prefer to take off the drone yourself before
 > starting FALCON, add `auto_takeoff:=false` to the roslaunch command.
 
----
-
-### Terminal 5 — Start Exploration
-
-```bash
-docker exec -it falcon bash
-roslaunch exploration_manager exploration.launch map_name:=hospital
-```
-
-FALCON starts autonomous exploration. The map builds in RViz.
-
+> **Note:** Do NOT run `exploration_manager exploration.launch` separately —
+> `gazebo_exploration.launch` already includes the exploration planner node.
 ---
 
 ### Shutting Down
@@ -361,6 +335,7 @@ FALCON starts autonomous exploration. The map builds in RViz.
 docker stop falcon
 docker stop ros1_bridge
 docker stop roscore
+docker stop sjtu_drone_hospital
 # Gazebo: Ctrl+C in Terminal 1
 ```
 

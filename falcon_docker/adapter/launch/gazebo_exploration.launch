@@ -31,6 +31,23 @@
   <rosparam command="load" file="$(find exploration_utils)/config/perception_utils.yaml"/>
   <rosparam command="load" file="$(find exploration_manager)/config/exploration_manager.yaml"/>
 
+  <!-- ═══════════════════════════════════════════════════════════
+       FIX: Override voxel_mapping params for sjtu_drone's camera
+       These MUST come AFTER the yaml loads above.
+       ═══════════════════════════════════════════════════════════ -->
+
+  <!-- Depth is 32FC1 (float meters). Default 1000.0 assumes 16UC1 (mm). -->
+  <param name="/voxel_mapping/depth_scaling_factor" value="1.0" />
+
+  <!-- Camera intrinsics for 640x360, hfov=80° (1.3962634 rad)
+       fx = fy = 640 / (2 * tan(80°/2)) = 381.4 -->
+  <param name="/voxel_mapping/cam_width"  value="640" />
+  <param name="/voxel_mapping/cam_height" value="360" />
+  <param name="/voxel_mapping/fx" value="381.4" />
+  <param name="/voxel_mapping/fy" value="381.4" />
+  <param name="/voxel_mapping/cx" value="320.0" />
+  <param name="/voxel_mapping/cy" value="180.0" />
+
   <!-- ── Exploration planner node ────────────────────────────── -->
   <node pkg="exploration_manager" name="exploration_node" type="exploration_node" output="screen">
     <remap from="/odom_world"                       to="$(arg odometry_topic)"/>
@@ -56,6 +73,7 @@
     <param name="max_vel_xy"    value="1.0" />
     <param name="max_vel_z"     value="0.5" />
     <param name="max_yaw_rate"  value="1.0" />
+    <param name="odom_min_dt"   value="0.02" />
   </node>
 
   <!-- ── Robot visualizer (optional, works without sim) ──────── -->
