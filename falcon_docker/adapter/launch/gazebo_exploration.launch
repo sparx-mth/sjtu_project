@@ -1,0 +1,72 @@
+<launch>
+  <!--
+    gazebo_exploration.launch
+    ══════════════════════════════════════════════════════════════
+    Runs FALCON exploration planner with an EXTERNAL Gazebo drone.
+
+    This is a modified version of FALCON's exploration.launch:
+      - Skips the internal simulator (map_render, poscmd_2_odom)
+      - Remaps topics to the falcon_adapter's outputs
+      - Launches the adapter node that bridges drone <-> FALCON
+    ══════════════════════════════════════════════════════════════
+  -->
+
+  <arg name="map_name"      default="hospital" />
+  <arg name="drone_ns"      default="/simple_drone" />
+  <arg name="auto_takeoff"  default="true" />
+
+  <!-- ── Topic mapping: adapter publishes these ──────────────── -->
+  <arg name="odometry_topic"     value="/odom_world" />
+  <arg name="sensor_pose_topic"  value="/map_ros/pose" />
+  <arg name="depth_image"        value="/map_ros/depth" />
+
+  <!-- ── Load FALCON configs (same as original) ─────────────── -->
+  <rosparam command="load" file="$(find exploration_manager)/config/robot/uav_model_simulator.yaml"/>
+  <rosparam command="load" file="$(find exploration_manager)/config/map/$(arg map_name).yaml"/>
+  <rosparam command="load" file="$(find voxel_mapping)/config/voxel_mapping.yaml"/>
+  <rosparam command="load" file="$(find pathfinding)/config/astar.yaml"/>
+  <rosparam command="load" file="$(find fast_planner)/config/fast_planner.yaml"/>
+  <rosparam command="load" file="$(find exploration_preprocessing)/config/frontier_finder.yaml"/>
+  <rosparam command="load" file="$(find exploration_preprocessing)/config/hgrid.yaml"/>
+  <rosparam command="load" file="$(find exploration_utils)/config/perception_utils.yaml"/>
+  <rosparam command="load" file="$(find exploration_manager)/config/exploration_manager.yaml"/>
+
+  <!-- ── Exploration planner node ────────────────────────────── -->
+  <node pkg="exploration_manager" name="exploration_node" type="exploration_node" output="screen">
+    <remap from="/odom_world"                       to="$(arg odometry_topic)"/>
+    <remap from="/voxel_mapping/depth_image"        to="$(arg depth_image)"/>
+    <remap from="/transformer/sensor_pose_topic"    to="$(arg sensor_pose_topic)"/>
+  </node>
+
+  <!-- ── Trajectory server (publishes /planning/pos_cmd) ─────── -->
+  <node pkg="fast_planner" name="traj_server" type="traj_server" output="screen" />
+
+  <!-- ── Adapter: drone topics <-> FALCON topics ─────────────── -->
+  <node pkg="falcon_adapter" type="falcon_adapter.py"
+        name="falcon_adapter" output="screen">
+    <param name="drone_ns"      value="$(arg drone_ns)" />
+    <param name="world_frame"   value="world" />
+    <param name="body_frame"    value="body" />
+    <param name="cam_frame"     value="camera" />
+    <param name="auto_takeoff"  value="$(arg auto_takeoff)" />
+    <param name="kp_xy"         value="1.5" />
+    <param name="kd_xy"         value="0.3" />
+    <param name="kp_z"          value="1.5" />
+    <param name="kd_z"          value="0.3" />
+    <param name="max_vel_xy"    value="1.0" />
+    <param name="max_vel_z"     value="0.5" />
+    <param name="max_yaw_rate"  value="1.0" />
+  </node>
+
+  <!-- ── Robot visualizer (optional, works without sim) ──────── -->
+  <node pkg="odom_visualization" name="odom_visualization" type="odom_visualization" output="screen">
+    <remap from="~odometry" to="$(arg odometry_topic)"/>
+  </node>
+
+  <!--
+    NOTE: The following nodes from the original are INTENTIONALLY SKIPPED:
+      - map_render_node    (depth comes from Gazebo camera, not STL rendering)
+      - poscmd_2_odom      (odom comes from the real drone via the adapter)
+  -->
+
+</launch>

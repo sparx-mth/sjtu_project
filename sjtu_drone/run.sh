@@ -122,7 +122,9 @@ docker run \
     echo '[[ -f ${CONTAINER_WS}/install/setup.bash ]] && source ${CONTAINER_WS}/install/setup.bash' >> /root/.bashrc
 
     # --- Core env ---
-    export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+    # Install CycloneDDS for bridge compatibility (one-time, cached after first run)
+    apt-get update -qq && apt-get install -y -qq ros-humble-rmw-cyclonedds-cpp >/dev/null 2>&1 || true
+    export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
     export GAZEBO_MODEL_PATH=/usr/share/gazebo-11/models
     export GAZEBO_MODEL_PATH=\$GAZEBO_MODEL_PATH:${CONTAINER_WS}/aws-robomaker-hospital-world/models
     if [[ -d '${CONTAINER_WS}/aws-robomaker-hospital-world/fuel_models' ]]; then

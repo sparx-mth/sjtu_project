@@ -1,0 +1,37 @@
+map_config:
+  map_file: ""
+  map_dimension: 2
+  init_x: 0.0
+  init_y: 0.0
+  init_z: 1.0
+  init_yaw: 0.0
+  map_size:
+    map_min_x: -25.0
+    map_min_y: -25.0
+    map_min_z: -1.0
+    map_max_x: 25.0
+    map_max_y: 25.0
+    map_max_z: 5.0
+    box_min_x: -20.0
+    box_min_y: -20.0
+    box_min_z: 0.0
+    box_max_x: 20.0
+    box_max_y: 20.0
+    box_max_z: 3.5
+    vbox_min_x: -25.0
+    vbox_min_y: -25.0
+    vbox_min_z: -1.0
+    vbox_max_x: 25.0
+    vbox_max_y: 25.0
+    vbox_max_z: 5.0
+  scale: 1.0
+  T_b_c:
+  - [ 0.0, 0.0, 1.0, 0.0]
+  - [-1.0, 0.0, 0.0, 0.0]
+  - [ 0.0,-1.0, 0.0, 0.0]
+  - [ 0.0, 0.0, 0.0, 1.0]
+  T_m_w:
+  - [ 1.0, 0.0, 0.0, 0.0]
+  - [ 0.0, 1.0, 0.0, 0.0]
+  - [ 0.0, 0.0, 1.0, 0.0]
+  - [ 0.0, 0.0, 0.0, 1.0]

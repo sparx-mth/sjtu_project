@@ -1,47 +1,29 @@
-# ============================================================
-# FALCON – docker-compose.yml
-# Provides GPU access + X11 display forwarding for RViz.
-# ============================================================
-
+# falcon_docker/docker-compose.yml
 services:
-
-  # ── Main FALCON container ───────────────────────────────────
   falcon:
     build:
       context: .
       dockerfile: Dockerfile
       args:
-        # RTX 5070 = Blackwell = sm_120
-        CUDA_ARCH: "120"
+        CUDA_ARCH: "120"   # RTX 5070=120, 40xx=89, 30xx=86
     image: falcon-ros:noetic
-
     container_name: falcon
-
-    # GPU support (requires nvidia-container-toolkit on the host)
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-
-    # X11 display forwarding (for RViz)
+    # ── GPU REMOVED: Gazebo uses the GPU, FALCON runs on CPU ──
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
     environment:
       - DISPLAY=${DISPLAY}
       - QT_X11_NO_MITSHM=1
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=all
-
+      - CUDA_VISIBLE_DEVICES=            # force CPU-only at runtime
+      - NVIDIA_VISIBLE_DEVICES=void       # no GPU for this container
     volumes:
-      # X11 socket for GUI
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
-      # Optional: mount your own maps or configs from the host
-      # - ./my_maps:/catkin_ws/src/FALCON/falcon_planner/exploration_manager/resource/map:ro
-
     network_mode: host
-
     stdin_open: true
     tty: true
-
     command: bash
