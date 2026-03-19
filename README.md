@@ -18,11 +18,6 @@ cd /sjtu_project/sjtu_drone
 docker build -t sjtu_drone_clean:humble_ros2 .
 ```
 
-### 6️⃣ Run simulation with hospital world
-Copy the world file next to the run script:
-```bash
-cp /sjtu_project/aws-robomaker-hospital-world/worlds/hospital.world    /sjtu_project/sjtu_drone/hospital.world
-```
 
 Run:
 ```bash
@@ -281,7 +276,9 @@ cannot discover the sim. Check that both use CycloneDDS and Domain ID 20.
 ```bash
 cd falcon_docker
 xhost +local:docker 2>/dev/null || true
+```
 
+```bash
 docker run -it --rm \
     --name falcon \
     --gpus all \
@@ -304,12 +301,12 @@ Notes on the flags:
 **Inside the container:**
 
 ```bash
-roslaunch falcon_adapter gazebo_exploration.launch 
+roslaunch exploration_manager rviz.launch
 ```
 
 ```bash
 docker exec -it falcon bash
-roslaunch exploration_manager rviz.launch
+roslaunch falcon_adapter gazebo_exploration.launch 
 ```
 
 The first command (backgrounded with `&`) starts the exploration planner, trajectory
