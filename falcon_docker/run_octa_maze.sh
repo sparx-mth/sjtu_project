@@ -1,24 +1,26 @@
 #!/bin/bash
 # ============================================================
-# run.sh — launch the FALCON container (CPU-only) with X11
+# run_octa_maze.sh — FALCON built-in simulator (GPU required)
+#
+# Uses FALCON's own map_render + poscmd_2_odom pipeline.
+# No external Gazebo — the GPU renders depth from STL meshes.
+#
 # Usage:
-#   ./run.sh              → interactive shell
-#   ./run.sh roslaunch …  → run a command directly
+#   ./run_octa_maze.sh              → interactive shell
+#   ./run_octa_maze.sh roslaunch …  → run a command directly
 # ============================================================
 
 IMAGE="falcon-ros:noetic"
-CONTAINER="falcon"
+CONTAINER="falcon-gpu"
 
-# Allow the container to connect to the host's X server
 xhost +local:docker 2>/dev/null || true
 
-# NOTE: --gpus removed — Gazebo uses the GPU, FALCON runs on CPU
 docker run -it --rm \
     --name "${CONTAINER}" \
+    --gpus all \
     --env DISPLAY="${DISPLAY}" \
     --env QT_X11_NO_MITSHM=1 \
-    --env CUDA_VISIBLE_DEVICES="" \
-    --env NVIDIA_VISIBLE_DEVICES="void" \
+    --env NVIDIA_DRIVER_CAPABILITIES=all \
     --volume /tmp/.X11-unix:/tmp/.X11-unix:rw \
     --network host \
     "${IMAGE}" \

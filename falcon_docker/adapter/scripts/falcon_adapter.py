@@ -1,16 +1,27 @@
 #!/usr/bin/env python3
 """
-falcon_adapter.py
+falcon_adapter.py  (v4)
 Bridges FALCON planner (ROS1) <-> sjtu_drone (ROS2 via ros1_bridge).
 
 Data flow:
-  IN:  /simple_drone/gt_pose  (Pose)   --> /odom_world  (Odometry) + TF
-  IN:  /simple_drone/depth/*  (Image)  --> /map_ros/depth (Image)
-  OUT: /planning/pos_cmd (PositionCommand) --> /simple_drone/cmd_vel (Twist)
+  IN:  /simple_drone/gt_pose                  (Pose)  --> /odom_world (Odometry) + TF
+  IN:  /simple_drone/front_depth/depth/image_raw      --> /map_ros/depth
+  OUT: /planning/pos_cmd (PositionCommand)   --> /simple_drone/cmd_vel (Twist)
   INIT: sends /simple_drone/takeoff + disables posctrl
+
+Modes:
+  mapping_only=false (default): Full exploration — adapter takes off, FALCON
+    plans trajectories, adapter converts them to cmd_vel.
+  mapping_only=true: Map-only mode — adapter forwards pose + depth to FALCON
+    for mapping, but NEVER publishes cmd_vel or takeoff. Fly the drone yourself.
+
+Frames:
+  world -> body    : drone pose  (published as Odometry + PoseStamped)
+  body  -> camera  : FALCON uses T_b_c from hospital.yaml for depth back-projection
 """
 import rospy
 import tf
+import tf.transformations as tft
 import math
 import numpy as np
 
@@ -18,6 +29,10 @@ from geometry_msgs.msg import Pose, Twist, PoseStamped
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import Image
 from std_msgs.msg import Empty, Bool
+
+# body (FLU):    x-forward, y-left,  z-up
+# optical (RDF): z-forward, x-right, y-down
+_BODY_TO_OPTICAL_QUAT = (0.5, -0.5, 0.5, 0.5)
 
 
 class FalconAdapter:
@@ -29,6 +44,11 @@ class FalconAdapter:
         self.world_frame = rospy.get_param("~world_frame", "world")
         self.body_frame = rospy.get_param("~body_frame", "body")
         self.cam_frame = rospy.get_param("~cam_frame", "camera")
+
+        # ── Mapping-only mode ──
+        # When true: forwards pose+depth for mapping, but never sends
+        # cmd_vel or takeoff. You fly the drone manually.
+        self.mapping_only = rospy.get_param("~mapping_only", False)
 
         # PD gains for pos_cmd -> cmd_vel conversion
         self.kp_xy = rospy.get_param("~kp_xy", 1.5)
@@ -42,6 +62,10 @@ class FalconAdapter:
 
         # Whether to auto-takeoff or assume drone is already airborne
         self.auto_takeoff = rospy.get_param("~auto_takeoff", True)
+
+        # In mapping_only mode, force auto_takeoff off
+        if self.mapping_only:
+            self.auto_takeoff = False
 
         # ── Odom throttle: max rate for gt_pose processing ──
         self.odom_min_dt = rospy.get_param("~odom_min_dt", 0.02)  # 50 Hz max
@@ -57,45 +81,76 @@ class FalconAdapter:
         # TF
         self.tf_br = tf.TransformBroadcaster()
 
-        # Publishers — to FALCON
+        # Publishers — to FALCON (always active, even in mapping_only)
         self.odom_pub = rospy.Publisher("/odom_world", Odometry, queue_size=10)
         self.pose_pub = rospy.Publisher("/map_ros/pose", PoseStamped, queue_size=10)
         self.depth_pub = rospy.Publisher("/map_ros/depth", Image, queue_size=2)
 
-        # Publishers — to drone
-        self.cmd_pub = rospy.Publisher(self.drone_ns + "/cmd_vel", Twist, queue_size=10)
-        self.takeoff_pub = rospy.Publisher(self.drone_ns + "/takeoff", Empty, queue_size=1)
-        self.posctrl_pub = rospy.Publisher(self.drone_ns + "/posctrl", Bool, queue_size=1, latch=True)
+        # Publishers — to drone (only used when NOT in mapping_only mode)
+        if not self.mapping_only:
+            self.cmd_pub = rospy.Publisher(
+                self.drone_ns + "/cmd_vel", Twist, queue_size=10
+            )
+            self.takeoff_pub = rospy.Publisher(
+                self.drone_ns + "/takeoff", Empty, queue_size=1
+            )
+            self.posctrl_pub = rospy.Publisher(
+                self.drone_ns + "/posctrl", Bool, queue_size=1, latch=True
+            )
 
-        # Subscribers — from drone (arrive via bridge as ROS1 topics)
+        # Subscribers — from drone (always active)
         rospy.Subscriber(self.drone_ns + "/gt_pose", Pose, self.gt_pose_cb)
-        rospy.Subscriber(self.drone_ns + "/front_depth/depth/image_raw", Image, self.depth_cb)
+        rospy.Subscriber(
+            self.drone_ns + "/front_depth/depth/image_raw", Image, self.depth_cb
+        )
 
-        # Subscriber — from FALCON traj_server
-        try:
-            from quadrotor_msgs.msg import PositionCommand
-            rospy.Subscriber("/planning/pos_cmd", PositionCommand, self.pos_cmd_cb)
-            rospy.loginfo("[Adapter] Using quadrotor_msgs/PositionCommand")
-        except ImportError:
-            rospy.logwarn("[Adapter] quadrotor_msgs not found, using PoseStamped fallback")
-            rospy.Subscriber("/planning/pos_cmd_pose", PoseStamped, self.pos_cmd_pose_cb)
+        # Subscriber — from FALCON traj_server (only when NOT mapping_only)
+        if not self.mapping_only:
+            try:
+                from quadrotor_msgs.msg import PositionCommand
 
-        # Control loop at 30 Hz
-        rospy.Timer(rospy.Duration(1.0 / 30.0), self.control_loop)
+                rospy.Subscriber(
+                    "/planning/pos_cmd", PositionCommand, self.pos_cmd_cb
+                )
+                rospy.loginfo("[Adapter] Using quadrotor_msgs/PositionCommand")
+            except ImportError:
+                rospy.logwarn(
+                    "[Adapter] quadrotor_msgs not found, using PoseStamped fallback"
+                )
+                rospy.Subscriber(
+                    "/planning/pos_cmd_pose", PoseStamped, self.pos_cmd_pose_cb
+                )
+
+            # Control loop at 30 Hz (only needed for autonomous flight)
+            rospy.Timer(rospy.Duration(1.0 / 30.0), self.control_loop)
 
         # Startup: wait for pose data before taking off
         if self.auto_takeoff:
             rospy.Timer(rospy.Duration(2.0), self.try_takeoff)
         else:
-            rospy.loginfo("[Adapter] auto_takeoff=false — assuming drone is already airborne")
+            if not self.mapping_only:
+                rospy.loginfo(
+                    "[Adapter] auto_takeoff=false — assuming drone is already airborne"
+                )
             self.airborne = True
 
+        # ── Banner ──
+        mode_str = "MAPPING ONLY (no cmd_vel)" if self.mapping_only else "FULL EXPLORATION"
         rospy.loginfo("══════════════════════════════════")
-        rospy.loginfo("  FALCON <-> Drone Adapter")
+        rospy.loginfo("  FALCON <-> Drone Adapter (v4)")
+        rospy.loginfo("  Mode: %s", mode_str)
         rospy.loginfo("  Drone: %s", self.drone_ns)
-        rospy.loginfo("  auto_takeoff: %s", self.auto_takeoff)
-        rospy.loginfo("  odom_min_dt: %.3f s (max %.0f Hz)",
-                       self.odom_min_dt, 1.0 / self.odom_min_dt)
+        if not self.mapping_only:
+            rospy.loginfo("  auto_takeoff: %s", self.auto_takeoff)
+        else:
+            rospy.loginfo("  Fly the drone manually — adapter only forwards pose+depth")
+        rospy.loginfo(
+            "  odom_min_dt: %.3f s (max %.0f Hz)",
+            self.odom_min_dt,
+            1.0 / self.odom_min_dt,
+        )
+        rospy.loginfo("  pose type: PoseStamped (body frame)")
+        rospy.loginfo("  T_b_c applied by FALCON (not adapter)")
         rospy.loginfo("══════════════════════════════════")
 
     def try_takeoff(self, _):
@@ -104,7 +159,9 @@ class FalconAdapter:
             return
 
         if self.cur_pose is None:
-            rospy.logwarn("[Adapter] No pose yet — bridge may not be ready. Retrying in 3s...")
+            rospy.logwarn(
+                "[Adapter] No pose yet — bridge may not be ready. Retrying in 3s..."
+            )
             rospy.Timer(rospy.Duration(3.0), self.try_takeoff, oneshot=True)
             return
 
@@ -118,11 +175,15 @@ class FalconAdapter:
         # Wait and check altitude
         rospy.sleep(4.0)
         if self.cur_pose is not None and self.cur_pose.position.z > 0.3:
-            rospy.loginfo("[Adapter] Drone is airborne (z=%.2f)", self.cur_pose.position.z)
+            rospy.loginfo(
+                "[Adapter] Drone is airborne (z=%.2f)", self.cur_pose.position.z
+            )
             self.airborne = True
         else:
             z = self.cur_pose.position.z if self.cur_pose else 0.0
-            rospy.logwarn("[Adapter] Drone may not be airborne (z=%.2f). Retrying...", z)
+            rospy.logwarn(
+                "[Adapter] Drone may not be airborne (z=%.2f). Retrying...", z
+            )
             rospy.Timer(rospy.Duration(3.0), self.try_takeoff, oneshot=True)
 
     # ── Drone -> FALCON ──────────────────────────────────────────
@@ -140,15 +201,17 @@ class FalconAdapter:
 
         # Estimate velocity via finite difference
         if self.cur_pose is not None and dt > 1e-6:
-            self.vel = np.array([
-                (msg.position.x - self.cur_pose.position.x) / dt,
-                (msg.position.y - self.cur_pose.position.y) / dt,
-                (msg.position.z - self.cur_pose.position.z) / dt,
-            ])
+            self.vel = np.array(
+                [
+                    (msg.position.x - self.cur_pose.position.x) / dt,
+                    (msg.position.y - self.cur_pose.position.y) / dt,
+                    (msg.position.z - self.cur_pose.position.z) / dt,
+                ]
+            )
         self.prev_time = now
         self.cur_pose = msg
 
-        # Publish Odometry
+        # ── Publish Odometry (body frame) ──
         odom = Odometry()
         odom.header.stamp = now
         odom.header.frame_id = self.world_frame
@@ -159,22 +222,28 @@ class FalconAdapter:
         odom.twist.twist.linear.z = self.vel[2]
         self.odom_pub.publish(odom)
 
-        # Publish sensor pose
+        # ── Publish sensor pose as PoseStamped (BODY pose, not camera) ──
         ps = PoseStamped()
         ps.header.stamp = now
         ps.header.frame_id = self.world_frame
         ps.pose = msg
         self.pose_pub.publish(ps)
 
-        # Broadcast TF
+        # ── Broadcast TF ──
         p, o = msg.position, msg.orientation
         self.tf_br.sendTransform(
-            (p.x, p.y, p.z), (o.x, o.y, o.z, o.w),
-            now, self.body_frame, self.world_frame,
+            (p.x, p.y, p.z),
+            (o.x, o.y, o.z, o.w),
+            now,
+            self.body_frame,
+            self.world_frame,
         )
         self.tf_br.sendTransform(
-            (0, 0, 0), (0, 0, 0, 1),
-            now, self.cam_frame, self.body_frame,
+            (0, 0, 0),
+            _BODY_TO_OPTICAL_QUAT,
+            now,
+            self.cam_frame,
+            self.body_frame,
         )
 
     def depth_cb(self, msg):
@@ -182,17 +251,19 @@ class FalconAdapter:
         msg.header.frame_id = self.cam_frame
         self.depth_pub.publish(msg)
 
-    # ── FALCON -> Drone ──────────────────────────────────────────
+    # ── FALCON -> Drone (disabled in mapping_only mode) ──────────
 
     def pos_cmd_cb(self, msg):
-        self.target_pos = np.array([msg.position.x, msg.position.y, msg.position.z])
+        self.target_pos = np.array(
+            [msg.position.x, msg.position.y, msg.position.z]
+        )
         self.target_yaw = msg.yaw
 
     def pos_cmd_pose_cb(self, msg):
         p = msg.pose.position
         self.target_pos = np.array([p.x, p.y, p.z])
         q = msg.pose.orientation
-        _, _, yaw = tf.transformations.euler_from_quaternion([q.x, q.y, q.z, q.w])
+        _, _, yaw = tft.euler_from_quaternion([q.x, q.y, q.z, q.w])
         self.target_yaw = yaw
 
     def control_loop(self, _):
@@ -201,9 +272,13 @@ class FalconAdapter:
         if not self.airborne:
             return
 
-        cur = np.array([self.cur_pose.position.x,
-                        self.cur_pose.position.y,
-                        self.cur_pose.position.z])
+        cur = np.array(
+            [
+                self.cur_pose.position.x,
+                self.cur_pose.position.y,
+                self.cur_pose.position.z,
+            ]
+        )
         err = self.target_pos - cur
 
         # PD on XY (world frame)
@@ -213,17 +288,19 @@ class FalconAdapter:
             vxy = vxy / sp * self.max_vel_xy
 
         # PD on Z
-        vz = np.clip(self.kp_z * err[2] - self.kd_z * self.vel[2],
-                      -self.max_vel_z, self.max_vel_z)
+        vz = np.clip(
+            self.kp_z * err[2] - self.kd_z * self.vel[2],
+            -self.max_vel_z,
+            self.max_vel_z,
+        )
 
         # P on yaw
         q = self.cur_pose.orientation
-        _, _, yaw = tf.transformations.euler_from_quaternion([q.x, q.y, q.z, q.w])
+        _, _, yaw = tft.euler_from_quaternion([q.x, q.y, q.z, q.w])
         ye = (self.target_yaw - yaw + math.pi) % (2 * math.pi) - math.pi
         yr = np.clip(self.kp_yaw * ye, -self.max_yaw_rate, self.max_yaw_rate)
 
-        # ── FIX: sjtu_drone cmd_vel expects WORLD-frame velocities ──
-        # No world-to-body transform needed.
+        # ── sjtu_drone cmd_vel expects WORLD-frame velocities ──
         cmd = Twist()
         cmd.linear.x = float(vxy[0])
         cmd.linear.y = float(vxy[1])

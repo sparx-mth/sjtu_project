@@ -1,6 +1,8 @@
 # falcon_docker/docker-compose.yml
 services:
-  falcon:
+
+  # ── Hospital / external Gazebo (CPU-only) ──────────────────
+  falcon-hospital:
     build:
       context: .
       dockerfile: Dockerfile
@@ -8,19 +10,38 @@ services:
         CUDA_ARCH: "120"   # RTX 5070=120, 40xx=89, 30xx=86
     image: falcon-ros:noetic
     container_name: falcon
-    # ── GPU REMOVED: Gazebo uses the GPU, FALCON runs on CPU ──
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
     environment:
       - DISPLAY=${DISPLAY}
       - QT_X11_NO_MITSHM=1
-      - CUDA_VISIBLE_DEVICES=            # force CPU-only at runtime
-      - NVIDIA_VISIBLE_DEVICES=void       # no GPU for this container
+      - CUDA_VISIBLE_DEVICES=            # force CPU-only
+      - NVIDIA_VISIBLE_DEVICES=void
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    network_mode: host
+    stdin_open: true
+    tty: true
+    command: bash
+
+  # ── Octa-maze / built-in simulator (GPU required) ──────────
+  falcon-octa-maze:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        CUDA_ARCH: "120"
+    image: falcon-ros:noetic
+    container_name: falcon-gpu
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+      - NVIDIA_DRIVER_CAPABILITIES=all
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
     network_mode: host

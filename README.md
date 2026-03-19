@@ -46,14 +46,14 @@ chmod +x run.sh
 ---
 ```
 
-## 🆘 Notes
+## Notes
 - GPU recommended: install NVIDIA container toolkit if available
 - First launch may take time to download Gazebo models
 - If paths fail, ensure run.sh mounts current folder into the container
 
 ---
 
-🎉 **Simulation ready! Fly the drone inside the hospital world.**
+**Simulation ready! Fly the drone inside the hospital world.**
 
 
 # FALCON Exploration in Gazebo
@@ -103,15 +103,17 @@ front_depth/depth/image_raw  ─ROS2─> ──ROS1──> adapter ──> /map_
                                               │
                                           /planning/pos_cmd
                                               │
-cmd_vel (Twist)       <─ROS2── <─ROS1── adapter (PD controller + world→body transform)
+cmd_vel (Twist)       <─ROS2── <─ROS1── adapter (PD controller)
 takeoff (Empty)       <─ROS2── <─ROS1── adapter (on startup, with retry)
 ```
 
 The `falcon_adapter` node (Python, runs inside the FALCON container) does four things:
-1. Converts the drone's `gt_pose` into the `Odometry` + `PoseStamped` + TF that FALCON expects
-2. Re-stamps depth images with the correct frame
+1. Converts the drone's `gt_pose` (body frame) into `Odometry` + `PoseStamped` + TF that FALCON expects
+2. Re-stamps depth images with the correct frame and timestamp
 3. Converts FALCON's position commands into velocity commands via a PD controller
-4. Transforms world-frame velocities into body-frame before publishing to `cmd_vel`
+4. Publishes world-frame velocity commands to `cmd_vel`
+
+FALCON's voxel_mapping uses `T_b_c` from `hospital.yaml` to convert the body pose to camera frame for depth back-projection. The adapter does NOT apply this rotation — it publishes the raw body pose.
 
 ---
 
@@ -201,11 +203,17 @@ docker build --build-arg CUDA_ARCH=120 -t falcon-ros:noetic .
 
 ## Running the Exploration
 
-You need **4 terminals**. Order matters — each step must complete before the next.
+You need **4 terminals**. **Startup order is critical** — the bridge must start LAST.
 
 > **DDS critical note:** The sim (Humble) and bridge (Foxy) must both use
 > **CycloneDDS**. FastRTPS versions between Humble and Foxy are incompatible
 > and cannot discover each other. CycloneDDS works cross-version.
+
+> **Why this order?** The `dynamic_bridge` only creates ROS2→ROS1 bridges
+> for topics that have an active ROS1 subscriber at scan time. If the bridge
+> starts before FALCON, there is no ROS1 subscriber for the depth topic,
+> so the bridge never forwards it. Starting FALCON first ensures its
+> subscribers exist when the bridge scans.
 
 ### Terminal 1 — Gazebo Simulation
 
@@ -233,45 +241,11 @@ Wait 3 seconds.
 
 ---
 
-### Terminal 3 — Bridge
+### Terminal 3 — FALCON (RViz + Adapter)
 
-The bridge bypasses its built-in entrypoint to avoid localhost DDS restrictions.
-Both sim and bridge must use CycloneDDS on Domain ID 20.
-
-```bash
-docker run -it --rm --net=host --name=ros1_bridge \
-  -e ROS_MASTER_URI="http://localhost:11311" \
-  --entrypoint bash \
-  ros1_bridge:noetic-foxy -c '
-    source /opt/ros/noetic/setup.bash
-    source /opt/ros/foxy/setup.bash
-    source /bridge_ws/install/setup.bash
-    export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-    export ROS_DOMAIN_ID=20
-    echo "Bridge starting (CycloneDDS, Domain 20)..."
-    ros2 run ros1_bridge dynamic_bridge --bridge-all-2to1-topics --bridge-all-1to2-topics
-  '
-```
-
-This should stay running. You should see `created 2to1 bridge for topic ...` messages.
-
-**Verify the bridge can see the sim (new tab):**
-
-```bash
-docker exec ros1_bridge bash -c \
-  "source /opt/ros/foxy/setup.bash && \
-   source /bridge_ws/install/setup.bash && \
-   export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp && \
-   ROS_DOMAIN_ID=20 ros2 topic list 2>/dev/null | head -20"
-```
-
-** you must see `/simple_drone/*` topics before continuing.**
-If you only see `/parameter_events`, `/rosout`, `/rosout_agg`, the bridge
-cannot discover the sim. Check that both use CycloneDDS and Domain ID 20.
-
----
-
-### Terminal 4 — FALCON (RViz + Adapter)
+> **Start FALCON BEFORE the bridge.** The adapter must be subscribed to
+> `/simple_drone/front_depth/depth/image_raw` before the bridge starts,
+> otherwise the bridge won't forward the depth topic from ROS2.
 
 ```bash
 cd falcon_docker
@@ -298,31 +272,69 @@ Notes on the flags:
 - `CUDA_VISIBLE_DEVICES=""` — blocks CUDA so FALCON planner runs on CPU (GPU stays free for Gazebo)
 - Three volume mounts — the fixed adapter code + hospital map config (no rebuild needed)
 
-**Inside the container:**
+**Inside the container (Terminal 3a):**
 
 ```bash
 roslaunch exploration_manager rviz.launch
 ```
 
+**Open a second shell into the falcon container (Terminal 3b):**
+
 ```bash
 docker exec -it falcon bash
-roslaunch falcon_adapter gazebo_exploration.launch 
+roslaunch falcon_adapter gazebo_exploration.launch
 ```
 
-The first command (backgrounded with `&`) starts the exploration planner, trajectory
-server, and adapter. The second opens the RViz window.
+```bash
+# Stop current launch (Ctrl+C in Terminal 3b), then:
+roslaunch falcon_adapter gazebo_exploration.launch mapping_only:=true
+```
 
 You should see:
-- `[Adapter] Sending takeoff...` (retries until bridge is ready)
-- `[Adapter] Drone is airborne` once the drone lifts off
-- RViz window opens
-- FALCON begins autonomous exploration and the map builds in RViz
-
-> **Manual takeoff:** If you prefer to take off the drone yourself before
-> starting FALCON, add `auto_takeoff:=false` to the roslaunch command.
+- `FALCON <-> Drone Adapter (v3)` banner
+- `[Adapter] No pose yet — bridge may not be ready. Retrying in 3s...` (expected — bridge isn't running yet)
+- The adapter will keep retrying until the bridge comes up in the next step
 
 > **Note:** Do NOT run `exploration_manager exploration.launch` separately —
 > `gazebo_exploration.launch` already includes the exploration planner node.
+
+---
+
+### Terminal 4 — Bridge (start LAST)
+
+> **Only start the bridge after FALCON's adapter is running and subscribed.**
+> You should see the `[Adapter] No pose yet` retry messages in Terminal 3b.
+
+```bash
+docker run -it --rm --net=host --name=ros1_bridge \
+  -e ROS_MASTER_URI="http://localhost:11311" \
+  --entrypoint bash \
+  ros1_bridge:noetic-foxy -c '
+    source /opt/ros/noetic/setup.bash
+    source /opt/ros/foxy/setup.bash
+    source /bridge_ws/install/setup.bash
+    export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+    export ROS_DOMAIN_ID=20
+    echo "Bridge starting (CycloneDDS, Domain 20)..."
+    ros2 run ros1_bridge dynamic_bridge --bridge-all-2to1-topics --bridge-all-1to2-topics
+  '
+```
+
+This should stay running. You should see `created 2to1 bridge for topic ...` messages,
+including entries for `/simple_drone/front_depth/depth/image_raw`.
+
+**Within 10-30 seconds of the bridge starting, you should see in Terminal 3b:**
+- `[FSM] Receive odom from topic /odom_world`
+- `[FSM] Transit state from INIT to WAIT_TRIGGER`
+- `[Adapter] Sending takeoff...`
+- `[Adapter] Drone is airborne`
+- The map building in RViz (colored voxels)
+- `[FSM] Transit state from WAIT_TRIGGER to PLAN_TRAJ` (exploration begins)
+- The drone starts moving autonomously
+
+> **If exploration doesn't auto-start:** Use the **2D Nav Goal** tool in RViz
+> (press `G`, then click on the map) to manually trigger exploration.
+
 ---
 
 ### Shutting Down
@@ -340,7 +352,7 @@ docker stop sjtu_drone_hospital
 
 ## Verification
 
-After Terminals 1–4 are running, check connectivity in a new tab:
+After all 4 terminals are running, check connectivity in a new tab:
 
 ```bash
 # 1. All containers running?
@@ -353,15 +365,23 @@ docker exec ros1_bridge bash -c \
    export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp && \
    ROS_DOMAIN_ID=20 ros2 topic list 2>/dev/null | grep simple_drone | head -10"
 
-# 3. Odom flowing inside FALCON? (should show ~30 Hz)
+# 3. Odom flowing inside FALCON? (should show ~40 Hz)
 docker exec falcon bash -c \
   "source /catkin_ws/devel/setup.bash && timeout 3 rostopic hz /odom_world"
 
-# 4. Depth flowing? (should show ~15 Hz)
+# 4. Depth flowing? (should show ~15-30 Hz)
 docker exec falcon bash -c \
   "source /catkin_ws/devel/setup.bash && timeout 3 rostopic hz /map_ros/depth"
 
-# 5. cmd_vel being sent? (non-zero after exploration starts)
+# 5. Map building? (should show ~2 Hz once depth is flowing)
+docker exec falcon bash -c \
+  "source /catkin_ws/devel/setup.bash && timeout 5 rostopic hz /voxel_mapping/depth_pointcloud"
+
+# 6. Frontiers being found? (should show ~4 Hz)
+docker exec falcon bash -c \
+  "source /catkin_ws/devel/setup.bash && timeout 5 rostopic hz /planning_vis/frontier_pcl"
+
+# 7. cmd_vel being sent? (non-zero after exploration starts)
 docker exec falcon bash -c \
   "source /catkin_ws/devel/setup.bash && rostopic echo /simple_drone/cmd_vel -n 1"
 ```
@@ -386,28 +406,17 @@ If the drone oscillates, reduce `kp_xy`. If it's sluggish, increase it.
 
 ## Adding the Depth Camera to the Drone SDF
 
-The sjtu_drone needs a forward-facing depth camera. Add this sensor inside the drone's SDF model (in the link that faces forward):
+The sjtu_drone needs a forward-facing depth camera. The current configuration uses:
+- Resolution: 640x360
+- HFOV: 2.09 rad (~120°)
+- Update rate: 30 Hz
+- Clip: 0.1m near, 10.0m far
 
-```xml
-<sensor type="depth_camera" name="depth_camera">
-  <update_rate>15</update_rate>
-  <camera>
-    <horizontal_fov>1.3962634</horizontal_fov>
-    <image>
-      <width>640</width>
-      <height>480</height>
-      <format>R_FLOAT32</format>
-    </image>
-    <clip>
-      <near>0.1</near>
-      <far>10.0</far>
-    </clip>
-  </camera>
-  <always_on>1</always_on>
-  <visualize>true</visualize>
-  <topic>depth/image_raw</topic>
-</sensor>
-```
+The `gazebo_exploration.launch` overrides FALCON's camera intrinsics to match:
+- `fx = fy = 185.7` (computed from `640 / (2 * tan(2.09/2))`)
+- `cx = 320.0`, `cy = 180.0`
+
+If you change the camera resolution or FOV, update the intrinsics in the launch file.
 
 The adapter subscribes to `${drone_ns}/front_depth/depth/image_raw`. Make sure the topic name matches.
 
@@ -418,17 +427,33 @@ The adapter subscribes to `${drone_ns}/front_depth/depth/image_raw`. Make sure t
 | Problem | Cause | Fix |
 |---|---|---|
 | `Connection refused` in bridge | roscore not running | Start roscore first, wait 3s |
-| Bridge exits immediately | Entrypoint loads localhost DDS config | Bypass entrypoint with `--entrypoint bash` (see Terminal 3) |
+| Bridge exits immediately | Entrypoint loads localhost DDS config | Bypass entrypoint with `--entrypoint bash` (see Terminal 4) |
 | No ROS2 topics in bridge | Wrong `ROS_DOMAIN_ID` | Use `20` everywhere (match sim's `run.sh`) |
 | No ROS2 topics (domain OK) | DDS middleware mismatch | Both sim and bridge must use CycloneDDS. FastRTPS versions between Foxy and Humble are incompatible |
 | `selected interface "lo" is not multicast-capable` | CycloneDDS restricted to localhost | Don't set `CYCLONEDDS_URI` — let it auto-discover on the host network |
-| `No pose yet` in adapter | Bridge not forwarding topics | Verify bridge sees `/simple_drone/*` topics before starting FALCON |
+| `No pose yet` in adapter | Bridge not started yet or not forwarding | Start bridge AFTER FALCON; check bridge logs for `created 2to1 bridge` messages |
 | `hospital.yaml not found` | Missing volume mount | Add `-v $(pwd)/hospital.yaml:/catkin_ws/src/FALCON/.../hospital.yaml` |
 | RViz black / GL errors | No GPU access | Need `--gpus all` for OpenGL. `CUDA_VISIBLE_DEVICES=""` blocks only CUDA, not OpenGL |
-| Drone drifts / flies wrong way | World-frame vs body-frame cmd_vel | Use the fixed `falcon_adapter.py` with `_world_to_body()` transform |
 | `[FSM] No odom` in FALCON | Adapter not running or bridge down | Start adapter first; check `rostopic hz /odom_world` |
-| Drone doesn't move | `cmd_vel` not bridged | Check bridge is running; ensure drone is airborne |
+| Drone doesn't move after takeoff | Exploration not triggered | Use 2D Nav Goal in RViz (press G, click map) to trigger; or wait for auto_start |
+| **Depth not bridged** (no `/map_ros/depth`) | Bridge started before FALCON | **Restart bridge** after FALCON is running. The `dynamic_bridge` only bridges topics with active ROS1 subscribers |
+| **Map not building** (`depth_pointcloud` empty) | Timestamp mismatch between depth and pose | Check `timestamp_tolerance` is `0.05` in launch file (default 0.001 is too tight) |
+| **Drone inside walls in RViz** | Double-rotation of camera transform | Ensure adapter publishes body pose (PoseStamped), not camera pose. `pose_topic_type` must be `pose` in launch file. FALCON applies T_b_c internally |
+| **`topic types do not match`** warning | pose_topic_type doesn't match publisher | If adapter publishes PoseStamped, set `pose_topic_type=pose`. If TransformStamped, set `pose_topic_type=transform` |
 | FALCON crashes on start | GPU arch mismatch | Check `CUDA_ARCH` matches your GPU |
 | Gazebo stutters when FALCON runs | GPU contention | `CUDA_VISIBLE_DEVICES=""` in FALCON container keeps CUDA compute off |
 | Depth topic empty | No depth camera in SDF | Add depth sensor (see section above) |
 | `librmw_cyclonedds_cpp.so not found` in sim | CycloneDDS not installed in sim image | Add `apt-get install ros-humble-rmw-cyclonedds-cpp` to sim's `run.sh` |
+
+### Key Configuration Parameters
+
+These are overridden in `gazebo_exploration.launch` and must match the Gazebo depth camera:
+
+| Parameter | Value | Why |
+|---|---|---|
+| `/transformer/pose_topic_type` | `pose` | Adapter publishes PoseStamped (body frame). FALCON's T_b_c handles body→camera. |
+| `/transformer/timestamp_tolerance` | `0.05` | Depth and pose arrive via separate ROS1 bridge callbacks; 1ms default is too tight. |
+| `/voxel_mapping/fx`, `fy` | `185.7` | Matches HFOV=2.09 rad at 640px width: `640 / (2 * tan(1.045))` |
+| `/voxel_mapping/cam_width` | `640` | Matches Gazebo depth camera |
+| `/voxel_mapping/cam_height` | `360` | Matches Gazebo depth camera |
+| `/voxel_mapping/depth_scaling_factor` | `1.0` | Gazebo publishes 32FC1 depth in meters |

@@ -3,6 +3,13 @@
 Runs [FALCON](https://github.com/HKUST-Aerial-Robotics/FALCON) (ROS 1 Noetic)
 inside Docker on Ubuntu 24.04 (or any host with Docker + NVIDIA GPU).
 
+Two run modes are provided:
+
+| Mode | Script | GPU | Description |
+|------|--------|-----|-------------|
+| **Hospital** (external Gazebo) | `run_hospital.sh` | No (CPU-only) | FALCON receives depth from a Gazebo drone via `ros1_bridge`. GPU stays free for Gazebo. |
+| **Octa-maze** (built-in sim) | `run_octa_maze.sh` | Yes | FALCON uses its own `map_render` node to render depth from STL meshes on the GPU. |
+
 ---
 
 ## Prerequisites (host machine)
@@ -12,7 +19,7 @@ inside Docker on Ubuntu 24.04 (or any host with Docker + NVIDIA GPU).
 sudo apt install docker.io
 sudo usermod -aG docker $USER   # log out & back in after this
 
-# NVIDIA Container Toolkit (for GPU access inside Docker)
+# NVIDIA Container Toolkit (needed for octa-maze mode)
 curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
     | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
 curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
@@ -27,11 +34,11 @@ sudo systemctl restart docker
 
 ## Step 1 — Set your GPU compute capability
 
-Edit `Dockerfile` (or `docker-compose.yml`) and set `CUDA_ARCH` to match your GPU:
+Edit `Dockerfile` (or `docker-compose.yml`) and set `CUDA_ARCH`:
 
 | GPU family           | CUDA_ARCH |
 |----------------------|-----------|
-| RTX 50xx (Blackwell) | `120` ← **yours** |
+| RTX 50xx (Blackwell) | `120`     |
 | RTX 40xx (Ada)       | `89`      |
 | RTX 30xx (Ampere)    | `86`      |
 | RTX 20xx (Turing)    | `75`      |
@@ -49,64 +56,96 @@ Find yours: <https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-var
 # Option A: plain docker build
 docker build --build-arg CUDA_ARCH=120 -t falcon-ros:noetic .
 
-# Option B: docker-compose (edit CUDA_ARCH in docker-compose.yml first)
-docker compose build
+# Option B: docker-compose (builds once, both services share the same image)
+docker compose build falcon-hospital
 ```
 
 ---
 
 ## Step 3 — Run
 
-```bash
-chmod +x run.sh
-./run.sh          # opens an interactive bash shell
-```
-
-Or with docker-compose:
+Make the scripts executable:
 
 ```bash
-docker compose run --rm falcon bash
+chmod +x run_hospital.sh run_octa_maze.sh
 ```
 
----
+### Mode A — Hospital world (external Gazebo, CPU-only)
 
-## Step 4 — Launch FALCON (inside the container)
+Start Gazebo + `ros1_bridge` on the host first, then:
+
+```bash
+# Terminal 1 — open a shell in the container
+./run_hospital.sh
+
+# Inside the container:
+roslaunch falcon_adapter gazebo_exploration.launch map_name:=hospital
+```
+
+```bash
+# Terminal 2 — RViz (open a second shell into the running container)
+docker exec -it falcon bash
+roslaunch exploration_manager rviz.launch
+```
+
+Or via docker-compose:
+
+```bash
+docker compose run --rm falcon-hospital bash
+```
+
+### Mode B — Octa-maze (FALCON built-in simulator, GPU)
+
+No external Gazebo needed — FALCON renders everything internally.
 
 ```bash
 # Terminal 1 — RViz
-roslaunch exploration_manager rviz.launch
+./run_octa_maze.sh roslaunch exploration_manager rviz.launch
 
-# Terminal 2 — Planner (open a second shell with: ./run.sh or docker exec -it falcon bash)
-roslaunch exploration_manager exploration.launch map_name:=octa_maze
+# Terminal 2 — Planner
+docker exec -it falcon-gpu bash
+roslaunch exploration_manager exploration.launch map_name:=duplex_office
 ```
 
-Available maps: `classical_office`, `complex_office`, `darpa_tunnel`,
-`duplex_office`, `octa_maze`, `power_plant`
-
-### Opening a second shell into a running container
+Or via docker-compose:
 
 ```bash
+docker compose run --rm falcon-octa-maze bash
+```
+
+Available built-in maps: `classical_office`, `complex_office`, `darpa_tunnel`,
+`duplex_office`, `octa_maze`, `power_plant`
+
+---
+
+## Opening a second shell into a running container
+
+```bash
+# Hospital mode (container name: falcon)
 docker exec -it falcon bash
+
+# Octa-maze mode (container name: falcon-gpu)
+docker exec -it falcon-gpu bash
 ```
 
 ---
 
-## What the Dockerfile does (without touching FALCON source logic)
+## What the Dockerfile does
 
 | Step | What |
 |------|------|
-| Base image | `nvidia/cuda:12.8.0-devel-ubuntu20.04` (first CUDA to support Blackwell sm_120) |
+| Base image | `nvidia/cuda:12.8.0-devel-ubuntu20.04` |
 | ROS | Noetic Desktop-Full (includes RViz) |
 | apt deps | glog, libdw, armadillo, libc++, Eigen, GLFW… |
 | CMake | 3.26.0-rc6 built from source |
 | NLopt | 2.7.1 built from source |
 | Open3D | 0.18.0 built from source (no Python) |
-| Patch CUDA arch | `sed` replaces `compute_XX` → `compute_${CUDA_ARCH}` in CMakeLists |
+| Adapter | `falcon_adapter` package + `hospital.yaml` map config |
+| Patch CUDA arch | `sed` fills in `compute_XX` → `compute_${CUDA_ARCH}` |
 | Patch Open3D path | `sed` sets `open3d_resource_path` in mesh_render.yaml |
 | Build | `catkin_make -DCMAKE_BUILD_TYPE=Release` |
 
-> The two `sed` patches only fill in the placeholder values the README
-> explicitly asks you to set — no algorithmic logic is changed.
+> The `sed` patches only fill in placeholder values — no algorithmic logic is changed.
 
 ---
 
@@ -114,13 +153,16 @@ docker exec -it falcon bash
 
 **RViz can't open display**
 ```bash
-xhost +local:docker   # run this on the host before launching
+xhost +local:docker   # run on host before launching
 ```
 
 **`catkin_make` fails on Open3D not found**
 Check that `/opt/open3d/lib/cmake/Open3D/Open3DConfig.cmake` exists inside
-the container after the build step.
+the container.
 
-**Out of memory during `make -j$(nproc)`**
-Edit the Dockerfile and replace `make -j$(nproc)` with `make -j4` in the
-Open3D build step.
+**Out of memory during build**
+Replace `make -j$(nproc)` with `make -j4` in the Open3D build step.
+
+**Octa-maze crashes / black screen**
+Make sure you used `run_octa_maze.sh` (not `run_hospital.sh`) — the built-in
+simulator needs GPU access.

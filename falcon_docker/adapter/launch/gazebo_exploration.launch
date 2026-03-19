@@ -4,16 +4,19 @@
     ══════════════════════════════════════════════════════════════
     Runs FALCON exploration planner with an EXTERNAL Gazebo drone.
 
-    This is a modified version of FALCON's exploration.launch:
-      - Skips the internal simulator (map_render, poscmd_2_odom)
-      - Remaps topics to the falcon_adapter's outputs
-      - Launches the adapter node that bridges drone <-> FALCON
+    Usage:
+      Full exploration (default):
+        roslaunch falcon_adapter gazebo_exploration.launch
+
+      Mapping only (fly manually, just watch the map build):
+        roslaunch falcon_adapter gazebo_exploration.launch mapping_only:=true
     ══════════════════════════════════════════════════════════════
   -->
 
   <arg name="map_name"      default="hospital" />
   <arg name="drone_ns"      default="/simple_drone" />
   <arg name="auto_takeoff"  default="true" />
+  <arg name="mapping_only"  default="false" />
 
   <!-- ── Topic mapping: adapter publishes these ──────────────── -->
   <arg name="odometry_topic"     value="/odom_world" />
@@ -34,19 +37,24 @@
   <!-- ═══════════════════════════════════════════════════════════
        FIX: Override voxel_mapping params for sjtu_drone's camera
        These MUST come AFTER the yaml loads above.
+       sjtu_drone depth camera: 640x360, HFOV=2.09 rad
+       fx = fy = 640 / (2 * tan(2.09/2)) = 185.7
        ═══════════════════════════════════════════════════════════ -->
 
-  <!-- Depth is 32FC1 (float meters). Default 1000.0 assumes 16UC1 (mm). -->
   <param name="/voxel_mapping/depth_scaling_factor" value="1.0" />
-
-  <!-- Camera intrinsics for 640x360, hfov=80° (1.3962634 rad)
-       fx = fy = 640 / (2 * tan(80°/2)) = 381.4 -->
   <param name="/voxel_mapping/cam_width"  value="640" />
   <param name="/voxel_mapping/cam_height" value="360" />
-  <param name="/voxel_mapping/fx" value="381.4" />
-  <param name="/voxel_mapping/fy" value="381.4" />
+  <param name="/voxel_mapping/fx" value="185.7" />
+  <param name="/voxel_mapping/fy" value="185.7" />
   <param name="/voxel_mapping/cx" value="320.0" />
   <param name="/voxel_mapping/cy" value="180.0" />
+
+  <!-- ═══════════════════════════════════════════════════════════
+       FIX: Transformer overrides for external Gazebo drone
+       ═══════════════════════════════════════════════════════════ -->
+
+  <param name="/transformer/pose_topic_type"      value="pose" />
+  <param name="/transformer/timestamp_tolerance"   value="0.05" />
 
   <!-- ── Exploration planner node ────────────────────────────── -->
   <node pkg="exploration_manager" name="exploration_node" type="exploration_node" output="screen">
@@ -66,6 +74,7 @@
     <param name="body_frame"    value="body" />
     <param name="cam_frame"     value="camera" />
     <param name="auto_takeoff"  value="$(arg auto_takeoff)" />
+    <param name="mapping_only"  value="$(arg mapping_only)" />
     <param name="kp_xy"         value="1.5" />
     <param name="kd_xy"         value="0.3" />
     <param name="kp_z"          value="1.5" />
@@ -80,11 +89,5 @@
   <node pkg="odom_visualization" name="odom_visualization" type="odom_visualization" output="screen">
     <remap from="~odometry" to="$(arg odometry_topic)"/>
   </node>
-
-  <!--
-    NOTE: The following nodes from the original are INTENTIONALLY SKIPPED:
-      - map_render_node    (depth comes from Gazebo camera, not STL rendering)
-      - poscmd_2_odom      (odom comes from the real drone via the adapter)
-  -->
 
 </launch>
