@@ -6,6 +6,7 @@ Bridges FALCON planner (ROS1) <-> sjtu_drone (ROS2 via ros1_bridge).
 Data flow:
   IN:  /simple_drone/gt_pose                  (Pose)  --> /odom_world (Odometry) + TF
   IN:  /simple_drone/front_depth/depth/image_raw      --> /map_ros/depth
+  IN:  /simple_drone/front_depth/depth/camera_info    --> /map_ros/depth/camera_info
   OUT: /planning/pos_cmd (PositionCommand)   --> /simple_drone/cmd_vel (Twist)
   INIT: sends /simple_drone/takeoff + disables posctrl
 
@@ -27,7 +28,7 @@ import numpy as np
 
 from geometry_msgs.msg import Pose, Twist, PoseStamped
 from nav_msgs.msg import Odometry
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import CameraInfo, Image
 from std_msgs.msg import Empty, Bool
 
 # body (FLU):    x-forward, y-left,  z-up
@@ -85,6 +86,7 @@ class FalconAdapter:
         self.odom_pub = rospy.Publisher("/odom_world", Odometry, queue_size=10)
         self.pose_pub = rospy.Publisher("/map_ros/pose", PoseStamped, queue_size=10)
         self.depth_pub = rospy.Publisher("/map_ros/depth", Image, queue_size=2)
+        self.cam_info_pub = rospy.Publisher("/map_ros/depth/camera_info", CameraInfo, queue_size=2)
 
         # Publishers — to drone (only used when NOT in mapping_only mode)
         if not self.mapping_only:
@@ -102,6 +104,9 @@ class FalconAdapter:
         rospy.Subscriber(self.drone_ns + "/gt_pose", Pose, self.gt_pose_cb)
         rospy.Subscriber(
             self.drone_ns + "/front_depth/depth/image_raw", Image, self.depth_cb
+        )
+        rospy.Subscriber(
+            self.drone_ns + "/front_depth/depth/camera_info", CameraInfo, self.cam_info_cb
         )
 
         # Subscriber — from FALCON traj_server (only when NOT mapping_only)
@@ -250,6 +255,11 @@ class FalconAdapter:
         msg.header.stamp = rospy.Time.now()
         msg.header.frame_id = self.cam_frame
         self.depth_pub.publish(msg)
+
+    def cam_info_cb(self, msg):
+        msg.header.stamp = rospy.Time.now()
+        msg.header.frame_id = self.cam_frame
+        self.cam_info_pub.publish(msg)
 
     # ── FALCON -> Drone (disabled in mapping_only mode) ──────────
 

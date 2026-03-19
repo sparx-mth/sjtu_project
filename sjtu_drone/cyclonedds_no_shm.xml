@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  CycloneDDS config for the Gazebo sim (ROS2 Humble).
+
+  SharedMemory MUST be disabled: Humble's CycloneDDS (0.10+) enables
+  iceoryx SHM by default. The Foxy bridge's CycloneDDS (0.7) does not
+  support SHM, so it silently never receives data transported via SHM.
+  Disabling SHM forces all traffic over UDP, which is cross-version safe.
+-->
+<CycloneDDS xmlns="https://cdds.io/config">
+  <Domain>
+    <General>
+      <AllowMulticast>spdp</AllowMulticast>
+    </General>
+    <SharedMemory>
+      <Enable>false</Enable>
+    </SharedMemory>
+  </Domain>
+</CycloneDDS>

@@ -108,6 +108,7 @@ docker run \
   -e XAUTHORITY="${XAUTH}" \
   -e QT_X11_NO_MITSHM=1 \
   -e SKIP_MAP="${SKIP_MAP}" \
+  -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp \
   --name="sjtu_drone_${WORLD_BASE}" \
   "${IMAGE_NAME}" \
   bash -c "
@@ -121,10 +122,42 @@ docker run \
     echo 'source /opt/ros/${ROS_DISTRO}/setup.bash' >> /root/.bashrc
     echo '[[ -f ${CONTAINER_WS}/install/setup.bash ]] && source ${CONTAINER_WS}/install/setup.bash' >> /root/.bashrc
 
-    # --- Core env ---
-    # Install CycloneDDS for bridge compatibility (one-time, cached after first run)
-    apt-get update -qq && apt-get install -y -qq ros-humble-rmw-cyclonedds-cpp >/dev/null 2>&1 || true
+    # --- DDS: Install CycloneDDS and disable shared memory ───────
+    # CycloneDDS is REQUIRED for bridge compatibility with Foxy.
+    # FastRTPS versions between Humble and Foxy are incompatible.
+    echo '[INFO] Installing CycloneDDS...'
+    apt-get update -qq && apt-get install -y -qq ros-humble-rmw-cyclonedds-cpp >/dev/null 2>&1
+    if ! dpkg -s ros-humble-rmw-cyclonedds-cpp >/dev/null 2>&1; then
+      echo '[ERROR] Failed to install ros-humble-rmw-cyclonedds-cpp!'
+      echo '        The bridge REQUIRES CycloneDDS. Cannot continue.'
+      exit 1
+    fi
+    echo '[INFO] CycloneDDS installed successfully.'
+
     export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+
+    # Write CycloneDDS config that disables shared memory (iceoryx).
+    # Humble's CycloneDDS enables SHM by default; the Foxy bridge
+    # does not support SHM, so data sent via SHM is invisible to it.
+    cat > /tmp/cyclonedds.xml <<'DDSEOF'
+<?xml version=\"1.0\" encoding=\"UTF-8\" ?>
+<CycloneDDS xmlns=\"https://cdds.io/config\">
+  <Domain>
+    <General>
+      <AllowMulticast>spdp</AllowMulticast>
+    </General>
+    <SharedMemory>
+      <Enable>false</Enable>
+    </SharedMemory>
+  </Domain>
+</CycloneDDS>
+DDSEOF
+    export CYCLONEDDS_URI=file:///tmp/cyclonedds.xml
+
+    echo 'export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp' >> /root/.bashrc
+    echo 'export CYCLONEDDS_URI=file:///tmp/cyclonedds.xml' >> /root/.bashrc
+
+    # --- Core env ---
     export GAZEBO_MODEL_PATH=/usr/share/gazebo-11/models
     export GAZEBO_MODEL_PATH=\$GAZEBO_MODEL_PATH:${CONTAINER_WS}/aws-robomaker-hospital-world/models
     if [[ -d '${CONTAINER_WS}/aws-robomaker-hospital-world/fuel_models' ]]; then
@@ -149,6 +182,9 @@ docker run \
     echo '================================'
     echo 'Environment ready'
     echo 'World: ${WORLD_FILE}'
+    echo 'RMW:   '\$RMW_IMPLEMENTATION
+    echo 'DDS:   '\$CYCLONEDDS_URI
+    echo 'Domain:'\$ROS_DOMAIN_ID
     echo 'GAZEBO_MODEL_PATH entries:'
     echo \$GAZEBO_MODEL_PATH | tr ':' '\n'
     echo '================================'
@@ -169,7 +205,7 @@ docker run \
     fi
 
     colcon build --packages-select sjtu_drone_bringup sjtu_drone_description sjtu_drone_control autonomous_system \
-      --cmake-args -DBUILD_TESTING=OFF -DRMW_IMPLEMENTATION=rmw_fastrtps_cpp
+      --cmake-args -DBUILD_TESTING=OFF
 
     if [[ \"${SKIP_MAP}\" != 'true' && -d '${CONTAINER_WS}/src/gazebo_ros_2d_map' ]]; then
       colcon build --packages-select gazebo_ros_2d_map --cmake-args -DBUILD_TESTING=OFF

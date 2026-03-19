@@ -97,6 +97,7 @@ Gazebo drone                    Bridge              FALCON
 ───────────                     ──────              ──────
 gt_pose (Pose)        ──ROS2──> ──ROS1──> adapter ──> /odom_world (Odometry)
 front_depth/depth/image_raw  ─ROS2─> ──ROS1──> adapter ──> /map_ros/depth (Image)
+front_depth/depth/camera_info ─ROS2─> ─ROS1──> adapter ──> /map_ros/depth/camera_info
                                                       /map_ros/pose (PoseStamped)
 
                                           FALCON planner
@@ -107,11 +108,12 @@ cmd_vel (Twist)       <─ROS2── <─ROS1── adapter (PD controller)
 takeoff (Empty)       <─ROS2── <─ROS1── adapter (on startup, with retry)
 ```
 
-The `falcon_adapter` node (Python, runs inside the FALCON container) does four things:
+The `falcon_adapter` node (Python, runs inside the FALCON container) does five things:
 1. Converts the drone's `gt_pose` (body frame) into `Odometry` + `PoseStamped` + TF that FALCON expects
 2. Re-stamps depth images with the correct frame and timestamp
-3. Converts FALCON's position commands into velocity commands via a PD controller
-4. Publishes world-frame velocity commands to `cmd_vel`
+3. Forwards `CameraInfo` so FALCON can back-project depth pixels into 3D voxels
+4. Converts FALCON's position commands into velocity commands via a PD controller
+5. Publishes world-frame velocity commands to `cmd_vel`
 
 FALCON's voxel_mapping uses `T_b_c` from `hospital.yaml` to convert the body pose to camera frame for depth back-projection. The adapter does NOT apply this rotation — it publishes the raw body pose.
 
@@ -211,9 +213,9 @@ You need **4 terminals**. **Startup order is critical** — the bridge must star
 
 > **Why this order?** The `dynamic_bridge` only creates ROS2→ROS1 bridges
 > for topics that have an active ROS1 subscriber at scan time. If the bridge
-> starts before FALCON, there is no ROS1 subscriber for the depth topic,
-> so the bridge never forwards it. Starting FALCON first ensures its
-> subscribers exist when the bridge scans.
+> starts before FALCON, there is no ROS1 subscriber for the depth or
+> camera_info topics, so the bridge never forwards them. Starting FALCON
+> first ensures its subscribers exist when the bridge scans.
 
 ### Terminal 1 — Gazebo Simulation
 
@@ -244,13 +246,18 @@ Wait 3 seconds.
 ### Terminal 3 — FALCON (RViz + Adapter)
 
 > **Start FALCON BEFORE the bridge.** The adapter must be subscribed to
-> `/simple_drone/front_depth/depth/image_raw` before the bridge starts,
-> otherwise the bridge won't forward the depth topic from ROS2.
+> `/simple_drone/front_depth/depth/image_raw` and `depth/camera_info`
+> before the bridge starts, otherwise the bridge won't forward the
+> depth topics from ROS2.
 
 ```bash
 cd falcon_docker
 xhost +local:docker 2>/dev/null || true
 ```
+```bash
+./run_hospital.sh
+```
+or
 
 ```bash
 docker run -it --rm \
@@ -306,6 +313,10 @@ You should see:
 > You should see the `[Adapter] No pose yet` retry messages in Terminal 3b.
 
 ```bash
+./run_bridge.sh
+```
+or
+```bash
 docker run -it --rm --net=host --name=ros1_bridge \
   -e ROS_MASTER_URI="http://localhost:11311" \
   --entrypoint bash \
@@ -315,6 +326,19 @@ docker run -it --rm --net=host --name=ros1_bridge \
     source /bridge_ws/install/setup.bash
     export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
     export ROS_DOMAIN_ID=20
+
+    cat > /tmp/cyclonedds_bridge.xml <<EOF
+<?xml version="1.0" encoding="UTF-8" ?>
+<CycloneDDS xmlns="https://cdds.io/config">
+  <Domain>
+    <General>
+      <AllowMulticast>spdp</AllowMulticast>
+    </General>
+  </Domain>
+</CycloneDDS>
+EOF
+    export CYCLONEDDS_URI=file:///tmp/cyclonedds_bridge.xml
+
     echo "Bridge starting (CycloneDDS, Domain 20)..."
     ros2 run ros1_bridge dynamic_bridge --bridge-all-2to1-topics --bridge-all-1to2-topics
   '
