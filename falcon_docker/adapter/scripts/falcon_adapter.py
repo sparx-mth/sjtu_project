@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-falcon_adapter.py  (v4)
+falcon_adapter.py  (v5)
 Bridges FALCON planner (ROS1) <-> sjtu_drone (ROS2 via ros1_bridge).
 
 Data flow:
@@ -19,12 +19,18 @@ Modes:
 Frames:
   world -> body    : drone pose  (published as Odometry + PoseStamped)
   body  -> camera  : FALCON uses T_b_c from hospital.yaml for depth back-projection
+
+Depth encoding fix (v5):
+  FALCON's voxel_mapping reads depth as uint16 (mm) and hardcodes * 0.001.
+  Gazebo publishes 32FC1 (float32, meters). The adapter now converts
+  32FC1 → 16UC1 (millimeters) so FALCON can process depth correctly.
 """
 import rospy
 import tf
 import tf.transformations as tft
 import math
 import numpy as np
+from cv_bridge import CvBridge
 
 from geometry_msgs.msg import Pose, Twist, PoseStamped
 from nav_msgs.msg import Odometry
@@ -81,6 +87,7 @@ class FalconAdapter:
 
         # TF
         self.tf_br = tf.TransformBroadcaster()
+        self.cv_bridge = CvBridge()
 
         # Publishers — to FALCON (always active, even in mapping_only)
         self.odom_pub = rospy.Publisher("/odom_world", Odometry, queue_size=10)
@@ -142,7 +149,7 @@ class FalconAdapter:
         # ── Banner ──
         mode_str = "MAPPING ONLY (no cmd_vel)" if self.mapping_only else "FULL EXPLORATION"
         rospy.loginfo("══════════════════════════════════")
-        rospy.loginfo("  FALCON <-> Drone Adapter (v4)")
+        rospy.loginfo("  FALCON <-> Drone Adapter (v5)")
         rospy.loginfo("  Mode: %s", mode_str)
         rospy.loginfo("  Drone: %s", self.drone_ns)
         if not self.mapping_only:
@@ -252,7 +259,20 @@ class FalconAdapter:
         )
 
     def depth_cb(self, msg):
-        msg.header.stamp = rospy.Time.now()
+        now = rospy.Time.now()
+
+        # ── Convert 32FC1 (float meters) → 16UC1 (uint16 millimeters) ──
+        # FALCON's voxel_mapping reads depth as uint16_t and hardcodes * 0.001
+        # to convert mm→m. Gazebo publishes 32FC1 in meters, so we must convert.
+        if msg.encoding == "32FC1":
+            depth_m = self.cv_bridge.imgmsg_to_cv2(msg, desired_encoding="32FC1")
+            # Replace NaN/inf with 0 (no measurement)
+            depth_m = np.where(np.isfinite(depth_m), depth_m, 0.0)
+            # Convert meters → millimeters, clamp to uint16 range
+            depth_mm = np.clip(depth_m * 1000.0, 0, 65535).astype(np.uint16)
+            msg = self.cv_bridge.cv2_to_imgmsg(depth_mm, encoding="16UC1")
+
+        msg.header.stamp = now
         msg.header.frame_id = self.cam_frame
         self.depth_pub.publish(msg)
 

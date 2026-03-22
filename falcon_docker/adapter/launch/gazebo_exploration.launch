@@ -35,19 +35,41 @@
   <rosparam command="load" file="$(find exploration_manager)/config/exploration_manager.yaml"/>
 
   <!-- ═══════════════════════════════════════════════════════════
-       FIX: Override voxel_mapping params for sjtu_drone's camera
+       FIX: Override camera params for sjtu_drone's depth camera
        These MUST come AFTER the yaml loads above.
+
        sjtu_drone depth camera: 640x360, HFOV=2.09 rad
        fx = fy = 640 / (2 * tan(2.09/2)) = 185.7
+
+       IMPORTANT: FALCON's map_server.cpp reads intrinsics from
+       /uav_model/sensing_parameters/camera_intrinsics/ (NOT /voxel_mapping/).
+       The defaults in uav_model_simulator.yaml are fx=fy=320 for 640x480.
+       We MUST override them here for the sjtu_drone's 640x360 camera.
+
+       Depth encoding: The adapter (v5) now converts 32FC1→16UC1 (mm),
+       so depth_scaling_factor stays at default 1000.0 (FALCON expects mm).
        ═══════════════════════════════════════════════════════════ -->
 
-  <param name="/voxel_mapping/depth_scaling_factor" value="1.0" />
-  <param name="/voxel_mapping/cam_width"  value="640" />
-  <param name="/voxel_mapping/cam_height" value="360" />
+  <!-- Camera intrinsics — FALCON reads from this path, NOT /voxel_mapping/ -->
+  <param name="/uav_model/sensing_parameters/camera_intrinsics/fx" value="185.7" />
+  <param name="/uav_model/sensing_parameters/camera_intrinsics/fy" value="185.7" />
+  <param name="/uav_model/sensing_parameters/camera_intrinsics/cx" value="320.0" />
+  <param name="/uav_model/sensing_parameters/camera_intrinsics/cy" value="180.0" />
+
+  <!-- Also set at /voxel_mapping/ path in case any other FALCON component reads from here -->
   <param name="/voxel_mapping/fx" value="185.7" />
   <param name="/voxel_mapping/fy" value="185.7" />
   <param name="/voxel_mapping/cx" value="320.0" />
   <param name="/voxel_mapping/cy" value="180.0" />
+  <param name="/voxel_mapping/cam_width"  value="640" />
+  <param name="/voxel_mapping/cam_height" value="360" />
+
+  <!-- Depth scaling: adapter converts 32FC1→16UC1 (mm), so keep default 1000.0 -->
+  <!-- <param name="/voxel_mapping/depth_scaling_factor" value="1000.0" /> -->
+
+  <!-- Depth range: match Gazebo camera clip (0.1m near, 10.0m far) -->
+  <param name="/uav_model/sensing_parameters/depth_range/min" value="0.1" />
+  <param name="/uav_model/sensing_parameters/depth_range/max" value="10.0" />
 
   <!-- ═══════════════════════════════════════════════════════════
        FIX: Transformer overrides for external Gazebo drone

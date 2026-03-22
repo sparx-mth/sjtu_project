@@ -313,6 +313,7 @@ You should see:
 > You should see the `[Adapter] No pose yet` retry messages in Terminal 3b.
 
 ```bash
+cd ros_bridge_docker/
 ./run_bridge.sh
 ```
 or
