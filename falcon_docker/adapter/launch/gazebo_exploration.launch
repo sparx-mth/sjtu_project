@@ -1,16 +1,11 @@
 <launch>
   <!--
-    gazebo_exploration.launch
+    gazebo_exploration.launch  (v6 — matched to FALCON source code)
     ══════════════════════════════════════════════════════════════
-    Runs FALCON exploration planner with an EXTERNAL Gazebo drone.
 
     Usage:
-      Full exploration (default):
-        roslaunch falcon_adapter gazebo_exploration.launch
-
-      Mapping only (fly manually, just watch the map build):
-        roslaunch falcon_adapter gazebo_exploration.launch mapping_only:=true
-    ══════════════════════════════════════════════════════════════
+      roslaunch falcon_adapter gazebo_exploration.launch
+      roslaunch falcon_adapter gazebo_exploration.launch mapping_only:=true
   -->
 
   <arg name="map_name"      default="hospital" />
@@ -18,12 +13,14 @@
   <arg name="auto_takeoff"  default="true" />
   <arg name="mapping_only"  default="false" />
 
-  <!-- ── Topic mapping: adapter publishes these ──────────────── -->
+  <!-- ── Topic mapping ──────────────────────────────────────── -->
   <arg name="odometry_topic"     value="/odom_world" />
   <arg name="sensor_pose_topic"  value="/map_ros/pose" />
   <arg name="depth_image"        value="/map_ros/depth" />
 
-  <!-- ── Load FALCON configs (same as original) ─────────────── -->
+  <!-- ══════════════════════════════════════════════════════════
+       Load FALCON config files (order matters — later params override)
+       ══════════════════════════════════════════════════════════ -->
   <rosparam command="load" file="$(find exploration_manager)/config/robot/uav_model_simulator.yaml"/>
   <rosparam command="load" file="$(find exploration_manager)/config/map/$(arg map_name).yaml"/>
   <rosparam command="load" file="$(find voxel_mapping)/config/voxel_mapping.yaml"/>
@@ -34,79 +31,91 @@
   <rosparam command="load" file="$(find exploration_utils)/config/perception_utils.yaml"/>
   <rosparam command="load" file="$(find exploration_manager)/config/exploration_manager.yaml"/>
 
-  <!-- ═══════════════════════════════════════════════════════════
-       FIX: Override camera params for sjtu_drone's depth camera
-       These MUST come AFTER the yaml loads above.
+  <!-- ══════════════════════════════════════════════════════════
+       Camera intrinsics — MUST match your Gazebo depth camera
 
-       sjtu_drone depth camera: 640x360, HFOV=2.09 rad
-       fx = fy = 640 / (2 * tan(2.09/2)) = 185.7
+       Your Gazebo depth camera (after xacro fix):
+         Resolution: 640 x 480
+         HFOV: 1.5708 rad (90 degrees)
+         fx = fy = 640 / (2 * tan(45°)) = 320.0
+         cx = 320.0,  cy = 240.0
 
-       IMPORTANT: FALCON's map_server.cpp reads intrinsics from
-       /uav_model/sensing_parameters/camera_intrinsics/ (NOT /voxel_mapping/).
-       The defaults in uav_model_simulator.yaml are fx=fy=320 for 640x480.
-       We MUST override them here for the sjtu_drone's 640x360 camera.
+       These are the ONLY params voxel_mapping reads for intrinsics
+       (from map_server.cpp lines 62-65). The /voxel_mapping/fx etc.
+       params do NOT exist in the code — don't set them.
+       ══════════════════════════════════════════════════════════ -->
+  <param name="/uav_model/sensing_parameters/camera_intrinsics/fx" value="320.0" />
+  <param name="/uav_model/sensing_parameters/camera_intrinsics/fy" value="320.0" />
+  <param name="/uav_model/sensing_parameters/camera_intrinsics/cx" value="320.0" />
+  <param name="/uav_model/sensing_parameters/camera_intrinsics/cy" value="240.0" />
+  <param name="/uav_model/sensing_parameters/image_width"  value="640" />
+  <param name="/uav_model/sensing_parameters/image_height" value="480" />
 
-       Depth encoding: The adapter (v5) now converts 32FC1→16UC1 (mm),
-       so depth_scaling_factor stays at default 1000.0 (FALCON expects mm).
-       ═══════════════════════════════════════════════════════════ -->
+  <!-- ── Depth range: match FALCON's TSDF raycast_max (5.0m) ── -->
+  <param name="/uav_model/sensing_parameters/min_depth" value="0.1" />
+  <param name="/uav_model/sensing_parameters/max_depth" value="5.0" />
 
-    <!-- Change these four blocks -->
-    <param name="/uav_model/sensing_parameters/camera_intrinsics/fx" value="320.0" />
-    <param name="/uav_model/sensing_parameters/camera_intrinsics/fy" value="320.0" />
-    <param name="/uav_model/sensing_parameters/camera_intrinsics/cx" value="320.0" />
-    <param name="/uav_model/sensing_parameters/camera_intrinsics/cy" value="240.0" />
+  <!-- ══════════════════════════════════════════════════════════
+       Transformer config for external Gazebo
 
-    <param name="/voxel_mapping/fx" value="320.0" />
-    <param name="/voxel_mapping/fy" value="320.0" />
-    <param name="/voxel_mapping/cx" value="320.0" />
-    <param name="/voxel_mapping/cy" value="240.0" />
-    <param name="/voxel_mapping/cam_width"  value="640" />
-    <param name="/voxel_mapping/cam_height" value="480" />
+       pose_topic_type = "pose":
+         The adapter publishes PoseStamped (camera frame)
+         FALCON's transformer converts it to TransformStamped internally.
 
-  <!-- Depth scaling: adapter converts 32FC1→16UC1 (mm), so keep default 1000.0 -->
-  <!-- <param name="/voxel_mapping/depth_scaling_factor" value="1000.0" /> -->
+       timestamp_tolerance = 0.05:
+         At 30Hz odom, the gap between msgs is ~33ms.
+         50ms tolerance gives enough margin for matching.
+       ══════════════════════════════════════════════════════════ -->
+  <param name="/transformer/pose_topic_type"    value="pose" />
+  <param name="/transformer/timestamp_tolerance" value="0.05" />
 
-  <!-- Depth range: match Gazebo camera clip (0.1m near, 10.0m far) -->
-  <param name="/uav_model/sensing_parameters/depth_range/min" value="0.1" />
-  <param name="/uav_model/sensing_parameters/depth_range/max" value="10.0" />
+  <!-- ── Depth encoding: 32FC1 passthrough ──
+       FALCON's map_server.cpp handles 32FC1 natively:
+         if (encoding == TYPE_32FC1)
+           image.convertTo(image, CV_16UC1, depth_scaling_factor);
+       depth_scaling_factor defaults to 1000.0 (meters→mm).
+       No conversion needed in the adapter.
+  -->
 
-  <!-- ═══════════════════════════════════════════════════════════
-       FIX: Transformer overrides for external Gazebo drone
-       ═══════════════════════════════════════════════════════════ -->
+  <!-- ══════════════════════════════════════════════════════════
+       Nodes
+       ══════════════════════════════════════════════════════════ -->
 
-  <param name="/transformer/pose_topic_type"      value="pose" />
-  <param name="/transformer/timestamp_tolerance"   value="0.05" />
-
-  <!-- ── Exploration planner node ────────────────────────────── -->
+  <!-- Exploration planner -->
   <node pkg="exploration_manager" name="exploration_node" type="exploration_node" output="screen">
-    <remap from="/odom_world"                       to="$(arg odometry_topic)"/>
-    <remap from="/voxel_mapping/depth_image"        to="$(arg depth_image)"/>
-    <remap from="/transformer/sensor_pose_topic"    to="$(arg sensor_pose_topic)"/>
+    <remap from="/odom_world"                    to="$(arg odometry_topic)"/>
+    <remap from="/voxel_mapping/depth_image"     to="$(arg depth_image)"/>
+    <remap from="/transformer/sensor_pose_topic" to="$(arg sensor_pose_topic)"/>
   </node>
 
-  <!-- ── Trajectory server (publishes /planning/pos_cmd) ─────── -->
+  <!-- Trajectory server -->
   <node pkg="fast_planner" name="traj_server" type="traj_server" output="screen" />
 
-  <!-- ── Adapter: drone topics <-> FALCON topics ─────────────── -->
+  <!-- Adapter: drone topics <-> FALCON topics -->
   <node pkg="falcon_adapter" type="falcon_adapter.py"
         name="falcon_adapter" output="screen">
-    <param name="drone_ns"      value="$(arg drone_ns)" />
-    <param name="world_frame"   value="world" />
-    <param name="body_frame"    value="body" />
-    <param name="cam_frame"     value="camera" />
-    <param name="auto_takeoff"  value="$(arg auto_takeoff)" />
-    <param name="mapping_only"  value="$(arg mapping_only)" />
-    <param name="kp_xy"         value="0.8" />
-    <param name="kd_xy"         value="0.2" />
-    <param name="kp_z"          value="0.8" />
-    <param name="kd_z"          value="0.2" />
-    <param name="max_vel_xy"    value="0.4" />
-    <param name="max_vel_z"     value="0.2" />
-    <param name="max_yaw_rate"  value="0.5" />
-    <param name="odom_min_dt"   value="0.02" />
+    <param name="drone_ns"       value="$(arg drone_ns)" />
+    <param name="world_frame"    value="world" />
+    <param name="body_frame"     value="body" />
+    <param name="cam_frame"      value="camera" />
+    <param name="auto_takeoff"   value="$(arg auto_takeoff)" />
+    <param name="mapping_only"   value="$(arg mapping_only)" />
+    <!-- Camera offset: 0.2m forward, matching xacro front_cam_joint -->
+    <param name="cam_offset_x"   value="0.2" />
+    <param name="cam_offset_y"   value="0.0" />
+    <param name="cam_offset_z"   value="0.0" />
+    <!-- PD gains (tune later for trajectory tracking) -->
+    <param name="kp_xy"          value="0.8" />
+    <param name="kd_xy"          value="0.2" />
+    <param name="kp_z"           value="0.8" />
+    <param name="kd_z"           value="0.2" />
+    <param name="max_vel_xy"     value="0.4" />
+    <param name="max_vel_z"      value="0.2" />
+    <param name="max_yaw_rate"   value="0.5" />
+    <param name="odom_min_dt"    value="0.02" />
   </node>
 
-  <!-- ── Robot visualizer (optional, works without sim) ──────── -->
+  <!-- Robot visualizer -->
   <node pkg="odom_visualization" name="odom_visualization" type="odom_visualization" output="screen">
     <remap from="~odometry" to="$(arg odometry_topic)"/>
   </node>

@@ -50,6 +50,11 @@
   <link name="sonar_link"/>
 
 
+  <!-- ================================================================== -->
+  <!-- Camera mounted 0.2m forward of body center.                        -->
+  <!-- The adapter applies T_b_c with this offset when computing the      -->
+  <!-- sensor_pose (cam_offset_x=0.2 in launch file).                     -->
+  <!-- ================================================================== -->
   <joint name="front_cam_joint" type="fixed">
     <origin rpy="0 0 0" xyz="0.2 0 0"/>
     <parent link="base_link" />
@@ -187,7 +192,7 @@
   </gazebo>
 
 <gazebo reference="front_cam_link">
-  <!-- RGB camera -->
+  <!-- RGB camera (unchanged) -->
   <sensor name="front_camera" type="camera">
     <always_on>1</always_on>
     <visualize>1</visualize>
@@ -221,11 +226,27 @@
     </plugin>
   </sensor>
 
-  <!-- Depth camera -->
+  <!-- ================================================================== -->
+  <!-- DEPTH CAMERA — Parameters matched to FALCON simulator exactly      -->
+  <!--                                                                    -->
+  <!-- FALCON expected values (from uav_model_simulator.yaml):            -->
+  <!--   fx = 320.0, fy = 320.0, cx = 320.0, cy = 240.0                  -->
+  <!--   image: 640 x 480                                                 -->
+  <!--   horizontal_fov: 90° (1.5708 rad) — gives fx = 640/(2*tan(45°))  -->
+  <!--   depth range: 0.1 — 5.0 m                                        -->
+  <!--   render rate: 15 Hz                                               -->
+  <!--   encoding: 32FC1 (float meters)                                   -->
+  <!--                                                                    -->
+  <!-- Changes from original:                                             -->
+  <!--   1. update_rate: 30 → 15 Hz (match FALCON render_rate)            -->
+  <!--   2. clip far: 10.0 → 5.0 m  (match FALCON max_depth)             -->
+  <!--   3. horizontal_fov: kept at 1.5708 (already correct)              -->
+  <!--   4. resolution: kept at 640x480 (already correct)                 -->
+  <!-- ================================================================== -->
   <sensor name="front_depth_camera" type="depth">
     <always_on>1</always_on>
     <visualize>1</visualize>
-    <update_rate>30</update_rate>
+    <update_rate>15</update_rate>
     <camera>
       <horizontal_fov>1.5708</horizontal_fov>
       <image>
@@ -235,7 +256,7 @@
       </image>
       <clip>
         <near>0.1</near>
-        <far>10.0</far>
+        <far>5.0</far>
       </clip>
     </camera>
     <plugin name="camera_front_depth" filename="libgazebo_ros_camera.so">
