@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
 """
-falcon_adapter.py  (v7)
-Bridges FALCON planner (ROS1) <-> sjtu_drone (ROS2 via ros1_bridge).
+falcon_adapter.py  (v8 — 3D Pure Pursuit controller)
 
-v7 fixes:
-  - CRITICAL: Fixed T_b_c quaternion bug. Previous versions used
-    (0.5, -0.5, 0.5, 0.5) which is the INVERSE of the correct rotation.
-    Now builds T_b_c directly from the matrix (same as FALCON's YAML)
-    to eliminate any quaternion convention confusion.
-  - Camera at 0.2m forward of body center (matching xacro joint).
-  - Depth 32FC1 passthrough (FALCON handles conversion internally).
+Replaces the simple PD controller with a 3D Pure Pursuit path follower,
+adapted from the user's proven SmoothPathFollower.
 
-Data flow:
-  IN:  /simple_drone/gt_pose (Pose)
-         → /odom_world (Odometry, body frame, frame_id="world")
-         → /map_ros/pose (PoseStamped, CAMERA frame via T_w_c = T_w_b * T_b_c)
+Key improvements over v7:
+  - Pure Pursuit tracking: steers toward a lookahead point on the
+    buffered trajectory instead of directly at the target position.
+    Produces smooth, rounded turns instead of oscillating corrections.
+  - Adaptive lookahead: shorter on tight curves, longer on straights.
+  - Curvature-based speed reduction: automatically slows before turns.
+  - Smooth yaw control with deadband and exponential smoothing.
+  - Distance-to-goal deceleration: slows down approaching waypoints.
+  - 3D extension: altitude tracked with separate P controller.
+  - Speed smoothing: prevents jerky acceleration changes.
 
-  IN:  /simple_drone/front_depth/depth/image_raw (32FC1)
-         → /map_ros/depth (passthrough, frame_id="camera")
-
-  OUT: /planning/pos_cmd (PositionCommand) → /simple_drone/cmd_vel (Twist)
+Architecture:
+  FALCON traj_server publishes PositionCommand at 100Hz with
+  position, velocity, yaw. We buffer these into a rolling trajectory
+  and use Pure Pursuit to track it.
 """
 
 import rospy
@@ -27,11 +27,108 @@ import tf
 import tf.transformations as tft
 import math
 import numpy as np
+from collections import deque
 
 from geometry_msgs.msg import Pose, Twist, PoseStamped
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import CameraInfo, Image
 from std_msgs.msg import Empty, Bool
+
+
+class TrajectoryBuffer:
+    """
+    Rolling buffer of PositionCommand points forming a local trajectory.
+    Used by Pure Pursuit to find closest point and lookahead point.
+    """
+
+    def __init__(self, max_points=200, min_spacing=0.02):
+        self.points = deque(maxlen=max_points)  # (x, y, z, yaw, stamp)
+        self.min_spacing = min_spacing
+
+    def add(self, x, y, z, yaw, stamp):
+        """Add point if far enough from the last one."""
+        if self.points:
+            last = self.points[-1]
+            dist = math.sqrt((x - last[0])**2 + (y - last[1])**2 + (z - last[2])**2)
+            if dist < self.min_spacing:
+                return
+        self.points.append((x, y, z, yaw, stamp))
+
+    def find_closest(self, px, py, pz, start_idx=0):
+        """Find closest point index and distance."""
+        if not self.points:
+            return 0, float('inf')
+        best_idx, best_dist = start_idx, float('inf')
+        for i in range(start_idx, len(self.points)):
+            pt = self.points[i]
+            d = math.sqrt((pt[0]-px)**2 + (pt[1]-py)**2 + (pt[2]-pz)**2)
+            if d < best_dist:
+                best_dist = d
+                best_idx = i
+        return best_idx, best_dist
+
+    def find_lookahead(self, start_idx, lookahead_dist):
+        """
+        Find the point on the buffered trajectory at approximately
+        lookahead_dist ahead of start_idx.
+        """
+        if not self.points or start_idx >= len(self.points) - 1:
+            if self.points:
+                return self.points[-1], len(self.points) - 1
+            return None, 0
+
+        accumulated = 0.0
+        for i in range(start_idx, len(self.points) - 1):
+            p0 = self.points[i]
+            p1 = self.points[i + 1]
+            seg_len = math.sqrt(
+                (p1[0]-p0[0])**2 + (p1[1]-p0[1])**2 + (p1[2]-p0[2])**2
+            )
+            accumulated += seg_len
+            if accumulated >= lookahead_dist:
+                return p1, i + 1
+
+        # Not enough trajectory buffered — return the last point
+        return self.points[-1], len(self.points) - 1
+
+    def estimate_curvature(self, idx):
+        """
+        Estimate local curvature at idx using three-point method.
+        Returns curvature in 1/m (0 = straight).
+        """
+        if len(self.points) < 3 or idx < 1 or idx >= len(self.points) - 1:
+            return 0.0
+
+        p0 = self.points[idx - 1]
+        p1 = self.points[idx]
+        p2 = self.points[idx + 1]
+
+        # Vectors
+        v1 = np.array([p1[0]-p0[0], p1[1]-p0[1]])
+        v2 = np.array([p2[0]-p1[0], p2[1]-p1[1]])
+
+        # Cross product magnitude / product of lengths
+        cross = abs(v1[0]*v2[1] - v1[1]*v2[0])
+        l1, l2 = np.linalg.norm(v1), np.linalg.norm(v2)
+
+        if l1 < 1e-6 or l2 < 1e-6:
+            return 0.0
+
+        # Menger curvature approximation
+        area = cross / 2.0
+        d = np.linalg.norm(np.array([p2[0]-p0[0], p2[1]-p0[1]]))
+        if d < 1e-6:
+            return 0.0
+
+        return 4.0 * area / (l1 * l2 * d)
+
+    @property
+    def empty(self):
+        return len(self.points) == 0
+
+    @property
+    def last(self):
+        return self.points[-1] if self.points else None
 
 
 class FalconAdapter:
@@ -45,48 +142,55 @@ class FalconAdapter:
         self.cam_frame = rospy.get_param("~cam_frame", "camera")
         self.mapping_only = rospy.get_param("~mapping_only", False)
 
-        # Camera offset from body center (in body frame, meters)
+        # Camera offset
         self.cam_offset_x = rospy.get_param("~cam_offset_x", 0.2)
         self.cam_offset_y = rospy.get_param("~cam_offset_y", 0.0)
         self.cam_offset_z = rospy.get_param("~cam_offset_z", 0.0)
 
-        # PD gains for pos_cmd -> cmd_vel
-        self.kp_xy = rospy.get_param("~kp_xy", 1.5)
-        self.kd_xy = rospy.get_param("~kd_xy", 0.3)
-        self.kp_z = rospy.get_param("~kp_z", 1.5)
-        self.kd_z = rospy.get_param("~kd_z", 0.3)
-        self.kp_yaw = rospy.get_param("~kp_yaw", 1.0)
-        self.max_vel_xy = rospy.get_param("~max_vel_xy", 1.0)
-        self.max_vel_z = rospy.get_param("~max_vel_z", 0.5)
-        self.max_yaw_rate = rospy.get_param("~max_yaw_rate", 1.0)
         self.auto_takeoff = rospy.get_param("~auto_takeoff", True)
         self.odom_min_dt = rospy.get_param("~odom_min_dt", 0.02)
 
         if self.mapping_only:
             self.auto_takeoff = False
 
-        # ══════════════════════════════════════════════════════════
-        # T_b_c: camera-to-body transform (4x4 homogeneous)
-        #
-        # Built DIRECTLY from the matrix — no quaternion conversion
-        # that can go wrong. This is identical to every FALCON map
-        # YAML (octa_maze.yaml, complex_office.yaml, hospital.yaml).
-        #
-        # Columns = where each camera axis points in body frame:
-        #   Camera X (right)   → Body -Y (left)    : col0 = [ 0,-1, 0]
-        #   Camera Y (down)    → Body -Z (down)    : col1 = [ 0, 0,-1]
-        #   Camera Z (forward) → Body  X (forward) : col2 = [ 1, 0, 0]
-        #
-        # Translation = camera origin in body frame coordinates.
-        # ══════════════════════════════════════════════════════════
+        # ════════════════════════════════════════════════════════
+        # Pure Pursuit parameters (from SmoothPathFollower)
+        # ════════════════════════════════════════════════════════
+
+        # Lookahead
+        self.base_lookahead = rospy.get_param("~base_lookahead", 0.6)
+        self.min_lookahead = rospy.get_param("~min_lookahead", 0.3)
+        self.max_lookahead = rospy.get_param("~max_lookahead", 1.5)
+        self.lookahead_speed_gain = rospy.get_param("~lookahead_speed_gain", 0.5)
+
+        # Speed control
+        self.cruise_speed = rospy.get_param("~cruise_speed", 0.4)
+        self.min_speed = rospy.get_param("~min_speed", 0.08)
+        self.max_speed = rospy.get_param("~max_speed", 0.5)
+        self.curvature_speed_factor = rospy.get_param("~curvature_speed_factor", 0.3)
+        self.speed_smoothing = rospy.get_param("~speed_smoothing", 0.3)
+
+        # Altitude control
+        self.altitude_kp = rospy.get_param("~altitude_kp", 1.2)
+        self.max_vertical_speed = rospy.get_param("~max_vertical_speed", 0.3)
+
+        # Yaw control (smooth, subtle)
+        self.yaw_kp = rospy.get_param("~yaw_kp", 0.5)
+        self.max_yaw_rate = rospy.get_param("~max_yaw_rate", 0.35)
+        self.yaw_deadband = rospy.get_param("~yaw_deadband", 0.15)
+        self.yaw_speed_threshold = rospy.get_param("~yaw_speed_threshold", 0.05)
+        self.yaw_rate_smoothing = rospy.get_param("~yaw_rate_smoothing", 0.15)
+
+        # Path tolerance
+        self.path_tolerance = rospy.get_param("~path_tolerance", 2.0)
+
+        # ── T_b_c (from matrix, same as every FALCON YAML) ──
         self.T_b_c = np.array([
             [ 0.0,  0.0, 1.0, self.cam_offset_x],
             [-1.0,  0.0, 0.0, self.cam_offset_y],
             [ 0.0, -1.0, 0.0, self.cam_offset_z],
             [ 0.0,  0.0, 0.0, 1.0]
         ])
-
-        # Extract quaternion from the rotation part for TF broadcast
         self.T_b_c_quat = tft.quaternion_from_matrix(self.T_b_c)
         self.T_b_c_trans = (self.cam_offset_x, self.cam_offset_y, self.cam_offset_z)
 
@@ -94,11 +198,16 @@ class FalconAdapter:
         self.cur_pose = None
         self.prev_time = None
         self.vel = np.zeros(3)
-        self.target_pos = None
-        self.target_yaw = 0.0
         self.airborne = False
 
-        # ── TF ──
+        # Pure Pursuit state
+        self.traj_buffer = TrajectoryBuffer(max_points=200, min_spacing=0.02)
+        self.current_speed = 0.0
+        self._current_yaw_rate = 0.0
+        self.closest_idx = 0
+        self.target_altitude = None  # Learned from first pos_cmd z
+
+        # TF
         self.tf_br = tf.TransformBroadcaster()
 
         # ── Publishers: to FALCON ──
@@ -109,7 +218,7 @@ class FalconAdapter:
             "/map_ros/depth/camera_info", CameraInfo, queue_size=2
         )
 
-        # ── Publishers: to drone (exploration mode only) ──
+        # ── Publishers: to drone ──
         if not self.mapping_only:
             self.cmd_pub = rospy.Publisher(
                 self.drone_ns + "/cmd_vel", Twist, queue_size=10
@@ -128,27 +237,25 @@ class FalconAdapter:
         )
         rospy.Subscriber(
             self.drone_ns + "/front_depth/depth/camera_info",
-            CameraInfo,
-            self.cam_info_cb,
+            CameraInfo, self.cam_info_cb,
         )
 
-        # ── Subscribers: from FALCON (exploration mode only) ──
+        # ── Subscribers: from FALCON ──
         if not self.mapping_only:
             try:
                 from quadrotor_msgs.msg import PositionCommand
-
                 rospy.Subscriber(
                     "/planning/pos_cmd", PositionCommand, self.pos_cmd_cb
                 )
                 rospy.loginfo("[Adapter] Using quadrotor_msgs/PositionCommand")
             except ImportError:
-                rospy.logwarn(
-                    "[Adapter] quadrotor_msgs not found, PoseStamped fallback"
-                )
+                rospy.logwarn("[Adapter] quadrotor_msgs not found")
                 rospy.Subscriber(
                     "/planning/pos_cmd_pose", PoseStamped, self.pos_cmd_pose_cb
                 )
-            rospy.Timer(rospy.Duration(1.0 / 30.0), self.control_loop)
+
+            # Control loop at 50 Hz (matching your SmoothPathFollower)
+            rospy.Timer(rospy.Duration(1.0 / 50.0), self.control_loop)
 
         # ── Startup ──
         if self.auto_takeoff:
@@ -156,24 +263,23 @@ class FalconAdapter:
         else:
             self.airborne = True
 
+        # Logging counter
+        self._loop_count = 0
+
         # ── Banner ──
-        mode_str = (
-            "MAPPING ONLY" if self.mapping_only else "FULL EXPLORATION"
-        )
+        mode_str = "MAPPING ONLY" if self.mapping_only else "FULL EXPLORATION"
         rospy.loginfo("=" * 54)
-        rospy.loginfo("  FALCON <-> Drone Adapter (v7)")
+        rospy.loginfo("  FALCON <-> Drone Adapter (v8 — Pure Pursuit)")
         rospy.loginfo("  Mode: %s", mode_str)
         rospy.loginfo("  Drone: %s", self.drone_ns)
-        rospy.loginfo(
-            "  Camera offset (body frame): (%.2f, %.2f, %.2f)",
-            self.cam_offset_x, self.cam_offset_y, self.cam_offset_z,
-        )
-        rospy.loginfo("  T_b_c (from matrix, not quaternion):")
-        for row in self.T_b_c:
-            rospy.loginfo("    [%6.2f %6.2f %6.2f %6.2f]",
-                          row[0], row[1], row[2], row[3])
-        rospy.loginfo("  sensor_pose = T_w_b * T_b_c  (camera frame)")
-        rospy.loginfo("  Depth: 32FC1 passthrough")
+        rospy.loginfo("  --- Pure Pursuit ---")
+        rospy.loginfo("  Lookahead: %.1f-%.1fm", self.min_lookahead, self.max_lookahead)
+        rospy.loginfo("  Speed: %.2f-%.2f m/s (cruise %.2f)",
+                      self.min_speed, self.max_speed, self.cruise_speed)
+        rospy.loginfo("  Yaw: kp=%.2f, max_rate=%.2f, deadband=%.2f",
+                      self.yaw_kp, self.max_yaw_rate, self.yaw_deadband)
+        rospy.loginfo("  Altitude: kp=%.2f, max_vz=%.2f",
+                      self.altitude_kp, self.max_vertical_speed)
         rospy.loginfo("=" * 54)
 
     # ── Takeoff ──────────────────────────────────────────────────
@@ -188,15 +294,12 @@ class FalconAdapter:
 
         self.posctrl_pub.publish(Bool(data=False))
         rospy.sleep(0.5)
-
         rospy.loginfo("[Adapter] Sending takeoff...")
         self.takeoff_pub.publish(Empty())
         rospy.sleep(4.0)
 
         if self.cur_pose is not None and self.cur_pose.position.z > 0.3:
-            rospy.loginfo(
-                "[Adapter] Airborne (z=%.2f)", self.cur_pose.position.z
-            )
+            rospy.loginfo("[Adapter] Airborne (z=%.2f)", self.cur_pose.position.z)
             self.airborne = True
         else:
             z = self.cur_pose.position.z if self.cur_pose else 0.0
@@ -208,7 +311,6 @@ class FalconAdapter:
     def gt_pose_cb(self, msg):
         now = rospy.Time.now()
 
-        # Throttle
         if self.prev_time is not None:
             dt = (now - self.prev_time).to_sec()
             if dt < self.odom_min_dt:
@@ -216,7 +318,6 @@ class FalconAdapter:
         else:
             dt = 0.0
 
-        # Velocity estimate
         if self.cur_pose is not None and dt > 1e-6:
             self.vel = np.array([
                 (msg.position.x - self.cur_pose.position.x) / dt,
@@ -229,7 +330,7 @@ class FalconAdapter:
         p = msg.position
         o = msg.orientation
 
-        # ── 1. Odometry (body frame) for FALCON FSM ──
+        # 1. Odometry (body frame)
         odom = Odometry()
         odom.header.stamp = now
         odom.header.frame_id = self.world_frame
@@ -240,18 +341,11 @@ class FalconAdapter:
         odom.twist.twist.linear.z = self.vel[2]
         self.odom_pub.publish(odom)
 
-        # ── 2. Sensor pose (CAMERA frame) for voxel_mapping ──
-        #
-        # FALCON's transformer feeds this directly to voxel_mapping
-        # as T_w_c. The planner NEVER applies T_b_c — we must do it.
-        #
-        # T_w_c = T_w_b * T_b_c
-        #
+        # 2. Sensor pose (camera frame) — T_w_c = T_w_b * T_b_c
         T_w_b = tft.quaternion_matrix([o.x, o.y, o.z, o.w])
         T_w_b[0, 3] = p.x
         T_w_b[1, 3] = p.y
         T_w_b[2, 3] = p.z
-
         T_w_c = T_w_b @ self.T_b_c
 
         cam_quat = tft.quaternion_from_matrix(T_w_c)
@@ -269,20 +363,14 @@ class FalconAdapter:
         ps.pose.orientation.w = cam_quat[3]
         self.pose_pub.publish(ps)
 
-        # ── 3. TF: world→body and body→camera ──
+        # 3. TF
         self.tf_br.sendTransform(
-            (p.x, p.y, p.z),
-            (o.x, o.y, o.z, o.w),
-            now,
-            self.body_frame,
-            self.world_frame,
+            (p.x, p.y, p.z), (o.x, o.y, o.z, o.w),
+            now, self.body_frame, self.world_frame,
         )
         self.tf_br.sendTransform(
-            self.T_b_c_trans,
-            self.T_b_c_quat,
-            now,
-            self.cam_frame,
-            self.body_frame,
+            self.T_b_c_trans, self.T_b_c_quat,
+            now, self.cam_frame, self.body_frame,
         )
 
     def depth_cb(self, msg):
@@ -295,55 +383,209 @@ class FalconAdapter:
         msg.header.frame_id = self.cam_frame
         self.cam_info_pub.publish(msg)
 
-    # ── FALCON → Drone ───────────────────────────────────────────
+    # ── FALCON → Trajectory Buffer ───────────────────────────────
 
     def pos_cmd_cb(self, msg):
-        self.target_pos = np.array(
-            [msg.position.x, msg.position.y, msg.position.z]
+        """Buffer FALCON's trajectory commands for Pure Pursuit."""
+        self.traj_buffer.add(
+            msg.position.x, msg.position.y, msg.position.z,
+            msg.yaw, rospy.Time.now().to_sec()
         )
-        self.target_yaw = msg.yaw
+        if self.target_altitude is None:
+            self.target_altitude = msg.position.z
 
     def pos_cmd_pose_cb(self, msg):
         p = msg.pose.position
-        self.target_pos = np.array([p.x, p.y, p.z])
         q = msg.pose.orientation
         _, _, yaw = tft.euler_from_quaternion([q.x, q.y, q.z, q.w])
-        self.target_yaw = yaw
+        self.traj_buffer.add(p.x, p.y, p.z, yaw, rospy.Time.now().to_sec())
+        if self.target_altitude is None:
+            self.target_altitude = p.z
 
-    def control_loop(self, _):
-        if self.cur_pose is None or self.target_pos is None:
-            return
-        if not self.airborne:
-            return
+    # ════════════════════════════════════════════════════════════
+    # Pure Pursuit helpers (adapted from SmoothPathFollower)
+    # ════════════════════════════════════════════════════════════
 
-        cur = np.array([
-            self.cur_pose.position.x,
-            self.cur_pose.position.y,
-            self.cur_pose.position.z,
-        ])
-        err = self.target_pos - cur
+    def _normalize_angle(self, angle):
+        """Normalize angle to [-pi, pi]."""
+        while angle > math.pi:
+            angle -= 2.0 * math.pi
+        while angle < -math.pi:
+            angle += 2.0 * math.pi
+        return angle
 
-        vxy = self.kp_xy * err[:2] - self.kd_xy * self.vel[:2]
-        sp = np.linalg.norm(vxy)
-        if sp > self.max_vel_xy:
-            vxy = vxy / sp * self.max_vel_xy
+    def _compute_lookahead(self, current_speed, curvature):
+        """Adaptive lookahead: shorter on curves, longer on straights."""
+        lookahead = self.base_lookahead + self.lookahead_speed_gain * current_speed
+        if curvature > 0.5:
+            lookahead *= 0.7
+        return max(self.min_lookahead, min(lookahead, self.max_lookahead))
 
-        vz = np.clip(
-            self.kp_z * err[2] - self.kd_z * self.vel[2],
-            -self.max_vel_z, self.max_vel_z,
+    def _compute_speed(self, dist_to_goal, curvature):
+        """Speed profiling: slow on curves, decelerate near goal."""
+        speed = self.cruise_speed
+
+        # Decelerate approaching the latest trajectory point
+        if dist_to_goal < 1.0:
+            speed *= (0.3 + 0.7 * (dist_to_goal / 1.0))
+
+        # Slow on curves
+        curve_factor = 1.0 / (1.0 + self.curvature_speed_factor * curvature)
+        speed *= curve_factor
+
+        return max(self.min_speed, min(speed, self.max_speed))
+
+    def _compute_yaw_rate(self, current_yaw, desired_yaw, current_speed):
+        """
+        Smooth yaw control with deadband (from SmoothPathFollower).
+        Prevents oscillation via exponential smoothing.
+        """
+        # Don't adjust yaw when nearly stationary
+        if current_speed < self.yaw_speed_threshold:
+            self._current_yaw_rate *= 0.8
+            return self._current_yaw_rate
+
+        yaw_error = self._normalize_angle(desired_yaw - current_yaw)
+
+        # Deadband: ignore small errors
+        if abs(yaw_error) < self.yaw_deadband:
+            self._current_yaw_rate *= 0.7
+            return self._current_yaw_rate
+
+        # P control with saturation
+        target_rate = self.yaw_kp * yaw_error
+        target_rate = max(-self.max_yaw_rate, min(target_rate, self.max_yaw_rate))
+
+        # Exponential smoothing to prevent oscillation
+        self._current_yaw_rate = (
+            self.yaw_rate_smoothing * target_rate +
+            (1.0 - self.yaw_rate_smoothing) * self._current_yaw_rate
         )
 
-        q = self.cur_pose.orientation
-        _, _, yaw = tft.euler_from_quaternion([q.x, q.y, q.z, q.w])
-        ye = (self.target_yaw - yaw + math.pi) % (2 * math.pi) - math.pi
-        yr = np.clip(self.kp_yaw * ye, -self.max_yaw_rate, self.max_yaw_rate)
+        return self._current_yaw_rate
 
+    # ════════════════════════════════════════════════════════════
+    # 3D Pure Pursuit Control Loop
+    # ════════════════════════════════════════════════════════════
+
+    def control_loop(self, _):
+        """
+        Pure Pursuit controller running at 50 Hz.
+
+        Algorithm:
+          1. Find closest point on buffered trajectory
+          2. Compute adaptive lookahead distance
+          3. Find lookahead point on trajectory
+          4. Compute speed (curvature-aware, with deceleration)
+          5. Steer toward lookahead point (world frame velocity)
+          6. Smooth yaw to face direction of travel
+          7. Altitude P controller (3D extension)
+          8. Publish cmd_vel
+        """
+        if self.cur_pose is None or not self.airborne:
+            return
+        if self.traj_buffer.empty:
+            return
+
+        px = self.cur_pose.position.x
+        py = self.cur_pose.position.y
+        pz = self.cur_pose.position.z
+        q = self.cur_pose.orientation
+        current_yaw = tft.euler_from_quaternion([q.x, q.y, q.z, q.w])[2]
+
+        # ── 1. Find closest point on trajectory ──
+        closest_idx, cross_track = self.traj_buffer.find_closest(
+            px, py, pz, start_idx=max(0, self.closest_idx - 5)
+        )
+
+        # Only advance forward (prevent backtracking)
+        if closest_idx >= self.closest_idx:
+            self.closest_idx = closest_idx
+
+        # Safety: too far from path
+        if cross_track > self.path_tolerance:
+            rospy.logwarn_throttle(
+                2.0, "[Pursuit] Cross-track error %.2fm > tolerance %.2fm",
+                cross_track, self.path_tolerance
+            )
+
+        # ── 2. Estimate curvature at current position ──
+        curvature = self.traj_buffer.estimate_curvature(self.closest_idx)
+
+        # ── 3. Compute adaptive lookahead ──
+        lookahead = self._compute_lookahead(self.current_speed, curvature)
+
+        # ── 4. Find lookahead point ──
+        lookahead_pt, lookahead_idx = self.traj_buffer.find_lookahead(
+            self.closest_idx, lookahead
+        )
+        if lookahead_pt is None:
+            return
+
+        target_x, target_y, target_z, target_yaw = (
+            lookahead_pt[0], lookahead_pt[1], lookahead_pt[2], lookahead_pt[3]
+        )
+
+        # ── 5. Compute distance to end of buffer (for deceleration) ──
+        if self.traj_buffer.last:
+            last = self.traj_buffer.last
+            dist_to_end = math.sqrt(
+                (last[0]-px)**2 + (last[1]-py)**2
+            )
+        else:
+            dist_to_end = 10.0
+
+        # ── 6. Compute target speed ──
+        target_speed = self._compute_speed(dist_to_end, curvature)
+
+        # Smooth speed changes
+        self.current_speed = (
+            self.speed_smoothing * target_speed +
+            (1.0 - self.speed_smoothing) * self.current_speed
+        )
+
+        # ── 7. Compute XY velocity toward lookahead (world frame) ──
+        dx = target_x - px
+        dy = target_y - py
+        dist_to_target = math.hypot(dx, dy)
+
+        if dist_to_target > 0.01:
+            vx_world = (dx / dist_to_target) * self.current_speed
+            vy_world = (dy / dist_to_target) * self.current_speed
+            desired_yaw = math.atan2(dy, dx)
+        else:
+            vx_world, vy_world = 0.0, 0.0
+            desired_yaw = current_yaw
+
+        # ── 8. Yaw rate (smooth, with deadband) ──
+        yaw_rate = self._compute_yaw_rate(
+            current_yaw, desired_yaw, self.current_speed
+        )
+
+        # ── 9. Altitude control (3D extension) ──
+        # Use the lookahead point's z as the target altitude
+        error_z = target_z - pz
+        vz = self.altitude_kp * error_z
+        vz = max(-self.max_vertical_speed, min(vz, self.max_vertical_speed))
+
+        # ── 10. Publish cmd_vel (world frame for sjtu_drone) ──
         cmd = Twist()
-        cmd.linear.x = float(vxy[0])
-        cmd.linear.y = float(vxy[1])
+        cmd.linear.x = float(vx_world)
+        cmd.linear.y = float(vy_world)
         cmd.linear.z = float(vz)
-        cmd.angular.z = float(yr)
+        cmd.angular.z = float(yaw_rate)
         self.cmd_pub.publish(cmd)
+
+        # ── Logging ──
+        self._loop_count += 1
+        if self._loop_count % 100 == 0:  # Every 2 seconds at 50Hz
+            rospy.loginfo(
+                "[Pursuit] spd=%.2f | pos=(%.1f,%.1f,%.1f) | "
+                "xtrack=%.2f | curv=%.1f | la=%.2f | yaw=%d->%d",
+                self.current_speed, px, py, pz,
+                cross_track, curvature, lookahead,
+                math.degrees(current_yaw), math.degrees(desired_yaw),
+            )
 
 
 if __name__ == "__main__":

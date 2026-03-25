@@ -1,6 +1,6 @@
 <launch>
   <!--
-    gazebo_exploration.launch  (v6 — matched to FALCON source code)
+    gazebo_exploration.launch  (v8 — Pure Pursuit + safe tuning)
     ══════════════════════════════════════════════════════════════
 
     Usage:
@@ -78,6 +78,48 @@
   -->
 
   <!-- ══════════════════════════════════════════════════════════
+       SPEED TUNING — plan slow trajectories for safe Gazebo flight
+
+       Default sim values → our values:
+         max_linear_velocity:     2.0 → 0.5 m/s  (was 0.8 in v7)
+         max_linear_acceleration: 3.0 → 0.8 m/s²
+         max_yaw_velocity:        90°/s → 30°/s
+         max_yaw_acceleration:    90°/s² → 30°/s²
+
+       These affect trajectory GENERATION — FALCON plans slower
+       B-splines. The adapter's Pure Pursuit then tracks them safely.
+       ══════════════════════════════════════════════════════════ -->
+  <param name="/uav_model/dynamics_parameters/max_linear_velocity"     value="0.5" />
+  <param name="/uav_model/dynamics_parameters/max_linear_acceleration"  value="0.8" />
+  <param name="/uav_model/dynamics_parameters/max_yaw_velocity"         value="0.5236" />
+  <param name="/uav_model/dynamics_parameters/max_yaw_acceleration"     value="0.5236" />
+
+  <!-- ══════════════════════════════════════════════════════════
+       WALL CLEARANCE — generous margins for a large drone
+
+       safe_distance: 0.7 → 1.2m (B-spline pushed away from walls)
+       min_candidate_clearance: 0.21 → 0.5m
+       min_candidate_occupied_clearance: 0.5 → 1.0m
+       candidate_rmin/rmax: 1.5/2.5 → 2.0/3.5 (viewpoints further back)
+       ══════════════════════════════════════════════════════════ -->
+  <param name="/bspline_opt/safe_distance"                               value="1.2" />
+  <param name="/frontier_finder/min_candidate_clearance"                 value="0.5" />
+  <param name="/frontier_finder/min_candidate_occupied_clearance"        value="1.0" />
+  <param name="/frontier_finder/candidate_rmin"                          value="2.0" />
+  <param name="/frontier_finder/candidate_rmax"                          value="3.5" />
+
+  <!-- ══════════════════════════════════════════════════════════
+       TRAJ SERVER — initial movement and tracking gains
+
+       init_dz: initial climb after takeoff. The traj_server
+         commands the drone to (init_x+dx, init_y+dy, init_z+dz).
+         With hospital.yaml init_z=0.0, init_dz=1.0 → fly to z=1.0.
+       ══════════════════════════════════════════════════════════ -->
+  <param name="/traj_server/init_dx"  value="0.5" />
+  <param name="/traj_server/init_dy"  value="0.0" />
+  <param name="/traj_server/init_dz"  value="1.0" />
+
+  <!-- ══════════════════════════════════════════════════════════
        Nodes
        ══════════════════════════════════════════════════════════ -->
 
@@ -104,15 +146,25 @@
     <param name="cam_offset_x"   value="0.2" />
     <param name="cam_offset_y"   value="0.0" />
     <param name="cam_offset_z"   value="0.0" />
-    <!-- PD gains (tune later for trajectory tracking) -->
-    <param name="kp_xy"          value="0.8" />
-    <param name="kd_xy"          value="0.2" />
-    <param name="kp_z"           value="0.8" />
-    <param name="kd_z"           value="0.2" />
-    <param name="max_vel_xy"     value="0.4" />
-    <param name="max_vel_z"      value="0.2" />
-    <param name="max_yaw_rate"   value="0.5" />
-    <param name="odom_min_dt"    value="0.02" />
+    <!-- Pure Pursuit parameters (from SmoothPathFollower) -->
+    <param name="base_lookahead"        value="0.6" />
+    <param name="min_lookahead"         value="0.3" />
+    <param name="max_lookahead"         value="1.5" />
+    <param name="lookahead_speed_gain"  value="0.5" />
+    <param name="cruise_speed"          value="0.4" />
+    <param name="min_speed"             value="0.08" />
+    <param name="max_speed"             value="0.5" />
+    <param name="curvature_speed_factor" value="0.3" />
+    <param name="speed_smoothing"       value="0.3" />
+    <param name="altitude_kp"           value="1.2" />
+    <param name="max_vertical_speed"    value="0.3" />
+    <param name="yaw_kp"               value="0.5" />
+    <param name="max_yaw_rate"         value="0.35" />
+    <param name="yaw_deadband"         value="0.15" />
+    <param name="yaw_speed_threshold"  value="0.05" />
+    <param name="yaw_rate_smoothing"   value="0.15" />
+    <param name="path_tolerance"       value="2.0" />
+    <param name="odom_min_dt"          value="0.02" />
   </node>
 
   <!-- Robot visualizer -->
