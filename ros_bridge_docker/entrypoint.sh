@@ -46,10 +46,22 @@ echo "  Bridge mode : ${BRIDGE_MODE:-dynamic}"
 echo "════════════════════════════════════════"
 
 if [[ "${BRIDGE_MODE:-dynamic}" == "static" && -f /bridge_ws/bridge.yaml ]]; then
-    exec ros2 run ros1_bridge parameter_bridge \
-        --ros-args --params-file /bridge_ws/bridge.yaml
+    while true; do
+        echo "[bridge] Starting parameter_bridge..."
+        ros2 run ros1_bridge parameter_bridge \
+            --ros-args --params-file /bridge_ws/bridge.yaml
+        EXIT_CODE=$?
+        echo "[bridge] Bridge exited (code ${EXIT_CODE}). Restarting in 3s..."
+        sleep 3
+    done
 else
-    exec ros2 run ros1_bridge dynamic_bridge \
-        --bridge-all-2to1-topics \
-        --bridge-all-1to2-topics
+    while true; do
+        echo "[bridge] Starting dynamic_bridge..."
+        ros2 run ros1_bridge dynamic_bridge \
+            --bridge-all-2to1-topics \
+            --bridge-all-1to2-topics
+        EXIT_CODE=$?
+        echo "[bridge] Bridge exited (code ${EXIT_CODE}). Restarting in 3s..."
+        sleep 3
+    done
 fi

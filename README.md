@@ -292,13 +292,29 @@ docker exec -it falcon bash
 roslaunch falcon_adapter gazebo_exploration.launch
 ```
 
+That's 2cm position, ~0.6° yaw, 5mm + 1.5% depth — typical for a well-calibrated RealSense with decent VIO indoors.
 ```bash
-# Stop current launch (Ctrl+C in Terminal 3b), then:
-roslaunch falcon_adapter gazebo_exploration.launch mapping_only:=true
+roslaunch falcon_adapter gazebo_exploration.launch \
+  noise_pos_std:=0.02 \
+  noise_yaw_std:=0.01 \
+  noise_depth_std:=0.05 \
+  noise_depth_proportional:=0.15 \
+  noise_seed:=42
 ```
 
+That's 8cm position, ~2.3° yaw, 2cm + 4% depth — what you'd see with a basic IMU fusion that drifts, or a depth camera at longer ranges (3-5m).
+```bash
+roslaunch falcon_adapter gazebo_exploration.launch \
+  noise_pos_std:=0.08 \
+  noise_yaw_std:=0.04 \
+  noise_depth_std:=0.02 \
+  noise_depth_proportional:=0.04 \
+  noise_seed:=42
+```
+
+
 You should see:
-- `FALCON <-> Drone Adapter (v3)` banner
+- `FALCON <-> Drone Adapter` banner
 - `[Adapter] No pose yet — bridge may not be ready. Retrying in 3s...` (expected — bridge isn't running yet)
 - The adapter will keep retrying until the bridge comes up in the next step
 

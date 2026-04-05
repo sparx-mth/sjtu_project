@@ -1,25 +1,34 @@
 <launch>
   <!--
-    gazebo_exploration.launch  (v8 — Pure Pursuit + safe tuning)
+    gazebo_exploration.launch  (v10 — bridge only)
     ══════════════════════════════════════════════════════════════
 
     Usage:
+      # Normal — fly manually, FALCON builds map
       roslaunch falcon_adapter gazebo_exploration.launch
-      roslaunch falcon_adapter gazebo_exploration.launch mapping_only:=true
+
+      # With noise injection
+      roslaunch falcon_adapter gazebo_exploration.launch \
+        noise_pos_std:=0.05 noise_depth_std:=0.02
   -->
 
-  <arg name="map_name"      default="hospital" />
-  <arg name="drone_ns"      default="/simple_drone" />
-  <arg name="auto_takeoff"  default="true" />
-  <arg name="mapping_only"  default="false" />
+  <arg name="map_name"   default="hospital" />
+  <arg name="drone_ns"   default="/simple_drone" />
 
-  <!-- ── Topic mapping ──────────────────────────────────────── -->
+  <!-- Noise injection (all default 0 = off) -->
+  <arg name="noise_pos_std"            default="0.0" />
+  <arg name="noise_yaw_std"            default="0.0" />
+  <arg name="noise_depth_std"          default="0.0" />
+  <arg name="noise_depth_proportional" default="0.0" />
+  <arg name="noise_seed"               default="-1" />
+
+  <!-- Topic mapping -->
   <arg name="odometry_topic"     value="/odom_world" />
   <arg name="sensor_pose_topic"  value="/map_ros/pose" />
   <arg name="depth_image"        value="/map_ros/depth" />
 
   <!-- ══════════════════════════════════════════════════════════
-       Load FALCON config files (order matters — later params override)
+       Load FALCON config files
        ══════════════════════════════════════════════════════════ -->
   <rosparam command="load" file="$(find exploration_manager)/config/robot/uav_model_simulator.yaml"/>
   <rosparam command="load" file="$(find exploration_manager)/config/map/$(arg map_name).yaml"/>
@@ -32,17 +41,8 @@
   <rosparam command="load" file="$(find exploration_manager)/config/exploration_manager.yaml"/>
 
   <!-- ══════════════════════════════════════════════════════════
-       Camera intrinsics — MUST match your Gazebo depth camera
-
-       Your Gazebo depth camera (after xacro fix):
-         Resolution: 640 x 480
-         HFOV: 1.5708 rad (90 degrees)
-         fx = fy = 640 / (2 * tan(45°)) = 320.0
-         cx = 320.0,  cy = 240.0
-
-       These are the ONLY params voxel_mapping reads for intrinsics
-       (from map_server.cpp lines 62-65). The /voxel_mapping/fx etc.
-       params do NOT exist in the code — don't set them.
+       Camera intrinsics — must match Gazebo depth camera
+       640x480, HFOV 90°  →  fx=fy=320, cx=320, cy=240
        ══════════════════════════════════════════════════════════ -->
   <param name="/uav_model/sensing_parameters/camera_intrinsics/fx" value="320.0" />
   <param name="/uav_model/sensing_parameters/camera_intrinsics/fy" value="320.0" />
@@ -51,70 +51,27 @@
   <param name="/uav_model/sensing_parameters/image_width"  value="640" />
   <param name="/uav_model/sensing_parameters/image_height" value="480" />
 
-  <!-- ── Depth range: match FALCON's TSDF raycast_max (5.0m) ── -->
   <param name="/uav_model/sensing_parameters/min_depth" value="0.1" />
   <param name="/uav_model/sensing_parameters/max_depth" value="5.0" />
 
-  <!-- ══════════════════════════════════════════════════════════
-       Transformer config for external Gazebo
-
-       pose_topic_type = "pose":
-         The adapter publishes PoseStamped (camera frame)
-         FALCON's transformer converts it to TransformStamped internally.
-
-       timestamp_tolerance = 0.05:
-         At 30Hz odom, the gap between msgs is ~33ms.
-         50ms tolerance gives enough margin for matching.
-       ══════════════════════════════════════════════════════════ -->
-  <param name="/transformer/pose_topic_type"    value="pose" />
+  <!-- Transformer config -->
+  <param name="/transformer/pose_topic_type"     value="pose" />
   <param name="/transformer/timestamp_tolerance" value="0.05" />
 
-  <!-- ── Depth encoding: 32FC1 passthrough ──
-       FALCON's map_server.cpp handles 32FC1 natively:
-         if (encoding == TYPE_32FC1)
-           image.convertTo(image, CV_16UC1, depth_scaling_factor);
-       depth_scaling_factor defaults to 1000.0 (meters→mm).
-       No conversion needed in the adapter.
-  -->
+  <!-- Speed tuning (affects FALCON trajectory generation) -->
+  <param name="/uav_model/dynamics_parameters/max_linear_velocity"      value="0.2" />
+  <param name="/uav_model/dynamics_parameters/max_linear_acceleration"  value="0.3" />
+  <param name="/uav_model/dynamics_parameters/max_yaw_velocity"         value="0.2" />
+  <param name="/uav_model/dynamics_parameters/max_yaw_acceleration"     value="0.2" />
 
-  <!-- ══════════════════════════════════════════════════════════
-       SPEED TUNING — plan slow trajectories for safe Gazebo flight
+  <!-- Wall clearance -->
+  <param name="/bspline_opt/safe_distance"                          value="1.2" />
+  <param name="/frontier_finder/min_candidate_clearance"            value="0.5" />
+  <param name="/frontier_finder/min_candidate_occupied_clearance"   value="1.0" />
+  <param name="/frontier_finder/candidate_rmin"                     value="2.0" />
+  <param name="/frontier_finder/candidate_rmax"                     value="3.5" />
 
-       Default sim values → our values:
-         max_linear_velocity:     2.0 → 0.5 m/s  (was 0.8 in v7)
-         max_linear_acceleration: 3.0 → 0.8 m/s²
-         max_yaw_velocity:        90°/s → 30°/s
-         max_yaw_acceleration:    90°/s² → 30°/s²
-
-       These affect trajectory GENERATION — FALCON plans slower
-       B-splines. The adapter's Pure Pursuit then tracks them safely.
-       ══════════════════════════════════════════════════════════ -->
-  <param name="/uav_model/dynamics_parameters/max_linear_velocity"     value="0.5" />
-  <param name="/uav_model/dynamics_parameters/max_linear_acceleration"  value="0.8" />
-  <param name="/uav_model/dynamics_parameters/max_yaw_velocity"         value="0.5236" />
-  <param name="/uav_model/dynamics_parameters/max_yaw_acceleration"     value="0.5236" />
-
-  <!-- ══════════════════════════════════════════════════════════
-       WALL CLEARANCE — generous margins for a large drone
-
-       safe_distance: 0.7 → 1.2m (B-spline pushed away from walls)
-       min_candidate_clearance: 0.21 → 0.5m
-       min_candidate_occupied_clearance: 0.5 → 1.0m
-       candidate_rmin/rmax: 1.5/2.5 → 2.0/3.5 (viewpoints further back)
-       ══════════════════════════════════════════════════════════ -->
-  <param name="/bspline_opt/safe_distance"                               value="1.2" />
-  <param name="/frontier_finder/min_candidate_clearance"                 value="0.5" />
-  <param name="/frontier_finder/min_candidate_occupied_clearance"        value="1.0" />
-  <param name="/frontier_finder/candidate_rmin"                          value="2.0" />
-  <param name="/frontier_finder/candidate_rmax"                          value="3.5" />
-
-  <!-- ══════════════════════════════════════════════════════════
-       TRAJ SERVER — initial movement and tracking gains
-
-       init_dz: initial climb after takeoff. The traj_server
-         commands the drone to (init_x+dx, init_y+dy, init_z+dz).
-         With hospital.yaml init_z=0.0, init_dz=1.0 → fly to z=1.0.
-       ══════════════════════════════════════════════════════════ -->
+  <!-- Traj server initial movement -->
   <param name="/traj_server/init_dx"  value="0.5" />
   <param name="/traj_server/init_dy"  value="0.0" />
   <param name="/traj_server/init_dz"  value="1.0" />
@@ -123,48 +80,35 @@
        Nodes
        ══════════════════════════════════════════════════════════ -->
 
-  <!-- Exploration planner -->
-  <node pkg="exploration_manager" name="exploration_node" type="exploration_node" output="screen">
+  <!-- FALCON exploration planner (respawn on crash) -->
+  <node pkg="exploration_manager" name="exploration_node" type="exploration_node" output="screen"
+        respawn="true" respawn_delay="3">
     <remap from="/odom_world"                    to="$(arg odometry_topic)"/>
     <remap from="/voxel_mapping/depth_image"     to="$(arg depth_image)"/>
     <remap from="/transformer/sensor_pose_topic" to="$(arg sensor_pose_topic)"/>
   </node>
 
-  <!-- Trajectory server -->
-  <node pkg="fast_planner" name="traj_server" type="traj_server" output="screen" />
+  <!-- FALCON trajectory server (respawn on crash) -->
+  <node pkg="fast_planner" name="traj_server" type="traj_server" output="screen"
+        respawn="true" respawn_delay="3" />
 
-  <!-- Adapter: drone topics <-> FALCON topics -->
+  <!-- Bridge adapter: drone topics -> FALCON topics -->
   <node pkg="falcon_adapter" type="falcon_adapter.py"
         name="falcon_adapter" output="screen">
-    <param name="drone_ns"       value="$(arg drone_ns)" />
-    <param name="world_frame"    value="world" />
-    <param name="body_frame"     value="body" />
-    <param name="cam_frame"      value="camera" />
-    <param name="auto_takeoff"   value="$(arg auto_takeoff)" />
-    <param name="mapping_only"   value="$(arg mapping_only)" />
-    <!-- Camera offset: 0.2m forward, matching xacro front_cam_joint -->
-    <param name="cam_offset_x"   value="0.2" />
-    <param name="cam_offset_y"   value="0.0" />
-    <param name="cam_offset_z"   value="0.0" />
-    <!-- Pure Pursuit parameters (from SmoothPathFollower) -->
-    <param name="base_lookahead"        value="0.6" />
-    <param name="min_lookahead"         value="0.3" />
-    <param name="max_lookahead"         value="1.5" />
-    <param name="lookahead_speed_gain"  value="0.5" />
-    <param name="cruise_speed"          value="0.4" />
-    <param name="min_speed"             value="0.08" />
-    <param name="max_speed"             value="0.5" />
-    <param name="curvature_speed_factor" value="0.3" />
-    <param name="speed_smoothing"       value="0.3" />
-    <param name="altitude_kp"           value="1.2" />
-    <param name="max_vertical_speed"    value="0.3" />
-    <param name="yaw_kp"               value="0.5" />
-    <param name="max_yaw_rate"         value="0.35" />
-    <param name="yaw_deadband"         value="0.15" />
-    <param name="yaw_speed_threshold"  value="0.05" />
-    <param name="yaw_rate_smoothing"   value="0.15" />
-    <param name="path_tolerance"       value="2.0" />
-    <param name="odom_min_dt"          value="0.02" />
+    <param name="drone_ns"                 value="$(arg drone_ns)" />
+    <param name="world_frame"              value="world" />
+    <param name="body_frame"               value="body" />
+    <param name="cam_frame"                value="camera" />
+    <param name="cam_offset_x"             value="0.2" />
+    <param name="cam_offset_y"             value="0.0" />
+    <param name="cam_offset_z"             value="0.0" />
+    <param name="odom_min_dt"              value="0.04" />
+    <param name="depth_min_dt"             value="0.04" />
+    <param name="noise_pos_std"            value="$(arg noise_pos_std)" />
+    <param name="noise_yaw_std"            value="$(arg noise_yaw_std)" />
+    <param name="noise_depth_std"          value="$(arg noise_depth_std)" />
+    <param name="noise_depth_proportional" value="$(arg noise_depth_proportional)" />
+    <param name="noise_seed"               value="$(arg noise_seed)" />
   </node>
 
   <!-- Robot visualizer -->

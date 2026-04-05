@@ -54,5 +54,11 @@ EOF
         echo "  DDS config  : ${CYCLONEDDS_URI}"
         echo "════════════════════════════════════════"
 
-        ros2 run ros1_bridge dynamic_bridge --bridge-all-2to1-topics --bridge-all-1to2-topics
+        while true; do
+            echo "[bridge] Starting dynamic_bridge..."
+            ros2 run ros1_bridge dynamic_bridge --bridge-all-2to1-topics --bridge-all-1to2-topics
+            EXIT_CODE=$?
+            echo "[bridge] Bridge exited (code ${EXIT_CODE}). Restarting in 3s..."
+            sleep 3
+        done
     '
