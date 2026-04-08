@@ -1286,5 +1286,77 @@
         <pose>1.30985 -0.727185 -0 0 0 -1.53446</pose>
       </include>
     </model>
+    <model name="da3_red_box">
+      <static>true</static>
+      <pose>3.0 1.0 0.30 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.40 0.40 0.60</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>1 0 0 1</ambient>
+            <diffuse>1 0 0 1</diffuse>
+          </material>
+        </visual>
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.40 0.40 0.60</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+        <model name="da3_green_box">
+      <static>true</static>
+      <pose>5.0 -1.2 0.25 0 0 0.4</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.30 0.70 0.50</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0 1 0 1</ambient>
+            <diffuse>0 1 0 1</diffuse>
+          </material>
+        </visual>
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.30 0.70 0.50</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+        <model name="da3_purple_board">
+      <static>true</static>
+      <pose>4.2 2.0 0.60 0 0 1.0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.80 0.02 1.20</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.6 0.1 0.8 1</ambient>
+            <diffuse>0.6 0.1 0.8 1</diffuse>
+          </material>
+        </visual>
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.80 0.02 1.20</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
   </world>
 </sdf>
