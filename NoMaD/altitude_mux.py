@@ -23,7 +23,7 @@ class AltitudeMux(Node):
         super().__init__("altitude_mux")
 
         # ---------- Params ----------
-        self.declare_parameter("z_ref", 0.5)
+        self.declare_parameter("z_ref", 0.8)
         self.declare_parameter("kp", 1.2)
         self.declare_parameter("kd", 0.8)
 
