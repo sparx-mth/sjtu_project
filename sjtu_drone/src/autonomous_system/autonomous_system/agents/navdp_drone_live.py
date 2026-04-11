@@ -33,6 +33,9 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
 from geometry_msgs.msg import Pose, Twist
 from sensor_msgs.msg import Image
+from nav_msgs.msg import OccupancyGrid
+from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy
+from trajectory_safety_corrector import TrajectorySafetyCorrector
 
 # ── camera intrinsics (from /simple_drone/front_depth/camera_info) ──
 FX, FY, CX, CY = 320.0, 320.0, 320.5, 240.5
@@ -45,7 +48,11 @@ INTRINSIC = [[FX, 0, CX], [0, FY, CY], [0, 0, 1]]
 class NavDPDroneController(Node):
 
     def __init__(self, navdp_port: int, map_yaml: str | None,
-                 rgb_topic: str, depth_topic: str):
+                 rgb_topic: str, depth_topic: str,
+                 n_iterations: int = 5,
+                 correction_gain: float = 0.6,
+                 corrector_max_corr: float = 0.25,
+                 depth_scale: float = 1.73):
         super().__init__("navdp_drone_controller")
         self.navdp_url = f"http://127.0.0.1:{navdp_port}"
 
@@ -56,6 +63,7 @@ class NavDPDroneController(Node):
 
         # ── trajectory state ─────────────────────────────────────
         self.world_wps: list[tuple[float, float]] | None = None
+        self.world_wps_original: list[tuple[float, float]] | None = None
         self.wp_idx = 0
         self.following = False
 
@@ -65,6 +73,7 @@ class NavDPDroneController(Node):
         # ── NavDP visualisation (side-by-side panel) ─────────────
         self.inference_frame: np.ndarray | None = None   # RGB sent to model
         self.navdp_vis: np.ndarray | None = None         # BGR with trajectories
+        self.corrector_vis: np.ndarray | None = None     # correction debug image
 
         # ── 2-D map (optional) ───────────────────────────────────
         self.map_img = self.map_res = self.map_origin = None
@@ -81,6 +90,29 @@ class NavDPDroneController(Node):
             Image, depth_topic, self._depth_cb, 5, callback_group=cb)
         self.cmd_pub = self.create_publisher(Twist, "/simple_drone/cmd_vel", 10)
 
+        # ── trajectory safety corrector ───────────────────────────
+        self.corrector = TrajectorySafetyCorrector(
+            n_iterations=n_iterations,
+            correction_gain=correction_gain,
+            max_correction_m=corrector_max_corr,
+            depth_scale=depth_scale,
+        )
+        qos_latched = QoSProfile(
+            depth=1,
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        self.create_subscription(
+            OccupancyGrid, '/map_local',
+            self._map_cb, qos_latched,
+            callback_group=cb,
+        )
+        self.create_subscription(
+            Image, '/potential_field/u_rep',
+            self._u_rep_cb, qos_latched,
+            callback_group=cb,
+        )
+
         # ── control parameters ───────────────────────────────────
         self.cruise_speed = 0.35
         self.wp_tolerance = 0.25
@@ -95,6 +127,16 @@ class NavDPDroneController(Node):
         q = msg.orientation
         yaw = math.atan2(2*(q.w*q.z + q.x*q.y), 1 - 2*(q.y**2 + q.z**2))
         self.drone_pose = (msg.position.x, msg.position.y, msg.position.z, yaw)
+
+    def _map_cb(self, msg: OccupancyGrid):
+        """Receive grid metadata (resolution, origin) for trajectory correction."""
+        self.corrector.update_grid_metadata(msg)
+
+    def _u_rep_cb(self, msg: Image):
+        """Receive the precomputed repulsive potential field."""
+        u_rep = np.frombuffer(msg.data, dtype=np.float32).reshape(
+            msg.height, msg.width).copy()
+        self.corrector.update_u_rep(u_rep)
 
     def _rgb_cb(self, msg: Image):
         if msg.encoding == "rgb8":
@@ -357,15 +399,29 @@ class NavDPDroneController(Node):
         else:
             vis = self.map_img.copy()
 
-        # draw trajectory
+        # draw original (uncorrected) trajectory in red
+        if self.world_wps_original:
+            pts_orig = [self._world_to_map_cv(x, y) for x, y in self.world_wps_original]
+            for i in range(len(pts_orig) - 1):
+                cv2.line(vis, pts_orig[i], pts_orig[i + 1], (0, 0, 255), 2)
+            for p in pts_orig:
+                cv2.circle(vis, p, 2, (0, 0, 200), -1)
+
+        # draw corrected trajectory in green
         if self.world_wps:
             pts = [self._world_to_map_cv(x, y) for x, y in self.world_wps]
             for i in range(len(pts) - 1):
-                cv2.line(vis, pts[i], pts[i + 1], (0, 255, 255), 2)
+                cv2.line(vis, pts[i], pts[i + 1], (0, 255, 0), 2)
             for p in pts:
-                cv2.circle(vis, p, 3, (0, 200, 255), -1)
+                cv2.circle(vis, p, 3, (0, 200, 0), -1)
             cv2.circle(vis, pts[-1], 8, (0, 0, 255), 2)   # goal
             cv2.circle(vis, pts[0], 8, (255, 0, 0), 2)     # start
+
+        # legend
+        cv2.putText(vis, "Original", (8, 20),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 255), 1)
+        cv2.putText(vis, "Corrected", (8, 38),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 1)
 
         # draw drone
         if self.drone_pose:
@@ -404,6 +460,15 @@ def main():
     ap.add_argument("--depth_topic", type=str,
                     default="/simple_drone/front_depth/depth/image_raw")
     ap.add_argument("--alt", type=float, default=1.5)
+    ap.add_argument("--iters", type=int, default=5,
+                    help="Number of descent iterations per trajectory")
+    ap.add_argument("--corr_gain", type=float, default=0.6,
+                    help="Descent step multiplier")
+    ap.add_argument("--corr_max", type=float, default=0.25,
+                    help="Max nudge per waypoint per iteration in metres")
+    ap.add_argument("--depth_scale", type=float, default=1.73,
+                    help="NavDP-vs-DA3 resolution ratio "
+                         "(default 1.73 for 90° vs 120° HFOV cameras)")
     args = ap.parse_args()
 
     rclpy.init()
@@ -412,6 +477,10 @@ def main():
         map_yaml=args.map_yaml if args.map_yaml else None,
         rgb_topic=args.rgb_topic,
         depth_topic=args.depth_topic,
+        n_iterations=args.iters,
+        correction_gain=args.corr_gain,
+        corrector_max_corr=args.corr_max,
+        depth_scale=args.depth_scale,
     )
     node.cruise_alt = args.alt
 
@@ -436,6 +505,7 @@ def main():
     cv2.setMouseCallback("NavDP Camera", mouse_cb)
     if node.map_img is not None:
         cv2.namedWindow("NavDP Map", cv2.WINDOW_NORMAL)
+    cv2.namedWindow("Correction Debug", cv2.WINDOW_NORMAL)
 
     last_ctrl = time.time()
     ctrl_dt = 1.0 / 30.0
@@ -507,6 +577,10 @@ def main():
             if map_vis is not None:
                 cv2.imshow("NavDP Map", map_vis)
 
+            # ── correction debug display ─────────────────────────
+            if node.corrector_vis is not None:
+                cv2.imshow("Correction Debug", node.corrector_vis)
+
             # ── keyboard ─────────────────────────────────────────
             key = cv2.waitKey(30) & 0xFF
 
@@ -570,9 +644,20 @@ def main():
                         click_px=(px, py),
                         cam_height=node.cruise_alt)
 
-                # 6) convert body-frame → world
+                # 6) correct trajectory using the potential field
+                corrected_traj = node.corrector.correct(best_traj, verbose=True)
+                max_shift = np.max(np.abs(corrected_traj[:, :2] - best_traj[:, :2]))
+                print(f"Trajectory corrected: max shift = {max_shift:.3f} m")
+
+                # 6b) debug visualisation of corrections
+                node.corrector_vis = node.corrector.visualize_corrections(
+                    best_traj, corrected_traj)
+
+                # 7) convert body-frame → world
                 ref = node.drone_pose
-                node.world_wps = node.traj_to_world(best_traj,
+                node.world_wps_original = node.traj_to_world(best_traj,
+                                                              ref[0], ref[1], ref[3])
+                node.world_wps = node.traj_to_world(corrected_traj,
                                                      ref[0], ref[1], ref[3])
                 node.wp_idx = 0
                 node.following = True
