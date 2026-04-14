@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 import sys
 import rclpy
 from gazebo_msgs.srv import SpawnEntity
@@ -13,11 +14,15 @@ def main(args=None):
     content = sys.argv[1]
     namespace = sys.argv[2]
 
+    spawn_x = float(os.environ.get("SPAWN_X", "1.0"))
+    spawn_y = float(os.environ.get("SPAWN_Y", "1.0"))
+    spawn_z = float(os.environ.get("SPAWN_Z", "2.0"))
+
     # SAFER INITIAL POSITION - Inside the hospital
     initial_pose = Pose()
-    initial_pose.position.x = 1.0    # Center of the world
-    initial_pose.position.y = 1.0    # Center of the world
-    initial_pose.position.z = 2.0    # 1 meter above ground
+    initial_pose.position.x = spawn_x   # Center of the world
+    initial_pose.position.y = spawn_y    # Center of the world
+    initial_pose.position.z = spawn_z    # 1 meter above ground
 
     # Orientation (quaternion) - default is no rotation
     initial_pose.orientation.x = 0.0

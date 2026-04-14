@@ -13,10 +13,15 @@ XAUTH=$HOME/.Xauthority
 # Detect workspace paths automatically
 # -----------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WORKSPACE_DIR="$(dirname "$SCRIPT_DIR")"                          # <workspace_root>
-CONTAINER_WS="/root/$(basename "$WORKSPACE_DIR")"                 # e.g., /root/my_project
-HOST_WORLDS_DIR="${WORKSPACE_DIR}/aws-robomaker-hospital-world/worlds"
+WORKSPACE_DIR="$(dirname "$SCRIPT_DIR")"
+CONTAINER_WS="/root/$(basename "$WORKSPACE_DIR")"
 HOST_SRC_DIR="${WORKSPACE_DIR}/src"
+
+WORLD_REPOS=(
+  "aws-robomaker-hospital-world"
+  "aws-robomaker-bookstore-world"
+  "aws-robomaker-small-house-world"
+)
 
 echo "[INFO] Host workspace:      ${WORKSPACE_DIR}"
 echo "[INFO] Container workspace: ${CONTAINER_WS}"
@@ -33,28 +38,85 @@ fi
 if [[ -z "${1:-}" ]]; then
   echo "Usage: $0 [--no-map] <world_file>"
   echo ""
-  echo "Worlds found in:"
-  echo "  ${HOST_WORLDS_DIR}"
-  ls -1 "${HOST_WORLDS_DIR}"/*.world 2>/dev/null | xargs -n1 basename || true
+  echo "Examples:"
+  echo "  $0 hospital.world"
+  echo "  $0 bookstore.world"
+  echo "  $0 small_house.world"
+  echo ""
+  echo "Available worlds:"
+  for repo_name in "${WORLD_REPOS[@]}"; do
+    repo_dir="${WORKSPACE_DIR}/${repo_name}"
+    if [[ -d "${repo_dir}/worlds" ]]; then
+      find "${repo_dir}/worlds" -maxdepth 1 -name "*.world" -printf "  %f   (%s)\n" "${repo_name}" 2>/dev/null || true
+    fi
+  done
   exit 1
 fi
 
 WORLD_FILE="$1"
 WORLD_BASE="$(basename "${WORLD_FILE}" .world)"
-WORLD_PATH="${CONTAINER_WS}/aws-robomaker-hospital-world/worlds/${WORLD_FILE}"
+
+# -----------------------------
+# Find which repo contains the world
+# -----------------------------
+HOST_WORLD_REPO=""
+HOST_WORLD_PATH=""
+WORLD_REPO_NAME=""
+
+SPAWN_X=1.0
+SPAWN_Y=1.0
+SPAWN_Z=2.0
+
+case "${WORLD_FILE}" in
+  bookstore.world)
+    SPAWN_Y=3.0
+    ;;
+esac
+
+for repo_name in "${WORLD_REPOS[@]}"; do
+  repo_dir="${WORKSPACE_DIR}/${repo_name}"
+  candidate="${repo_dir}/worlds/${WORLD_FILE}"
+  if [[ -f "${candidate}" ]]; then
+    HOST_WORLD_REPO="${repo_dir}"
+    HOST_WORLD_PATH="${candidate}"
+    WORLD_REPO_NAME="${repo_name}"
+    break
+  fi
+done
+
+if [[ -z "${HOST_WORLD_PATH}" ]]; then
+  echo "[ERROR] World file not found: ${WORLD_FILE}"
+  echo "[INFO] Searched repos:"
+  for repo_name in "${WORLD_REPOS[@]}"; do
+    echo "  ${WORKSPACE_DIR}/${repo_name}/worlds/${WORLD_FILE}"
+  done
+  echo ""
+  echo "[INFO] Available worlds:"
+  for repo_name in "${WORLD_REPOS[@]}"; do
+    repo_dir="${WORKSPACE_DIR}/${repo_name}"
+    if [[ -d "${repo_dir}/worlds" ]]; then
+      find "${repo_dir}/worlds" -maxdepth 1 -name "*.world" -printf "  %f   (%s)\n" "${repo_name}" 2>/dev/null || true
+    fi
+  done
+  exit 1
+fi
+
+WORLD_PATH="${CONTAINER_WS}/${WORLD_REPO_NAME}/worlds/${WORLD_FILE}"
+
+echo "[INFO] Selected repo:       ${WORLD_REPO_NAME}"
+echo "[INFO] Selected host world: ${HOST_WORLD_PATH}"
+echo "[INFO] Container world:     ${WORLD_PATH}"
 
 # -----------------------------
 # Pre-run checks (host)
 # -----------------------------
-if [[ ! -d "${WORKSPACE_DIR}/aws-robomaker-hospital-world" ]]; then
-  echo "[ERROR] Missing directory: ${WORKSPACE_DIR}/aws-robomaker-hospital-world"
-  echo "        Expected layout:"
-  echo "        <workspace_root>/{sjtu_drone, aws-robomaker-hospital-world}"
+if [[ ! -d "${HOST_WORLD_REPO}" ]]; then
+  echo "[ERROR] Missing directory: ${HOST_WORLD_REPO}"
   exit 1
 fi
 
-if [[ ! -f "${HOST_WORLDS_DIR}/${WORLD_FILE}" ]]; then
-  echo "[ERROR] World file not found: ${HOST_WORLDS_DIR}/${WORLD_FILE}"
+if [[ ! -f "${HOST_WORLD_PATH}" ]]; then
+  echo "[ERROR] World file not found: ${HOST_WORLD_PATH}"
   exit 1
 fi
 
@@ -108,6 +170,9 @@ docker run \
   -e XAUTHORITY="${XAUTH}" \
   -e QT_X11_NO_MITSHM=1 \
   -e SKIP_MAP="${SKIP_MAP}" \
+  -e SPAWN_X="${SPAWN_X}" \
+  -e SPAWN_Y="${SPAWN_Y}" \
+  -e SPAWN_Z="${SPAWN_Z}" \
   --name="sjtu_drone_${WORLD_BASE}" \
   "${IMAGE_NAME}" \
   bash -c "
@@ -122,47 +187,57 @@ docker run \
     echo '[[ -f ${CONTAINER_WS}/install/setup.bash ]] && source ${CONTAINER_WS}/install/setup.bash' >> /root/.bashrc
 
     # --- Core env ---
-    # Install CycloneDDS for bridge compatibility (one-time, cached after first run)
     apt-get update -qq && apt-get install -y -qq ros-humble-rmw-cyclonedds-cpp >/dev/null 2>&1 || true
     export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-    export GAZEBO_MODEL_PATH=/usr/share/gazebo-11/models
-    export GAZEBO_MODEL_PATH=\$GAZEBO_MODEL_PATH:${CONTAINER_WS}/aws-robomaker-hospital-world/models
-    if [[ -d '${CONTAINER_WS}/aws-robomaker-hospital-world/fuel_models' ]]; then
-      export GAZEBO_MODEL_PATH=\$GAZEBO_MODEL_PATH:${CONTAINER_WS}/aws-robomaker-hospital-world/fuel_models
-    fi
-    export GAZEBO_MODEL_PATH=\$GAZEBO_MODEL_PATH:${CONTAINER_WS}/sjtu_drone/sjtu_drone_description
-    export GAZEBO_MODEL_PATH=\$GAZEBO_MODEL_PATH:${CONTAINER_WS}/sjtu_drone/models
 
+    export GAZEBO_MODEL_PATH=/usr/share/gazebo-11/models
     export GAZEBO_RESOURCE_PATH=/usr/share/gazebo-11
-    export GAZEBO_RESOURCE_PATH=\$GAZEBO_RESOURCE_PATH:${CONTAINER_WS}/aws-robomaker-hospital-world/worlds
-    export GAZEBO_RESOURCE_PATH=\$GAZEBO_RESOURCE_PATH:${CONTAINER_WS}/aws-robomaker-hospital-world
     export GAZEBO_MODEL_DATABASE_URI=
     export GAZEBO_PLUGIN_PATH=/usr/lib/x86_64-linux-gnu/gazebo-11/plugins:\$GAZEBO_PLUGIN_PATH
-    if [[ -d '${CONTAINER_WS}/install/gazebo_ros_2d_map/lib' ]]; then
-      export GAZEBO_PLUGIN_PATH=\$GAZEBO_PLUGIN_PATH:${CONTAINER_WS}/install/gazebo_ros_2d_map/lib
-    fi
     export GAZEBO_MASTER_URI=http://localhost:11345
     export ALSA_CARD=0
     export GAZEBO_AUDIO_DEVICE=null
     export GAZEBO_VERBOSE=1
 
+    WORLD_REPO_PATH='${CONTAINER_WS}/${WORLD_REPO_NAME}'
+
+    # World-specific assets
+    export GAZEBO_MODEL_PATH=\$GAZEBO_MODEL_PATH:\$WORLD_REPO_PATH/models
+    if [[ -d \"\$WORLD_REPO_PATH/fuel_models\" ]]; then
+      export GAZEBO_MODEL_PATH=\$GAZEBO_MODEL_PATH:\$WORLD_REPO_PATH/fuel_models
+    fi
+
+    export GAZEBO_RESOURCE_PATH=\$GAZEBO_RESOURCE_PATH:\$WORLD_REPO_PATH/worlds
+    export GAZEBO_RESOURCE_PATH=\$GAZEBO_RESOURCE_PATH:\$WORLD_REPO_PATH
+
+    # SJTU assets
+    export GAZEBO_MODEL_PATH=\$GAZEBO_MODEL_PATH:${CONTAINER_WS}/sjtu_drone/sjtu_drone_description
+    export GAZEBO_MODEL_PATH=\$GAZEBO_MODEL_PATH:${CONTAINER_WS}/sjtu_drone/models
+
+    if [[ -d '${CONTAINER_WS}/install/gazebo_ros_2d_map/lib' ]]; then
+      export GAZEBO_PLUGIN_PATH=\$GAZEBO_PLUGIN_PATH:${CONTAINER_WS}/install/gazebo_ros_2d_map/lib
+    fi
+
     echo '================================'
     echo 'Environment ready'
     echo 'World: ${WORLD_FILE}'
+    echo 'Repo: ${WORLD_REPO_NAME}'
     echo 'GAZEBO_MODEL_PATH entries:'
     echo \$GAZEBO_MODEL_PATH | tr ':' '\n'
+    echo 'GAZEBO_RESOURCE_PATH entries:'
+    echo \$GAZEBO_RESOURCE_PATH | tr ':' '\n'
     echo '================================'
 
     # --- Sanity: world exists ---
-    if [[ ! -f '${CONTAINER_WS}/aws-robomaker-hospital-world/worlds/${WORLD_FILE}' ]]; then
-      echo '[ERROR] World file missing inside container: ${CONTAINER_WS}/aws-robomaker-hospital-world/worlds/${WORLD_FILE}'
+    if [[ ! -f '${WORLD_PATH}' ]]; then
+      echo '[ERROR] World file missing inside container: ${WORLD_PATH}'
       exit 1
     fi
 
     # --- Build ---
     echo '[INFO] Building workspace...'
     cd '${CONTAINER_WS}'
-    # Clean only our packages to avoid nuking other builds in the same WS
+
     rm -rf build/sjtu_drone_* install/sjtu_drone_* 2>/dev/null || true
     if [[ \"${SKIP_MAP}\" != 'true' ]]; then
       rm -rf build/gazebo_ros_2d_map install/gazebo_ros_2d_map 2>/dev/null || true
@@ -197,7 +272,7 @@ docker run \
       mkdir -p '${CONTAINER_WS}/maps'
       ros2 run gazebo_ros_2d_map gazebo_ros_2d_map \
         --ros-args \
-        -p map_name:='hospital_map' \
+        -p map_name:='${WORLD_BASE}_map' \
         -p save_map:=true \
         -p map_path:='${CONTAINER_WS}/maps' \
         -p occupied_thresh:=0.65 \
