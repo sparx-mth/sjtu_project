@@ -1,0 +1,101 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+    SplitterRatio: 0.5
+  - Class: rviz_common/Selection
+    Name: Selection
+  - Class: rviz_common/Tool Properties
+    Name: Tool Properties
+  - Class: rviz_common/Views
+    Name: Views
+
+Visualization Manager:
+  Class: ""
+  Name: root
+  Global Options:
+    Background Color: 30; 30; 35
+    Fixed Frame: world
+    Frame Rate: 20
+
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+    - Class: rviz_default_plugins/FocusCamera
+
+  Displays:
+
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Enabled: true
+      Plane Cell Count: 50
+      Cell Size: 1
+      Color: 70; 70; 80
+      Reference Frame: world
+
+    # ── BEV occupancy (subdued so room fills sit on top) ──
+    - Class: rviz_default_plugins/Map
+      Name: BEV
+      Topic:
+        Value: /scene_graph/bev
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
+      Color Scheme: map
+      Alpha: 0.35
+      Draw Behind: true
+      Enabled: true
+
+    # ── The scene graph itself ──
+    - Class: rviz_default_plugins/MarkerArray
+      Name: SceneGraph
+      Topic:
+        Value: /scene_graph/markers
+        Reliability Policy: Reliable
+      Enabled: true
+      Namespaces:
+        room_fill:           true
+        room_polygons:       true
+        rooms:               true
+        room_labels:         true
+        room_room_edges:     true
+        objects:             true
+        object_labels:       true
+        room_object_edges:   true
+        doors:               true
+        door_labels:         true
+        voronoi_mesh:        false
+
+    # ── YOLO-World debug image ──
+    - Class: rviz_default_plugins/Image
+      Name: YOLO debug
+      Topic:
+        Value: /perception/debug_image
+      Enabled: true
+
+  # ── Camera: top-down orthographic, fit to ~50 m hospital ──
+  Views:
+    Current:
+      Class: rviz_default_plugins/TopDownOrtho
+      Name: TopDown
+      Target Frame: world
+      X: 0
+      Y: 0
+      Angle: 0
+      Scale: 16    # ≈ pixels per metre; a 1000 px window shows ~62 m across
+      Invert Z Axis: false
+      Near Clip Distance: 0.01
+    Saved:
+      - Class: rviz_default_plugins/Orbit
+        Name: Orbit3D
+        Target Frame: world
+        Distance: 70
+        Pitch: 0.95
+        Yaw: 0.79
+        Focal Point: { X: 0, Y: 0, Z: 0 }
+
+Window Geometry:
+  Width: 1600
+  Height: 1000
+  Displays:
+    collapsed: false
+  Hide Left Dock: false
+  Hide Right Dock: false
