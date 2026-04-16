@@ -35,6 +35,7 @@ chmod +x run_perception.sh
     target_text:=apple \
     bbox_xmin:=-25.0 bbox_ymin:=-25.0 bbox_xmax:=25.0 bbox_ymax:=25.0 \
     door_sigma_m:=0.45 door_cut_thresh:=0.6 \
+    yolo_conf:=0.35 \
     start_rviz:=true
 ```
 

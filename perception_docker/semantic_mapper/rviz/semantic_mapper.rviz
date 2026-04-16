@@ -13,7 +13,7 @@ Visualization Manager:
   Class: ""
   Name: root
   Global Options:
-    Background Color: 30; 30; 35
+    Background Color: 28; 30; 38
     Fixed Frame: world
     Frame Rate: 20
 
@@ -24,15 +24,19 @@ Visualization Manager:
 
   Displays:
 
+    # ── Grid: subtle reference ──
     - Class: rviz_default_plugins/Grid
       Name: Grid
       Enabled: true
-      Plane Cell Count: 50
+      Plane Cell Count: 60
       Cell Size: 1
-      Color: 70; 70; 80
+      Color: 55; 58; 68
+      Line Style: 0
       Reference Frame: world
 
-    # ── BEV occupancy (subdued so room fills sit on top) ──
+    # ── BEV occupancy from drone depth ──
+    # Unknown cells are grey, free white, occupied black. Drawn behind
+    # the scene graph so the colored room fills sit clearly on top.
     - Class: rviz_default_plugins/Map
       Name: BEV
       Topic:
@@ -44,7 +48,17 @@ Visualization Manager:
       Draw Behind: true
       Enabled: true
 
-    # ── The scene graph itself ──
+    # ── Scene graph markers from simple_mapper ──
+    #
+    # Namespaces (in publishing order):
+    #   room_fill         — translucent colored cells, one color per room
+    #   rooms             — small sphere at each room's centroid (graph node)
+    #   room_labels       — "R0 (123 cells)" floating above each room
+    #   doors_pending     — FAINT GREY cylinders: known doors not yet reached
+    #   doors_discovered  — BRIGHT ORANGE cylinders: doors the drone has seen
+    #   door_labels       — "d0", "d12" captions above each door
+    #   room_room_edges   — yellow lines connecting rooms through discovered
+    #                       doors — this is the scene-graph topology
     - Class: rviz_default_plugins/MarkerArray
       Name: SceneGraph
       Topic:
@@ -52,35 +66,26 @@ Visualization Manager:
         Reliability Policy: Reliable
       Enabled: true
       Namespaces:
-        room_fill:           true
-        room_polygons:       true
-        rooms:               true
-        room_labels:         true
-        room_room_edges:     true
-        objects:             true
-        object_labels:       true
-        room_object_edges:   true
-        doors:               true
-        door_labels:         true
-        voronoi_mesh:        false
+        room_fill:         true
+        rooms:             true
+        room_labels:       true
+        doors_pending:     true
+        doors_discovered:  true
+        door_labels:       true
+        room_room_edges:   true
 
-    # ── YOLO-World debug image ──
-    - Class: rviz_default_plugins/Image
-      Name: YOLO debug
-      Topic:
-        Value: /perception/debug_image
-      Enabled: true
-
-  # ── Camera: top-down orthographic, fit to ~50 m hospital ──
+  # ── Camera: top-down orthographic, framed for the hospital map ──
+  # Map spans roughly x=[-9..9], y=[-32..15]. Centre the view at its
+  # midpoint and pick a scale that fits the long axis comfortably.
   Views:
     Current:
       Class: rviz_default_plugins/TopDownOrtho
       Name: TopDown
       Target Frame: world
       X: 0
-      Y: 0
+      Y: -8.5
       Angle: 0
-      Scale: 16    # ≈ pixels per metre; a 1000 px window shows ~62 m across
+      Scale: 18    # ≈ pixels per metre; shows ~55 m vertically at 1000 px
       Invert Z Axis: false
       Near Clip Distance: 0.01
     Saved:
@@ -90,7 +95,7 @@ Visualization Manager:
         Distance: 70
         Pitch: 0.95
         Yaw: 0.79
-        Focal Point: { X: 0, Y: 0, Z: 0 }
+        Focal Point: { X: 0, Y: -8.5, Z: 0 }
 
 Window Geometry:
   Width: 1600

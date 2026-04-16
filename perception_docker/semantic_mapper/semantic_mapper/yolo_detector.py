@@ -91,7 +91,7 @@ class YoloDetector(Node):
         self.declare_parameter("device", "cuda:0")
         self.declare_parameter("conf_thresh", 0.10)               # World needs lower thr
         self.declare_parameter("imgsz", 640)
-        self.declare_parameter("min_dt", 1.0)                     # 1 Hz default
+        self.declare_parameter("min_dt", 0.2)                     # 1 Hz default
         self.declare_parameter("target_text", "apple")
         self.declare_parameter("publish_debug_image", True)
         self.declare_parameter("vocabulary", DEFAULT_VOCABULARY)

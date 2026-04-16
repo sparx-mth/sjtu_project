@@ -2,8 +2,8 @@
 # ============================================================
 # perception_docker/run_perception.sh
 #
-# Runs the MORE-style semantic mapper + YOLOv8 on ROS2 Humble,
-# sharing ROS_DOMAIN_ID with the sim container.
+# Runs the semantic mapper on ROS2 Humble, sharing ROS_DOMAIN_ID
+# with the sim container.
 #
 # Usage:
 #   ./run_perception.sh                       # interactive shell
@@ -27,6 +27,7 @@ docker run -it --rm \
     --net=host \
     --env DISPLAY="${DISPLAY}" \
     --env QT_X11_NO_MITSHM=1 \
+    --env LIBGL_ALWAYS_SOFTWARE=1 \
     --env ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-20}" \
     --env RMW_IMPLEMENTATION=rmw_cyclonedds_cpp \
     --volume /tmp/.X11-unix:/tmp/.X11-unix:rw \
