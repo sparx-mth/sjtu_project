@@ -24,7 +24,7 @@ Visualization Manager:
 
   Displays:
 
-    # ── Grid: subtle reference ──
+    # ── Reference grid ──
     - Class: rviz_default_plugins/Grid
       Name: Grid
       Enabled: true
@@ -34,31 +34,37 @@ Visualization Manager:
       Line Style: 0
       Reference Frame: world
 
-    # ── BEV occupancy from drone depth ──
-    # Unknown cells are grey, free white, occupied black. Drawn behind
-    # the scene graph so the colored room fills sit clearly on top.
+    # ── BEV occupancy from FALCON's voxel map ──
+    # Published by bev_publisher INSIDE the FALCON container and
+    # bridged into ROS 2. The bridge maps ROS 1 latched → ROS 2
+    # VOLATILE (not TRANSIENT_LOCAL), so we match VOLATILE here.
     - Class: rviz_default_plugins/Map
       Name: BEV
       Topic:
-        Value: /scene_graph/bev
-        Durability Policy: Transient Local
+        Value: /falcon/bev_2d
+        Durability Policy: Volatile
         Reliability Policy: Reliable
       Color Scheme: map
       Alpha: 0.35
       Draw Behind: true
       Enabled: true
 
-    # ── Scene graph markers from simple_mapper ──
+    # ── Scene-graph markers ──
     #
-    # Namespaces (in publishing order):
-    #   room_fill         — translucent colored cells, one color per room
-    #   rooms             — small sphere at each room's centroid (graph node)
-    #   room_labels       — "R0 (123 cells)" floating above each room
-    #   doors_pending     — FAINT GREY cylinders: known doors not yet reached
-    #   doors_discovered  — BRIGHT ORANGE cylinders: doors the drone has seen
-    #   door_labels       — "d0", "d12" captions above each door
-    #   room_room_edges   — yellow lines connecting rooms through discovered
-    #                       doors — this is the scene-graph topology
+    # Namespaces (toggle individually if visualization gets busy):
+    #   room_fill            coloured cells, one colour per room
+    #   skeleton             Voronoi spine, same colour as its room
+    #                        — same colour = cut worked;
+    #                        shared colour = missed cut
+    #   rooms                sphere at each room's centroid
+    #   room_labels          "R0 (123)" above each centroid
+    #   doors_discovered     BRIGHT ORANGE: door seen by FALCON, cuts the graph
+    #   doors_pending        FAINT GREY:    door known but not observed yet
+    #   door_labels          "d0", "d12", ... (for discovered doors)
+    #   door_labels_pending  same but dim (for pending doors)
+    #   cut_disks            dark-red floor dots showing exactly where
+    #                        the skeleton was punched (discovered only)
+    #   room_room_edges      yellow lines room → door → room (topology)
     - Class: rviz_default_plugins/MarkerArray
       Name: SceneGraph
       Topic:
@@ -66,17 +72,19 @@ Visualization Manager:
         Reliability Policy: Reliable
       Enabled: true
       Namespaces:
-        room_fill:         true
-        rooms:             true
-        room_labels:       true
-        doors_pending:     true
-        doors_discovered:  true
-        door_labels:       true
-        room_room_edges:   true
+        room_fill:            true
+        skeleton:             true
+        rooms:                true
+        room_labels:          true
+        doors_discovered:     true
+        doors_pending:        true
+        door_labels:          true
+        door_labels_pending:  true
+        cut_disks:            true
+        room_room_edges:      true
 
-  # ── Camera: top-down orthographic, framed for the hospital map ──
-  # Map spans roughly x=[-9..9], y=[-32..15]. Centre the view at its
-  # midpoint and pick a scale that fits the long axis comfortably.
+  # ── Top-down orthographic, framed for the hospital map ──
+  # Hospital spans roughly x=[-9..9], y=[-32..15].
   Views:
     Current:
       Class: rviz_default_plugins/TopDownOrtho
@@ -85,7 +93,7 @@ Visualization Manager:
       X: 0
       Y: -8.5
       Angle: 0
-      Scale: 18    # ≈ pixels per metre; shows ~55 m vertically at 1000 px
+      Scale: 18    # ≈ pixels per metre
       Invert Z Axis: false
       Near Clip Distance: 0.01
     Saved:

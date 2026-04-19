@@ -1,59 +1,30 @@
 #!/usr/bin/env python3
 """
-semantic_mapper_node.py — MORE-style topological mapper.
+semantic_mapper_node.py — FALCON BEV → Voronoi → rooms → scene graph.
 
-Doors are known a priori (Gazebo world coordinates), so we don't try to
-auto-detect them. Each tick:
+Subscribes to a single nav_msgs/OccupancyGrid published by the
+FALCON-side `bev_publisher` node (value encoding: -1 unknown, 0 free,
+>=50 occupied). Every tick:
 
-  1. depth → BEV log-odds (unchanged).
-  2. Paint a short wall at EVERY hardcoded door so the free mask is cut
-     into separate rooms the moment the drone starts exploring across a
-     doorway. No "discovery" — a door is a door whether the drone has
-     visited it or not; the cut only has visible effect once there's
-     free space on at least one side.
-  3. Connected-components label the cut free mask → one CC per room.
-  4. PERSISTENT ROOM REGISTRY: IoU-match new CCs to the previous tick's
-     rooms. Each room keeps its ID (and its colour) for the lifetime of
-     the node.
-  5. For the topological/MORE visualisation layer, compute the medial
-     axis (Voronoi graph) of the free mask and publish it as a blue
-     spine on the floor.
-  6. For each door, sample an annulus just outside the wall and record
-     which room IDs it touches. Those are its adjacent rooms, and the
-     pair forms a topological edge.
-  7. Publish:
-       /scene_graph/bev        OccupancyGrid
-       /scene_graph/markers    MarkerArray (room fills, centroids,
-                                 labels, doors, skeleton, room↔room
-                                 edges)
-       /scene_graph            JSON String: rooms + doors + edges,
-                                 stable IDs across ticks.
+    OccupancyGrid  ─► medial_axis Voronoi
+                     ─► punch disk at each DISCOVERED door
+                     ─► 8-connected CC
+                     ─► nearest-skeleton paint
+                     ─► rooms (IoU-matched across ticks → stable IDs)
+                     ─► scene graph (rooms, doors, edges) as JSON
 
-QoS note: depth and camera_info use rclpy's built-in
-qos_profile_sensor_data (BEST_EFFORT, depth=5). The previous custom
-profile with depth=1 was too aggressive for CycloneDDS and occasionally
-lost the subscription match after a sim hiccup, freezing the BEV.
+No PointCloud2, no z-slab, no BEV rebuild, no bbox parameters — the
+grid header already says where the map is and how big it is. The
+FALCON container handles all 3D-to-2D conversion.
 """
 
-import math, json
-import numpy as np
+import json
+import colorsys
 from collections import OrderedDict
 
-import rclpy
-from rclpy.node import Node
-from rclpy.qos import (QoSProfile, ReliabilityPolicy, DurabilityPolicy,
-                       HistoryPolicy, qos_profile_sensor_data)
-
-from sensor_msgs.msg import Image, CameraInfo
-from geometry_msgs.msg import Pose, Point
-from std_msgs.msg import ColorRGBA, String
-from nav_msgs.msg import OccupancyGrid
-from visualization_msgs.msg import Marker, MarkerArray
-
-from cv_bridge import CvBridge
-import transforms3d
-from scipy.ndimage import (distance_transform_edt, label as cc_label,
-                           binary_closing, binary_opening)
+import numpy as np
+from scipy.ndimage import (binary_closing, binary_opening,
+                           distance_transform_edt, label as cc_label)
 
 try:
     from skimage.morphology import medial_axis
@@ -61,11 +32,19 @@ try:
 except ImportError:
     _HAS_SKIMAGE = False
 
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import (QoSProfile, ReliabilityPolicy, DurabilityPolicy,
+                       HistoryPolicy)
+
+from nav_msgs.msg import OccupancyGrid
+from geometry_msgs.msg import Point
+from std_msgs.msg import ColorRGBA, String
+from visualization_msgs.msg import Marker, MarkerArray
+
 
 # ──────────────────────────────────────────────────────────────────────
-#  Hardcoded door world coordinates (metres), 24 doors in Gazebo world.
-#  Stored as a FLAT list [x0,y0, x1,y1, ...] because ROS 2 parameters
-#  don't accept list-of-lists.
+#  Hardcoded door positions (world coords, metres) — 24 in the hospital.
 # ──────────────────────────────────────────────────────────────────────
 DEFAULT_DOOR_XY_FLAT = [
     -7.53, -32.00,   -2.61, -32.00,   -6.57, -24.92,    5.43, -26.00,
@@ -78,20 +57,233 @@ DEFAULT_DOOR_XY_FLAT = [
 
 
 # ──────────────────────────────────────────────────────────────────────
-#  BEV: log-odds occupancy grid
+#  Voronoi → cut at doors → rooms.  Same algorithm as before; it's
+#  agnostic about where the free mask came from.
 # ──────────────────────────────────────────────────────────────────────
-class BEV:
-    L_HIT, L_MISS = 0.85, -0.40
-    L_MIN, L_MAX  = -5.0, 5.0
+def compute_rooms(free_mask, door_cells, door_cut_cells, min_room_cells):
+    """
+    Returns
+    -------
+    room_lbl : (H,W) int32        0 = not-a-room, 1..N = rooms (fresh labels)
+    skeleton : (H,W) bool         Voronoi spine AFTER cutting at discovered doors
+    stats    : list[dict]         one per room in label order
+    """
+    H, W = free_mask.shape
+    empty_lbl = np.zeros((H, W), np.int32)
+    empty_sk  = np.zeros((H, W), bool)
+    if not free_mask.any():
+        return empty_lbl, empty_sk, []
 
-    def __init__(self, xmin, ymin, xmax, ymax, res):
-        self.xmin, self.ymin = xmin, ymin
-        self.xmax, self.ymax = xmax, ymax
-        self.res = res
-        self.W = int(round((xmax - xmin) / res))
-        self.H = int(round((ymax - ymin) / res))
-        self.logodds = np.zeros((self.H, self.W), dtype=np.float32)
+    # Heal pinhole noise so the skeleton doesn't fork unnecessarily.
+    fm = binary_closing(free_mask, iterations=1)
+    fm = binary_opening(fm, iterations=1)
+    if not fm.any():
+        return empty_lbl, empty_sk, []
 
+    # 1. Medial-axis Voronoi skeleton of free space.
+    skel = (medial_axis(fm).astype(bool) if _HAS_SKIMAGE
+            else _ridge_fallback(fm))
+
+    # 2. Punch a disk through the skeleton at every discovered door.
+    r = max(1, int(door_cut_cells))
+    yy, xx = np.ogrid[-r:r+1, -r:r+1]
+    disk = (xx*xx + yy*yy) <= r*r
+    sk_cut = skel.copy()
+    for dcx, dcy in door_cells:
+        if not (0 <= dcx < W and 0 <= dcy < H):
+            continue
+        y0, y1 = max(0, dcy-r), min(H, dcy+r+1)
+        x0, x1 = max(0, dcx-r), min(W, dcx+r+1)
+        dy0, dx0 = y0 - (dcy-r), x0 - (dcx-r)
+        sk_cut[y0:y1, x0:x1] &= ~disk[dy0:dy0+(y1-y0), dx0:dx0+(x1-x0)]
+
+    # 3. 8-connected CC on the cut skeleton. (4-conn would fragment the
+    #    diagonal medial-axis ridges into hundreds of bogus components.)
+    sk_lbl, n_lbl = cc_label(sk_cut, structure=np.ones((3, 3), np.uint8))
+    if n_lbl == 0:
+        return empty_lbl, sk_cut, []
+
+    # 4. Paint each free cell with the label of its nearest skeleton
+    #    pixel. That's the Voronoi diagram of the cut skeleton clipped
+    #    to free space.
+    _, (iy, ix) = distance_transform_edt(~sk_cut, return_indices=True)
+    room_lbl = np.where(fm, sk_lbl[iy, ix], 0).astype(np.int32)
+
+    # 5. Drop rooms smaller than the threshold; remap surviving IDs to
+    #    a contiguous 1..N for downstream.
+    out = np.zeros_like(room_lbl)
+    stats = []
+    for k in range(1, n_lbl + 1):
+        m = (room_lbl == k)
+        n = int(m.sum())
+        if n < min_room_cells:
+            continue
+        nid = len(stats) + 1
+        out[m] = nid
+        ys, xs = np.where(m)
+        stats.append({
+            'id': nid, 'mask': m, 'n_cells': n,
+            'centroid_cells': (float(xs.mean()), float(ys.mean())),
+        })
+
+    keep_sk = np.zeros_like(sk_cut)
+    for s in stats:
+        keep_sk |= sk_cut & s['mask']
+    return out, keep_sk, stats
+
+
+def _ridge_fallback(fm):
+    """DT-ridge skeleton fallback when scikit-image isn't available."""
+    dt = distance_transform_edt(fm)
+    sk = np.zeros_like(fm, bool)
+    c = dt[1:-1, 1:-1]
+    rx = (c >= dt[1:-1, :-2]) & (c >= dt[1:-1, 2:])
+    ry = (c >= dt[:-2, 1:-1]) & (c >= dt[2:,  1:-1])
+    sk[1:-1, 1:-1] = (c > 0.5) & (rx | ry)
+    return sk
+
+
+# ──────────────────────────────────────────────────────────────────────
+#  Persistent IoU-based room ID registry.
+# ──────────────────────────────────────────────────────────────────────
+class RoomRegistry:
+    def __init__(self, iou_threshold=0.25):
+        self.iou = iou_threshold
+        self.rooms = OrderedDict()
+        self._next = 0
+
+    def update(self, stats, c2w):
+        pairs = []
+        for i, s in enumerate(stats):
+            for pid, prev in self.rooms.items():
+                if prev['mask'].shape != s['mask'].shape:
+                    continue
+                inter = int(np.logical_and(s['mask'], prev['mask']).sum())
+                if inter == 0:
+                    continue
+                union = s['n_cells'] + int(prev['mask'].sum()) - inter
+                iou = inter / max(1, union)
+                if iou >= self.iou:
+                    pairs.append((iou, i, pid))
+
+        pairs.sort(reverse=True)
+        i2id, used = {}, set()
+        for _, i, pid in pairs:
+            if i in i2id or pid in used:
+                continue
+            i2id[i] = pid
+            used.add(pid)
+        for i in range(len(stats)):
+            if i not in i2id:
+                i2id[i] = self._next
+                self._next += 1
+
+        new = OrderedDict()
+        for i, s in enumerate(stats):
+            sid = i2id[i]
+            wx, wy = c2w(*s['centroid_cells'])
+            new[sid] = {'id': sid, 'mask': s['mask'],
+                        'n_cells': s['n_cells'], 'centroid': (wx, wy)}
+        self.rooms = new
+        return self.rooms
+
+
+# ──────────────────────────────────────────────────────────────────────
+#  The node.
+# ──────────────────────────────────────────────────────────────────────
+class SemanticMapperNode(Node):
+    # OccupancyGrid value semantics (nav_msgs standard)
+    UNK, FREE_MAX, OCC_MIN = -1, 49, 50
+
+    def __init__(self):
+        super().__init__('semantic_mapper')
+
+        # ── Parameters ──
+        P = self.declare_parameter
+        P('bev_topic',   '/falcon/bev_2d')
+        P('world_frame', 'world')
+        P('door_xy',     DEFAULT_DOOR_XY_FLAT)
+
+        P('door_cut_m',          0.60)
+        P('door_match_radius_m', 0.90)
+        P('door_discover_m',     0.30)
+        # Rooms smaller than this many cells are discarded. At 0.15 m
+        # resolution, 40 cells ≈ 0.9 m² — small storage closets qualify.
+        P('min_room_cells',      40)
+        # IoU threshold for matching a fresh room to a previously-seen
+        # one. Lower = more tolerant to mask drift as the drone explores
+        # and the room's shape grows / reshapes slightly each tick.
+        P('room_iou_threshold',  0.15)
+        P('tick_rate',           2.0)
+
+        P('viz_fill_alpha', 0.32)
+        P('viz_door_r',     0.25)
+        P('viz_door_h',     1.40)
+        P('viz_text_h',     0.55)
+        P('viz_edge_w',     0.18)
+        P('viz_cut_disk',   True)
+
+        g = lambda n: self.get_parameter(n).value
+        self.world_frame = str(g('world_frame'))
+        self.door_cut_m      = float(g('door_cut_m'))
+        self.door_match_r_m  = float(g('door_match_radius_m'))
+        self.door_discover_m = float(g('door_discover_m'))
+        self.min_room_cells  = int(g('min_room_cells'))
+        self.tick_rate       = float(g('tick_rate'))
+        self.viz = {k: g('viz_' + k) for k in
+                    ('fill_alpha', 'door_r', 'door_h', 'text_h',
+                     'edge_w', 'cut_disk')}
+
+        # Doors: world-frame XY only; cell coords are derived once we
+        # see the first OccupancyGrid and learn its origin/resolution.
+        flat = [float(v) for v in g('door_xy')]
+        if len(flat) % 2:
+            raise ValueError("door_xy must have an even length.")
+        self.doors = []
+        for i in range(len(flat) // 2):
+            wx, wy = flat[2*i], flat[2*i + 1]
+            self.doors.append({'id': i, 'xy': (wx, wy),
+                               'cell': None, 'rooms': [],
+                               'discovered': False})
+
+        self.registry = RoomRegistry(float(g('room_iou_threshold')))
+
+        # ── State (populated on first OccupancyGrid) ──
+        self.grid = None     # (H, W) int8, -1 unknown / 0 free / 100 occ
+        self.res  = None
+        self.xmin = None
+        self.ymin = None
+        self._skel = None
+
+        # ── ROS glue ──
+        # Our outbound /scene_graph uses TRANSIENT_LOCAL so late-joining
+        # subscribers get the last scene graph. But the inbound
+        # /falcon/bev_2d comes through ros1_bridge, which maps a ROS 1
+        # latched publisher to ROS 2 VOLATILE. Asking for TRANSIENT_LOCAL
+        # on the subscriber yields an "incompatible QoS: DURABILITY"
+        # warning and no messages arrive.
+        latched = QoSProfile(reliability=ReliabilityPolicy.RELIABLE,
+                             durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                             history=HistoryPolicy.KEEP_LAST, depth=1)
+        bev_qos = QoSProfile(reliability=ReliabilityPolicy.RELIABLE,
+                             durability=DurabilityPolicy.VOLATILE,
+                             history=HistoryPolicy.KEEP_LAST, depth=5)
+        self.create_subscription(OccupancyGrid, str(g('bev_topic')),
+                                 self._grid_cb, bev_qos)
+
+        self.pub_markers = self.create_publisher(
+            MarkerArray, '/scene_graph/markers', 1)
+        self.pub_sg = self.create_publisher(String, '/scene_graph', latched)
+
+        self.create_timer(1.0 / self.tick_rate, self._tick)
+        self.create_timer(5.0, self._heartbeat)
+        self._hb = dict(grid=0, tick=0)
+
+        self.get_logger().info(
+            f"semantic_mapper ready. Subscribed to {g('bev_topic')} "
+            f"(nav_msgs/OccupancyGrid). {len(self.doors)} doors loaded.")
+
+    # ── Geometry helpers (grid-dependent) ──
     def w2c(self, x, y):
         return (int((x - self.xmin) / self.res),
                 int((y - self.ymin) / self.res))
@@ -100,662 +292,280 @@ class BEV:
         return (self.xmin + (cx + 0.5) * self.res,
                 self.ymin + (cy + 0.5) * self.res)
 
-    def in_bounds(self, cx, cy):
-        return 0 <= cx < self.W and 0 <= cy < self.H
-
-    def integrate_rays(self, origin_xy, hits):
-        ox, oy = self.w2c(*origin_xy)
-        if not self.in_bounds(ox, oy):
-            return
-        for hxw, hyw in hits:
-            hx, hy = self.w2c(hxw, hyw)
-            N = max(abs(hx - ox), abs(hy - oy))
-            if N == 0:
-                continue
-            for t in np.linspace(0, 1, N, endpoint=False):
-                fx = int(ox + t * (hx - ox))
-                fy = int(oy + t * (hy - oy))
-                if self.in_bounds(fx, fy):
-                    self.logodds[fy, fx] = np.clip(
-                        self.logodds[fy, fx] + self.L_MISS,
-                        self.L_MIN, self.L_MAX)
-            if self.in_bounds(hx, hy):
-                self.logodds[hy, hx] = np.clip(
-                    self.logodds[hy, hx] + self.L_HIT,
-                    self.L_MIN, self.L_MAX)
+    @property
+    def door_cut_cells(self):
+        return max(1, int(round(self.door_cut_m / self.res)))
 
     @property
-    def free_mask(self):   return self.logodds < -0.1
+    def door_discover_cells(self):
+        return max(1, int(round(self.door_discover_m / self.res)))
+
     @property
-    def occ_mask(self):    return self.logodds >  0.4
-    @property
-    def known_mask(self):  return np.abs(self.logodds) > 1e-6
+    def door_match_cells(self):
+        return max(self.door_cut_cells + 2,
+                   int(round(self.door_match_r_m / self.res)))
 
+    # ── OccupancyGrid callback — the only data input ──
+    def _grid_cb(self, msg: OccupancyGrid):
+        W, H = msg.info.width, msg.info.height
+        new_res  = float(msg.info.resolution)
+        new_xmin = float(msg.info.origin.position.x)
+        new_ymin = float(msg.info.origin.position.y)
 
-# ──────────────────────────────────────────────────────────────────────
-#  Persistent room ID registry — IoU matching across ticks.
-# ──────────────────────────────────────────────────────────────────────
-class RoomRegistry:
-    """
-    A room, once seen, keeps its ID (and colour) for the lifetime of the
-    node. Each new connected component is matched to the previous tick's
-    room with the highest mask-IoU ≥ threshold; unmatched components get
-    a fresh ID.
-    """
-    def __init__(self, iou_threshold: float = 0.25):
-        self.iou_threshold = iou_threshold
-        self.rooms = OrderedDict()   # id -> dict
-        self._next_id = 0
+        # Detect geometry change (first message, or upstream reconfig).
+        geom_changed = (self.res is None
+                        or abs(new_res - self.res) > 1e-6
+                        or abs(new_xmin - self.xmin) > 1e-6
+                        or abs(new_ymin - self.ymin) > 1e-6
+                        or self.grid is None
+                        or self.grid.shape != (H, W))
 
-    def update(self, masks, stats, bev):
-        pairs = []
-        new_sums = [int(m.sum()) for m in masks]
-        for i, m in enumerate(masks):
-            for pid, prev in self.rooms.items():
-                pm = prev['mask']
-                if pm.shape != m.shape:
-                    continue
-                inter = int(np.logical_and(m, pm).sum())
-                if inter == 0:
-                    continue
-                union = new_sums[i] + int(pm.sum()) - inter
-                iou = inter / max(1, union)
-                if iou >= self.iou_threshold:
-                    pairs.append((iou, i, pid))
+        self.grid = np.asarray(msg.data, dtype=np.int8).reshape(H, W)
 
-        pairs.sort(reverse=True)
-        i_to_id, used = {}, set()
-        for _, i, pid in pairs:
-            if i in i_to_id or pid in used:
-                continue
-            i_to_id[i] = pid
-            used.add(pid)
-
-        for i in range(len(masks)):
-            if i not in i_to_id:
-                i_to_id[i] = self._next_id
-                self._next_id += 1
-
-        new_reg = OrderedDict()
-        for i in range(len(masks)):
-            pid = i_to_id[i]
-            cx, cy = stats[i]['centroid_cells']
-            wx, wy = bev.c2w(cx, cy)
-            new_reg[pid] = {
-                'id':                 pid,
-                'mask':               masks[i],
-                'centroid':           (wx, wy),
-                'n_cells':            stats[i]['n_cells'],
-                'median_clearance_m': stats[i]['median_clearance_m'],
-                'kind':               stats[i]['kind'],
-            }
-        self.rooms = new_reg
-        return self.rooms
-
-
-# ──────────────────────────────────────────────────────────────────────
-#  Segmentation: cut free mask at hardcoded doors → CC → rooms.
-# ──────────────────────────────────────────────────────────────────────
-def _ridge_skeleton(dt_px: np.ndarray) -> np.ndarray:
-    """Fallback medial axis when scikit-image isn't installed."""
-    skel = np.zeros_like(dt_px, dtype=bool)
-    c = dt_px[1:-1, 1:-1]
-    ridge_x = (c >= dt_px[1:-1, :-2]) & (c >= dt_px[1:-1, 2:])
-    ridge_y = (c >= dt_px[:-2, 1:-1]) & (c >= dt_px[2:,  1:-1])
-    skel[1:-1, 1:-1] = (c > 0.5) & (ridge_x | ridge_y)
-    return skel
-
-
-def segment_rooms(free_mask: np.ndarray,
-                  door_cells,
-                  res: float,
-                  door_wall_cells: int,
-                  min_room_cells: int,
-                  corridor_thresh_m: float):
-    """
-    Returns (room_masks, room_stats, skeleton_mask, dt_m).
-    """
-    H, W = free_mask.shape
-    empty_skel = np.zeros_like(free_mask, dtype=bool)
-    empty_dt   = np.zeros(free_mask.shape, dtype=np.float32)
-    if not np.any(free_mask):
-        return [], [], empty_skel, empty_dt
-
-    fm = binary_closing(free_mask, iterations=1)
-    fm = binary_opening(fm, iterations=1)
-    if not np.any(fm):
-        return [], [], empty_skel, empty_dt
-
-    dt_px = distance_transform_edt(fm).astype(np.float32)
-    dt_m  = dt_px * res
-
-    if _HAS_SKIMAGE:
-        skel = medial_axis(fm).astype(bool)
-    else:
-        skel = _ridge_skeleton(dt_px)
-
-    # Paint a small wall disc at every hardcoded door — "take down the
-    # door arch" so the free mask splits on either side of every doorway.
-    cut = fm.copy()
-    r = max(1, int(door_wall_cells))
-    yy, xx = np.ogrid[-r:r+1, -r:r+1]
-    disk = (xx*xx + yy*yy) <= r*r
-    for dcx, dcy in door_cells:
-        if not (0 <= dcx < W and 0 <= dcy < H):
-            continue
-        y0, y1 = max(0, dcy-r), min(H, dcy+r+1)
-        x0, x1 = max(0, dcx-r), min(W, dcx+r+1)
-        dy0, dy1 = y0 - (dcy-r), y1 - (dcy-r)
-        dx0, dx1 = x0 - (dcx-r), x1 - (dcx-r)
-        cut[y0:y1, x0:x1] &= ~disk[dy0:dy1, dx0:dx1]
-
-    labels, n_labels = cc_label(cut)
-
-    masks, stats = [], []
-    for i in range(1, n_labels + 1):
-        m = (labels == i)
-        n = int(m.sum())
-        if n < min_room_cells:
-            continue
-        ys, xs = np.where(m)
-        clear = float(np.median(dt_m[m]))
-        kind = 'corridor' if clear < corridor_thresh_m else 'room'
-        masks.append(m)
-        stats.append({
-            'centroid_cells':     (float(xs.mean()), float(ys.mean())),
-            'n_cells':            n,
-            'median_clearance_m': clear,
-            'kind':               kind,
-        })
-    return masks, stats, skel, dt_m
-
-
-# ──────────────────────────────────────────────────────────────────────
-#  ROS 2 node
-# ──────────────────────────────────────────────────────────────────────
-class SemanticMapperNode(Node):
-    def __init__(self):
-        super().__init__('semantic_mapper')
-
-        # ── Topics / frame ──
-        self.declare_parameter('depth_topic',
-                               '/simple_drone/front_depth/depth/image_raw')
-        self.declare_parameter('cam_info_topic',
-                               '/simple_drone/front_depth/depth/camera_info')
-        self.declare_parameter('pose_topic',    '/simple_drone/gt_pose')
-        self.declare_parameter('world_frame',   'world')
-
-        # Doors: flat [x0, y0, x1, y1, ...].
-        self.declare_parameter('door_xy', DEFAULT_DOOR_XY_FLAT)
-
-        # ── BEV bounds / resolution ──
-        self.declare_parameter('bbox_xmin', -12.0)
-        self.declare_parameter('bbox_ymin', -34.0)
-        self.declare_parameter('bbox_xmax',  12.0)
-        self.declare_parameter('bbox_ymax',  17.0)
-        self.declare_parameter('bev_resolution', 0.15)
-
-        # ── Depth integration ──
-        self.declare_parameter('z_slab_min',    0.30)
-        self.declare_parameter('z_slab_max',    1.80)
-        self.declare_parameter('max_depth',     5.00)
-        self.declare_parameter('depth_stride',  8)
-        self.declare_parameter('depth_min_dt',  0.15)
-
-        # ── Segmentation / rooms ──
-        self.declare_parameter('door_wall_m',        0.60)
-        self.declare_parameter('min_room_cells',     80)
-        self.declare_parameter('corridor_thresh_m',  1.20)
-        self.declare_parameter('room_iou_threshold', 0.25)
-        self.declare_parameter('tick_rate',          2.0)
-
-        # ── Camera offset body→optical ──
-        self.declare_parameter('cam_offset_x', 0.2)
-        self.declare_parameter('cam_offset_y', 0.0)
-        self.declare_parameter('cam_offset_z', 0.0)
-
-        # ── Viz ──
-        self.declare_parameter('viz_sphere_r',   0.30)
-        self.declare_parameter('viz_text_h',     0.60)
-        self.declare_parameter('viz_edge_w',     0.20)
-        self.declare_parameter('viz_door_r',     0.25)
-        self.declare_parameter('viz_door_h',     1.40)
-        self.declare_parameter('viz_fill_alpha', 0.32)
-        self.declare_parameter('viz_skeleton',   True)
-
-        g = lambda n: self.get_parameter(n).value
-
-        # ── Resolve scalars ──
-        self.res = float(g('bev_resolution'))
-        self.bev = BEV(float(g('bbox_xmin')), float(g('bbox_ymin')),
-                       float(g('bbox_xmax')), float(g('bbox_ymax')),
-                       self.res)
-        self.world_frame = str(g('world_frame'))
-
-        self.z_slab_min   = float(g('z_slab_min'))
-        self.z_slab_max   = float(g('z_slab_max'))
-        self.max_depth    = float(g('max_depth'))
-        self.depth_stride = int(g('depth_stride'))
-        self.depth_min_dt = float(g('depth_min_dt'))
-
-        self.door_wall_cells = max(
-            1, int(round(float(g('door_wall_m')) / self.res)))
-        self.min_room_cells    = int(g('min_room_cells'))
-        self.corridor_thresh_m = float(g('corridor_thresh_m'))
-        self.tick_rate         = float(g('tick_rate'))
-        self.viz_skeleton      = bool(g('viz_skeleton'))
-
-        cx_, cy_, cz_ = (float(g('cam_offset_x')),
-                         float(g('cam_offset_y')),
-                         float(g('cam_offset_z')))
-        self.T_b_c = np.array([
-            [ 0.0,  0.0, 1.0, cx_],
-            [-1.0,  0.0, 0.0, cy_],
-            [ 0.0, -1.0, 0.0, cz_],
-            [ 0.0,  0.0, 0.0, 1.0],
-        ])
-
-        self.viz_sphere_r   = float(g('viz_sphere_r'))
-        self.viz_text_h     = float(g('viz_text_h'))
-        self.viz_edge_w     = float(g('viz_edge_w'))
-        self.viz_door_r     = float(g('viz_door_r'))
-        self.viz_door_h     = float(g('viz_door_h'))
-        self.viz_fill_alpha = float(g('viz_fill_alpha'))
-
-        # ── Doors: parse flat list, precompute cell coordinates ──
-        flat = [float(v) for v in g('door_xy')]
-        if len(flat) % 2 != 0:
-            raise ValueError(
-                f"door_xy must have an even number of entries "
-                f"(got {len(flat)}); it is a flat [x0,y0,x1,y1,...] list.")
-        self.doors = []
-        for i in range(len(flat) // 2):
-            wx, wy = flat[2*i], flat[2*i + 1]
-            cx, cy = self.bev.w2c(wx, wy)
-            self.doors.append({
-                'id':    i,
-                'xy':    (wx, wy),
-                'cell':  (cx, cy),
-                'rooms': [],
-            })
-        self.get_logger().info(
-            f"loaded {len(self.doors)} hardcoded doors "
-            f"(x∈[{min(d['xy'][0] for d in self.doors):.1f},"
-            f"{max(d['xy'][0] for d in self.doors):.1f}] "
-            f"y∈[{min(d['xy'][1] for d in self.doors):.1f},"
-            f"{max(d['xy'][1] for d in self.doors):.1f}])")
-
-        # ── State ──
-        self.bridge = CvBridge()
-        self.cur_pose = None
-        self.K = None
-        self.last_depth_t = None
-
-        self.room_registry = RoomRegistry(
-            iou_threshold=float(g('room_iou_threshold')))
-        self.last_skeleton = None
-        self.last_dt_m     = None
-
-        self._hb_pose  = 0
-        self._hb_depth = 0
-        self._hb_tick  = 0
-
-        # ── ROS glue ──
-        # Pose is RELIABLE by default (depth=10).
-        # Depth + camera_info: use rclpy's built-in sensor-data profile
-        # (BEST_EFFORT, depth=5). The previous custom profile with
-        # depth=1 was too aggressive under CycloneDDS and could lose the
-        # subscription match after a sim hiccup — heartbeat showed
-        # depth=0 forever afterwards.
-        # BEV + scene-graph stay TRANSIENT_LOCAL so late-joining RViz
-        # gets the last map.
-        latched_qos = QoSProfile(reliability=ReliabilityPolicy.RELIABLE,
-                                 durability=DurabilityPolicy.TRANSIENT_LOCAL,
-                                 history=HistoryPolicy.KEEP_LAST, depth=1)
-
-        self.create_subscription(Pose,  str(g('pose_topic')),
-                                 self._pose_cb, 10)
-        self.create_subscription(Image, str(g('depth_topic')),
-                                 self._depth_cb, qos_profile_sensor_data)
-        self.create_subscription(CameraInfo, str(g('cam_info_topic')),
-                                 self._cam_info_cb, qos_profile_sensor_data)
-
-        self.marker_pub = self.create_publisher(
-            MarkerArray, '/scene_graph/markers', 1)
-        self.bev_pub = self.create_publisher(
-            OccupancyGrid, '/scene_graph/bev', latched_qos)
-        self.sg_pub = self.create_publisher(String, '/scene_graph', latched_qos)
-
-        self.create_timer(1.0 / self.tick_rate, self._tick)
-        self.create_timer(5.0, self._heartbeat)
-
-        if not _HAS_SKIMAGE:
-            self.get_logger().warning(
-                "scikit-image not found — falling back to a DT-ridge "
-                "skeleton. `pip install scikit-image` for a proper "
-                "medial axis.")
-        self.get_logger().info(
-            "semantic_mapper (MORE-style, hardcoded doors) ready")
-
-    # ── Callbacks ─────────────────────────────────────────────────────
-    def _pose_cb(self, msg):
-        self.cur_pose = msg
-        self._hb_pose += 1
-
-    def _cam_info_cb(self, msg):
-        if self.K is None:
-            self.K = np.array(msg.k).reshape(3, 3)
+        if geom_changed:
+            self.res, self.xmin, self.ymin = new_res, new_xmin, new_ymin
+            # (Re)compute each door's cell coords in this grid.
+            for d in self.doors:
+                d['cell'] = self.w2c(*d['xy'])
+            # Shape changed → IoU matching across ticks no longer works,
+            # reset the registry so room IDs restart cleanly.
+            self.registry = RoomRegistry(self.registry.iou)
             self.get_logger().info(
-                f"cam intrinsics: fx={self.K[0,0]:.1f} fy={self.K[1,1]:.1f} "
-                f"cx={self.K[0,2]:.1f} cy={self.K[1,2]:.1f}")
+                f"grid geometry: {W}×{H} @ {self.res:.3f} m, "
+                f"origin ({self.xmin:.2f}, {self.ymin:.2f}); "
+                f"door_cut={self.door_cut_cells}c, "
+                f"discover={self.door_discover_cells}c")
 
-    def _depth_cb(self, msg: Image):
-        self._hb_depth += 1
-        now = self.get_clock().now()
-        if self.last_depth_t is not None:
-            dt = (now - self.last_depth_t).nanoseconds * 1e-9
-            if dt < self.depth_min_dt:
-                return
-        self.last_depth_t = now
-        if self.cur_pose is None or self.K is None:
-            return
-        try:
-            depth = self.bridge.imgmsg_to_cv2(msg, desired_encoding='32FC1')
-        except Exception:
-            return
-        self._integrate_depth(depth)
+        self._hb['grid'] += 1
 
-    # ── Geometry ──────────────────────────────────────────────────────
-    def _T_world_cam(self):
-        p = self.cur_pose
-        q = [p.orientation.w, p.orientation.x,
-             p.orientation.y, p.orientation.z]
-        T = np.eye(4)
-        T[:3, :3] = transforms3d.quaternions.quat2mat(q)
-        T[:3, 3]  = [p.position.x, p.position.y, p.position.z]
-        return T @ self.T_b_c
-
-    def _integrate_depth(self, depth):
-        H, W = depth.shape
-        s = self.depth_stride
-        us = np.arange(0, W, s); vs = np.arange(0, H, s)
-        uu, vv = np.meshgrid(us, vs)
-        d = depth[::s, ::s]
-        valid = np.isfinite(d) & (d > 0.1) & (d < self.max_depth)
-        if not np.any(valid):
-            return
-        uu = uu[valid].astype(np.float32)
-        vv = vv[valid].astype(np.float32)
-        zz = d[valid].astype(np.float32)
-        fx, fy = self.K[0, 0], self.K[1, 1]
-        cx, cy = self.K[0, 2], self.K[1, 2]
-        Xc = (uu - cx) * zz / fx
-        Yc = (vv - cy) * zz / fy
-        pts_c = np.stack([Xc, Yc, zz, np.ones_like(zz)], axis=0)
-        pts_w = (self._T_world_cam() @ pts_c)[:3].T
-        in_slab = ((pts_w[:, 2] >= self.z_slab_min) &
-                   (pts_w[:, 2] <= self.z_slab_max))
-        pts_w = pts_w[in_slab]
-        if pts_w.shape[0] == 0:
-            return
-        p = self.cur_pose.position
-        if pts_w.shape[0] > 1500:
-            pts_w = pts_w[np.random.choice(pts_w.shape[0], 1500, replace=False)]
-        self.bev.integrate_rays(
-            (p.x, p.y),
-            [(float(x), float(y)) for x, y, _ in pts_w])
-
-    # ── Segmentation + registry + door↔room linking ───────────────────
-    def _segment(self):
-        door_cells = [d['cell'] for d in self.doors]
-        masks, stats, skel, dt_m = segment_rooms(
-            self.bev.free_mask,
-            door_cells,
-            self.res,
-            door_wall_cells=self.door_wall_cells,
-            min_room_cells=self.min_room_cells,
-            corridor_thresh_m=self.corridor_thresh_m,
-        )
-        rooms = self.room_registry.update(masks, stats, self.bev)
-
-        H, W = self.bev.free_mask.shape
-        r  = self.door_wall_cells
-        R2 = r + 3
-        R1_sq, R2_sq = r * r, R2 * R2
-        for door in self.doors:
-            dcx, dcy = door['cell']
-            if not (0 <= dcx < W and 0 <= dcy < H):
-                door['rooms'] = []
+    # ── Door discovery (FALCON has seen the doorway?) ──
+    def _update_discovered(self):
+        H, W = self.grid.shape
+        r = self.door_discover_cells
+        for d in self.doors:
+            if d['discovered']:
                 continue
-            y0, y1 = max(0, dcy-R2), min(H, dcy+R2+1)
-            x0, x1 = max(0, dcx-R2), min(W, dcx+R2+1)
-            touched = set()
-            for yy2 in range(y0, y1):
-                for xx2 in range(x0, x1):
-                    dd = (yy2-dcy)**2 + (xx2-dcx)**2
-                    if R1_sq < dd <= R2_sq:
-                        for rid, room in rooms.items():
-                            if room['mask'][yy2, xx2]:
-                                touched.add(rid)
-                                break
-            door['rooms'] = sorted(touched)
+            dcx, dcy = d['cell']
+            if not (0 <= dcx < W and 0 <= dcy < H):
+                continue
+            y0, y1 = max(0, dcy-r), min(H, dcy+r+1)
+            x0, x1 = max(0, dcx-r), min(W, dcx+r+1)
+            patch = self.grid[y0:y1, x0:x1]
+            if (patch != self.UNK).any():
+                d['discovered'] = True
+                self.get_logger().info(
+                    f"door d{d['id']} discovered at "
+                    f"({d['xy'][0]:.2f}, {d['xy'][1]:.2f})")
 
-        self.last_skeleton = skel
-        self.last_dt_m     = dt_m
+    # ── Door ↔ room association (annulus just outside the cut disk) ──
+    def _link_doors(self, rooms):
+        H, W = self.grid.shape
+        r_in  = self.door_cut_cells
+        r_out = self.door_match_cells
+        for d in self.doors:
+            d['rooms'] = []
+            if not d['discovered']:
+                continue
+            dcx, dcy = d['cell']
+            if not (0 <= dcx < W and 0 <= dcy < H):
+                continue
+            y0, y1 = max(0, dcy-r_out), min(H, dcy+r_out+1)
+            x0, x1 = max(0, dcx-r_out), min(W, dcx+r_out+1)
+            ys = np.arange(y0, y1) - dcy
+            xs = np.arange(x0, x1) - dcx
+            dd = ys[:, None]**2 + xs[None, :]**2
+            annulus = (dd > r_in*r_in) & (dd <= r_out*r_out)
+            touched = sorted({rid for rid, r in rooms.items()
+                              if (r['mask'][y0:y1, x0:x1] & annulus).any()})
+            d['rooms'] = touched
 
-    # ── Publishing ────────────────────────────────────────────────────
-    def _publish_bev(self):
-        msg = OccupancyGrid()
-        msg.header.stamp = self.get_clock().now().to_msg()
-        msg.header.frame_id = self.world_frame
-        msg.info.resolution = self.res
-        msg.info.width  = self.bev.W
-        msg.info.height = self.bev.H
-        msg.info.origin.position.x = self.bev.xmin
-        msg.info.origin.position.y = self.bev.ymin
-        msg.info.origin.orientation.w = 1.0
-        occ = np.full(self.bev.logodds.shape, -1, dtype=np.int8)
-        occ[self.bev.free_mask] = 0
-        occ[self.bev.occ_mask]  = 100
-        msg.data = occ.flatten().tolist()
-        self.bev_pub.publish(msg)
+    # ── Main tick ──
+    def _tick(self):
+        self._hb['tick'] += 1
+        if self.grid is None:
+            return
 
-    def _room_color(self, i):
-        import colorsys
+        free_mask = (self.grid >= 0) & (self.grid <= self.FREE_MAX)
+
+        self._update_discovered()
+
+        cut_cells = [d['cell'] for d in self.doors if d['discovered']]
+        _, self._skel, stats = compute_rooms(
+            free_mask, cut_cells, self.door_cut_cells, self.min_room_cells)
+        rooms = self.registry.update(stats, self.c2w)
+        self._link_doors(rooms)
+
+        self._publish_markers(rooms)
+        self._publish_scene_graph(rooms)
+
+    # ── Visualization ──
+    @staticmethod
+    def _rgb(i):
         h = (i * 0.6180339887) % 1.0
         return colorsys.hsv_to_rgb(h, 0.85, 0.95)
 
-    def _publish_markers(self):
+    def _publish_markers(self, rooms):
         arr = MarkerArray()
-        mid = 0
-        stamp = self.get_clock().now().to_msg()
         arr.markers.append(Marker(action=Marker.DELETEALL))
+        stamp = self.get_clock().now().to_msg()
+        mid = [0]
 
-        # Room fills — colour from persistent ID.
-        for room in self.room_registry.rooms.values():
-            r, g, b = self._room_color(room['id'])
-            m = Marker(); m.header.frame_id = self.world_frame
+        def mk(ns, typ, scale, color, alpha=1.0):
+            m = Marker()
+            m.header.frame_id = self.world_frame
             m.header.stamp = stamp
-            m.ns = 'room_fill'; m.id = mid; mid += 1
-            m.type = Marker.CUBE_LIST; m.action = Marker.ADD
-            m.scale.x = self.res; m.scale.y = self.res; m.scale.z = 0.02
+            m.ns, m.id = ns, mid[0]; mid[0] += 1
+            m.type, m.action = typ, Marker.ADD
             m.pose.orientation.w = 1.0
-            ys, xs = np.where(room['mask'])
-            if len(xs) > 6000:
-                idx = np.random.choice(len(xs), 6000, replace=False)
-                xs, ys = xs[idx], ys[idx]
-            for cx, cy in zip(xs, ys):
-                wx, wy = self.bev.c2w(int(cx), int(cy))
-                m.points.append(Point(x=wx, y=wy, z=0.05))
-            m.color = ColorRGBA(r=r, g=g, b=b, a=self.viz_fill_alpha)
+            if isinstance(scale, (tuple, list)):
+                m.scale.x, m.scale.y, m.scale.z = (float(v) for v in scale)
+            else:
+                m.scale.x = m.scale.y = m.scale.z = float(scale)
+            r, g, b = color
+            m.color = ColorRGBA(r=float(r), g=float(g),
+                                b=float(b), a=float(alpha))
+            return m
+
+        def points_from_mask(mask, z, limit):
+            ys, xs = np.where(mask)
+            if len(xs) > limit:
+                k = np.random.choice(len(xs), limit, replace=False)
+                xs, ys = xs[k], ys[k]
+            return [Point(x=self.c2w(int(cx), int(cy))[0],
+                          y=self.c2w(int(cx), int(cy))[1], z=z)
+                    for cx, cy in zip(xs, ys)]
+
+        # 1. Room fills — one colour per room.
+        for room in rooms.values():
+            col = self._rgb(room['id'])
+            m = mk('room_fill', Marker.CUBE_LIST,
+                   (self.res, self.res, 0.02),
+                   col, self.viz['fill_alpha'])
+            m.points = points_from_mask(room['mask'], 0.05, 6000)
             arr.markers.append(m)
 
-        # Centroid sphere + label.
-        for room in self.room_registry.rooms.values():
-            r, g, b = self._room_color(room['id'])
-            s = Marker(); s.header.frame_id = self.world_frame
-            s.header.stamp = stamp
-            s.ns = 'room_centroids'; s.id = mid; mid += 1
-            s.type = Marker.SPHERE; s.action = Marker.ADD
-            cxw, cyw = room['centroid']
-            s.pose.position = Point(x=cxw, y=cyw, z=2.0)
-            s.pose.orientation.w = 1.0
-            d = self.viz_sphere_r * 2.0
-            s.scale.x = s.scale.y = s.scale.z = d
-            s.color = ColorRGBA(r=r, g=g, b=b, a=1.0)
-            arr.markers.append(s)
-
-            t = Marker(); t.header.frame_id = self.world_frame
-            t.header.stamp = stamp
-            t.ns = 'room_labels'; t.id = mid; mid += 1
-            t.type = Marker.TEXT_VIEW_FACING; t.action = Marker.ADD
-            t.pose.position = Point(x=cxw, y=cyw, z=3.0)
-            t.pose.orientation.w = 1.0
-            t.scale.z = self.viz_text_h
-            t.color = ColorRGBA(r=1.0, g=1.0, b=1.0, a=1.0)
-            tag = 'C' if room['kind'] == 'corridor' else 'R'
-            t.text = (f"{tag}{room['id']}  ({room['n_cells']} cells, "
-                      f"{room['median_clearance_m']:.1f} m)")
-            arr.markers.append(t)
-
-        # Doors.
-        for door in self.doors:
-            dx, dy = door['xy']
-            m = Marker(); m.header.frame_id = self.world_frame
-            m.header.stamp = stamp
-            m.ns = 'doors'; m.id = mid; mid += 1
-            m.type = Marker.CYLINDER; m.action = Marker.ADD
-            m.pose.position = Point(x=dx, y=dy, z=self.viz_door_h * 0.5)
-            m.pose.orientation.w = 1.0
-            m.scale.x = m.scale.y = self.viz_door_r * 2.0
-            m.scale.z = self.viz_door_h
-            m.color = ColorRGBA(r=1.0, g=0.55, b=0.0, a=0.95)
-            arr.markers.append(m)
-
-            t = Marker(); t.header.frame_id = self.world_frame
-            t.header.stamp = stamp
-            t.ns = 'door_labels'; t.id = mid; mid += 1
-            t.type = Marker.TEXT_VIEW_FACING; t.action = Marker.ADD
-            t.pose.position = Point(x=dx, y=dy, z=self.viz_door_h + 0.4)
-            t.pose.orientation.w = 1.0
-            t.scale.z = 0.35
-            t.color = ColorRGBA(r=1.0, g=1.0, b=1.0, a=0.95)
-            t.text = f"d{door['id']}"
-            arr.markers.append(t)
-
-        # Voronoi skeleton — MORE-style spine.
-        if self.viz_skeleton and self.last_skeleton is not None \
-           and np.any(self.last_skeleton):
-            ys, xs = np.where(self.last_skeleton)
-            if len(xs) > 4000:
-                idx = np.random.choice(len(xs), 4000, replace=False)
-                xs, ys = xs[idx], ys[idx]
-            m = Marker(); m.header.frame_id = self.world_frame
-            m.header.stamp = stamp
-            m.ns = 'skeleton'; m.id = mid; mid += 1
-            m.type = Marker.CUBE_LIST; m.action = Marker.ADD
-            m.scale.x = m.scale.y = self.res * 0.8
-            m.scale.z = 0.05
-            m.pose.orientation.w = 1.0
-            for cx, cy in zip(xs, ys):
-                wx, wy = self.bev.c2w(int(cx), int(cy))
-                m.points.append(Point(x=wx, y=wy, z=0.25))
-            m.color = ColorRGBA(r=0.25, g=0.6, b=1.0, a=0.9)
-            arr.markers.append(m)
-
-        # Topological edges: room → door → room.
-        pos = {r['id']: r['centroid']
-               for r in self.room_registry.rooms.values()}
-        for door in self.doors:
-            if len(door['rooms']) < 2:
+        # 2. Voronoi skeleton — SAME colour as its room.
+        for room in rooms.values():
+            if self._skel is None:
                 continue
-            for i in range(len(door['rooms'])):
-                for j in range(i + 1, len(door['rooms'])):
-                    a, b = door['rooms'][i], door['rooms'][j]
-                    if a not in pos or b not in pos:
-                        continue
-                    m = Marker(); m.header.frame_id = self.world_frame
-                    m.header.stamp = stamp
-                    m.ns = 'room_room_edges'; m.id = mid; mid += 1
-                    m.type = Marker.LINE_LIST; m.action = Marker.ADD
-                    m.scale.x = self.viz_edge_w
-                    m.color = ColorRGBA(r=1.0, g=0.85, b=0.0, a=1.0)
-                    ax, ay = pos[a]; bx, by = pos[b]
-                    dx, dy = door['xy']
+            sk_in_room = self._skel & room['mask']
+            if not sk_in_room.any():
+                continue
+            col = self._rgb(room['id'])
+            m = mk('skeleton', Marker.CUBE_LIST,
+                   (self.res * 1.2, self.res * 1.2, 0.05),
+                   col, 1.0)
+            m.points = points_from_mask(sk_in_room, 0.25, 1500)
+            arr.markers.append(m)
+
+        # 3. Room centroids + labels.
+        for room in rooms.values():
+            col = self._rgb(room['id'])
+            s = mk('rooms', Marker.SPHERE, 0.6, col)
+            s.pose.position = Point(x=room['centroid'][0],
+                                    y=room['centroid'][1], z=2.0)
+            arr.markers.append(s)
+            t = mk('room_labels', Marker.TEXT_VIEW_FACING,
+                   (0, 0, float(self.viz['text_h'])), (1, 1, 1))
+            t.pose.position = Point(x=room['centroid'][0],
+                                    y=room['centroid'][1], z=3.0)
+            t.text = f"R{room['id']}  ({room['n_cells']})"
+            arr.markers.append(t)
+
+        # 4. Doors — bright if discovered, grey ghost if not.
+        for d in self.doors:
+            dx, dy = d['xy']
+            if d['discovered']:
+                ns_c, ns_l = 'doors_discovered', 'door_labels'
+                col_c, a_c = (1.0, 0.55, 0.0), 0.95
+                col_l, a_l = (1.0, 1.0, 1.0), 1.0
+            else:
+                ns_c, ns_l = 'doors_pending', 'door_labels_pending'
+                col_c, a_c = (0.55, 0.58, 0.65), 0.35
+                col_l, a_l = (0.75, 0.78, 0.82), 0.55
+            cyl = mk(ns_c, Marker.CYLINDER,
+                     (float(self.viz['door_r']) * 2,
+                      float(self.viz['door_r']) * 2,
+                      float(self.viz['door_h'])), col_c, a_c)
+            cyl.pose.position = Point(x=dx, y=dy,
+                                      z=float(self.viz['door_h']) * 0.5)
+            arr.markers.append(cyl)
+            lbl = mk(ns_l, Marker.TEXT_VIEW_FACING,
+                     (0, 0, 0.35), col_l, a_l)
+            lbl.pose.position = Point(x=dx, y=dy,
+                                      z=float(self.viz['door_h']) + 0.35)
+            lbl.text = f"d{d['id']}"
+            arr.markers.append(lbl)
+            if d['discovered'] and self.viz['cut_disk']:
+                disk = mk('cut_disks', Marker.CYLINDER,
+                          (self.door_cut_cells * self.res * 2,
+                           self.door_cut_cells * self.res * 2, 0.03),
+                          (0.7, 0.05, 0.05), 0.55)
+                disk.pose.position = Point(x=dx, y=dy, z=0.15)
+                arr.markers.append(disk)
+
+        # 5. Topological edges room → door → room.
+        pos = {r['id']: r['centroid'] for r in rooms.values()}
+        for d in self.doors:
+            if not d['discovered']:
+                continue
+            rs = [r for r in d['rooms'] if r in pos]
+            for i in range(len(rs)):
+                for j in range(i + 1, len(rs)):
+                    m = mk('room_room_edges', Marker.LINE_LIST,
+                           (float(self.viz['edge_w']), 0, 0),
+                           (1.0, 0.85, 0.0))
+                    ax, ay = pos[rs[i]]; bx, by = pos[rs[j]]
+                    dx, dy = d['xy']
                     for p in [(ax, ay), (dx, dy), (dx, dy), (bx, by)]:
                         m.points.append(Point(x=p[0], y=p[1], z=2.5))
-                    m.pose.orientation.w = 1.0
                     arr.markers.append(m)
 
-        self.marker_pub.publish(arr)
+        self.pub_markers.publish(arr)
 
-    def _publish_scene_graph(self):
+    def _publish_scene_graph(self, rooms):
         sg = {
             'stamp': self.get_clock().now().nanoseconds * 1e-9,
-            'rooms': [{'id':                 r['id'],
-                       'centroid':           list(r['centroid']),
-                       'n_cells':            r['n_cells'],
-                       'median_clearance_m': r['median_clearance_m'],
-                       'kind':               r['kind']}
-                      for r in self.room_registry.rooms.values()],
-            'doors': [{'id':    d['id'],
-                       'xy':    list(d['xy']),
-                       'rooms': d['rooms']}
+            'rooms': [{'id': r['id'],
+                       'centroid': list(r['centroid']),
+                       'n_cells': r['n_cells']}
+                      for r in rooms.values()],
+            'doors': [{'id': d['id'],
+                       'xy': list(d['xy']),
+                       'rooms': d['rooms'],
+                       'discovered': d['discovered']}
                       for d in self.doors],
             'edges': [],
         }
         seen = set()
         for d in self.doors:
-            if len(d['rooms']) < 2:
+            if not d['discovered']:
                 continue
             for i in range(len(d['rooms'])):
                 for j in range(i + 1, len(d['rooms'])):
                     a, b = sorted([d['rooms'][i], d['rooms'][j]])
-                    k = (a, b)
-                    if k in seen:
+                    if (a, b) in seen:
                         continue
-                    seen.add(k)
-                    sg['edges'].append({'a': a, 'b': b,
-                                        'via_door': d['id']})
-        self.sg_pub.publish(String(data=json.dumps(sg)))
+                    seen.add((a, b))
+                    sg['edges'].append({'a': a, 'b': b, 'via_door': d['id']})
+        self.pub_sg.publish(String(data=json.dumps(sg)))
 
-    # ── Diagnostics ───────────────────────────────────────────────────
     def _heartbeat(self):
-        free = int(np.count_nonzero(self.bev.free_mask))
-        occ  = int(np.count_nonzero(self.bev.occ_mask))
-        depth_silent = (self._hb_depth == 0)
-        msg = (
-            f"hb: pose={self._hb_pose} depth={self._hb_depth} "
-            f"tick={self._hb_tick} "
-            f"K={'ok' if self.K is not None else 'MISSING'} "
-            f"BEV free/occ = {free}/{occ} "
-            f"rooms={len(self.room_registry.rooms)}"
-            + ("  ⚠ DEPTH STREAM SILENT" if depth_silent else ""))
-        if depth_silent:
-            self.get_logger().warning(msg)
+        hb = self._hb
+        n_disc = sum(1 for d in self.doors if d['discovered'])
+        if self.grid is None:
+            self.get_logger().warning(
+                f"hb  tick={hb['tick']} grid=0  "
+                f"(no OccupancyGrid yet — is FALCON bev_publisher running?)")
         else:
-            self.get_logger().info(msg)
-        self._hb_pose = self._hb_depth = self._hb_tick = 0
-
-    # ── Main tick ─────────────────────────────────────────────────────
-    def _tick(self):
-        self._hb_tick += 1
-        if self.cur_pose is None:
-            return
-
-        # BEV first, ALWAYS. Independent of segmentation.
-        try:
-            self._publish_bev()
-        except Exception as e:
-            self.get_logger().error(f"_publish_bev failed: {e}")
-
-        try:
-            self._segment()
-            self._publish_markers()
-            self._publish_scene_graph()
-        except Exception as e:
-            self.get_logger().error(
-                f"segmentation pipeline failed: {e}", exc_info=True)
+            free = int(((self.grid >= 0) & (self.grid <= self.FREE_MAX)).sum())
+            occ  = int((self.grid >= self.OCC_MIN).sum())
+            self.get_logger().info(
+                f"hb  grid={hb['grid']} tick={hb['tick']}  "
+                f"free={free} occ={occ}  "
+                f"rooms={len(self.registry.rooms)}  "
+                f"doors={n_disc}/{len(self.doors)}")
+        self._hb = dict(grid=0, tick=0)
 
 
 def main():
@@ -765,8 +575,12 @@ def main():
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
-    node.destroy_node()
-    rclpy.shutdown()
+    finally:
+        node.destroy_node()
+        # Humble's signal handler may have already shut down the
+        # context. Guard to avoid a noisy double-shutdown traceback.
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':

@@ -1,23 +1,26 @@
 # perception_docker
 
-Dedicated ROS2 Humble container for **P2 (MORE-style scene graph)** and
-**P3 (YOLOv8 detector)** of the LLM-guided drone search pipeline.
+ROS 2 Humble container for **P2 (scene-graph groundwork)** of the
+LLM-guided drone search pipeline. It consumes FALCON's 3D voxel map
+(bridged from ROS 1), projects it to 2D, cuts it at the hardcoded
+doors, and publishes the rooms + Voronoi skeleton + a JSON scene
+graph.
 
-Runs alongside the sim container (`sjtu_drone`) and the ROS1↔ROS2 bridge
-(`ros_bridge_docker`). All three share `--net=host` and `ROS_DOMAIN_ID=20`,
-so topic discovery is automatic.
+YOLO and LLM room-labelling are **not** in this container yet — the
+scene-graph JSON carries `label: null` and `objects: []` stubs so they
+can be bolted on later without schema changes.
 
 ```
 sjtu_project/
-├── sjtu_drone/            ← ROS2 sim (Gazebo + drone)
-├── ros_bridge_docker/     ← ROS1 ↔ ROS2 bridge
-├── falcon_docker/         ← ROS1 FALCON + adapter (upstream of bridge)
-└── perception_docker/     ← THIS (ROS2: YOLO + semantic mapper)
+├── sjtu_drone/           ← ROS 2 sim (Gazebo + drone)
+├── ros_bridge_docker/    ← ROS 1 ↔ ROS 2 bridge
+├── falcon_docker/        ← ROS 1 FALCON + adapter
+└── perception_docker/    ← THIS (ROS 2: semantic mapper)
     ├── Dockerfile
     ├── cyclonedds.xml
     ├── entrypoint.sh
     ├── run_perception.sh
-    └── semantic_mapper/   ← ament_python package (mounted into container)
+    └── semantic_mapper/  ← ament_python pkg (bind-mounted, not baked in)
 ```
 
 ## Build & run
@@ -26,88 +29,78 @@ sjtu_project/
 cd perception_docker
 chmod +x run_perception.sh
 
-# First run builds the image (~5 min) and the ament_python package,
-# then drops you in a shell:
+# First run builds the image (~5 min) + the ament_python package, then
+# drops you in a shell. Subsequent runs are instant.
 ./run_perception.sh
 
-# Or go straight to launch:
+# Straight to launch:
 ./run_perception.sh ros2 launch semantic_mapper semantic_pipeline.launch.py \
-    target_text:=apple \
-    bbox_xmin:=-25.0 bbox_ymin:=-25.0 bbox_xmax:=25.0 bbox_ymax:=25.0 \
-    door_sigma_m:=0.45 door_cut_thresh:=0.6 \
-    yolo_conf:=0.35 \
     start_rviz:=true
 ```
 
+All three containers share `--net=host` + `ROS_DOMAIN_ID=20`, so topic
+discovery is automatic.
+
+**After editing code on the host, just re-run `./run_perception.sh`.**
+The `semantic_mapper/` tree is bind-mounted and `colcon build
+--symlink-install` runs inside the container on every start. No image
+rebuild needed unless the `Dockerfile` itself changes.
+
 ## Topics
 
-### Consumes (from sjtu_drone, ROS2 side)
+### Consumed — FALCON's voxel map, bridged from ROS 1
 
-| Topic                                            | Type                             |
-|--------------------------------------------------|----------------------------------|
-| `<drone_ns>/front/image_raw`                     | sensor_msgs/Image                |
-| `<drone_ns>/front_depth/depth/image_raw`         | sensor_msgs/Image (32FC1)        |
-| `<drone_ns>/front_depth/depth/camera_info`       | sensor_msgs/CameraInfo           |
-| `<drone_ns>/gt_pose`                             | geometry_msgs/Pose               |
+| Topic                             | Type                       | Notes              |
+|-----------------------------------|----------------------------|--------------------|
+| `/voxel_mapping/occupancy_all`    | sensor_msgs/PointCloud2    | Occupied voxels    |
+| `/voxel_mapping/free_all`         | sensor_msgs/PointCloud2    | Free voxels (opt.) |
 
-Check the actual topic names with `ros2 topic list` — the launch
-arguments override each of these.
+If your FALCON fork uses different names, pass them via the launch
+args `occ_topic:=…` / `free_topic:=…`. Check with `rostopic list |
+grep -iE '(voxel|occup|free)'` inside the FALCON container.
 
-### Produces
+### Produced
 
-| Topic                           | Type                                | QoS             |
-|---------------------------------|-------------------------------------|-----------------|
-| `/perception/detections`        | vision_msgs/Detection2DArray        | reliable, vol   |
-| `/perception/target_seen`       | std_msgs/Bool                       | transient-local |
-| `/perception/debug_image`       | sensor_msgs/Image                   | reliable, vol   |
-| `/scene_graph`                  | std_msgs/String (JSON)              | transient-local |
-| `/scene_graph/labeled`          | std_msgs/String (JSON) w/ labels    | transient-local |
-| `/scene_graph/markers`          | visualization_msgs/MarkerArray      | reliable, vol   |
-| `/scene_graph/bev`              | nav_msgs/OccupancyGrid              | transient-local |
+| Topic                    | Type                            | QoS              |
+|--------------------------|---------------------------------|------------------|
+| `/scene_graph/bev`       | nav_msgs/OccupancyGrid          | transient-local  |
+| `/scene_graph/markers`   | visualization_msgs/MarkerArray  | reliable         |
+| `/scene_graph`           | std_msgs/String (JSON)          | transient-local  |
 
-The transient-local QoS means late-joining subscribers (RViz, future
-oracle / RPT* nodes) immediately get the current state.
-
-## LLM labeling
-
-Rules-based labels are on by default. To use an LLM:
-
-```bash
-export OPENAI_API_KEY=sk-...
-./run_perception.sh ros2 launch semantic_mapper semantic_pipeline.launch.py \
-    use_llm:=true  llm_model:=gpt-4o-mini
-```
-
-Any OpenAI-compatible endpoint works:
-```bash
-export OPENAI_BASE_URL=http://host.docker.internal:11434/v1
-./run_perception.sh ros2 launch semantic_mapper semantic_pipeline.launch.py \
-    use_llm:=true  llm_model:=llama3.1:8b
-```
-
-## Bridging from FALCON (ROS1 → ROS2)
-
-The FALCON-side topics that downstream planning needs (connectivity
-graph, future `set_bbox` command) will cross the ROS1↔ROS2 bridge
-automatically — `ros_bridge_docker/run_bridge.sh` already passes
-`--bridge-all-1to2-topics --bridge-all-2to1-topics`. No changes needed
-there.
-
-When the LLM oracle and RPT\* nodes join, they can run in this same
-perception container and talk to:
-- `/scene_graph/labeled` (ours, native ROS2)
-- `/falcon/connectivity_graph` (FALCON → bridge → ROS2)
-- `/falcon/set_bbox` (ROS2 → bridge → FALCON)
+Transient-local means RViz and future oracle / RPT\* nodes get the
+current state the moment they subscribe.
 
 ## Tuning
 
-Same knobs as the ROS1 version:
+Edit via launch args:
 
-- `bev_resolution` — 0.15 m for apartments, 0.10 m for tight hallways.
-- `door_radius` — footprint stamped into BEV to cut rooms. If rooms
-  stay merged, increase it; if rooms fracture, decrease it.
-- `z_slab_min/max` — which depth hits land in the BEV. Centre on cruise
-  altitude.
-- `door_classes` — defaults to `["door"]`. Stock YOLOv8 COCO doesn't
-  have doors, so either fine-tune on DoorDetect-Dataset or pass
-  `door_classes: ["refrigerator"]` to smoke-test the door-cutting.
+- `bev_resolution` — 0.15 m default. Drop to 0.10 m for tight
+  hallways; raise for speed.
+- `door_wall_m` — radius of the wall disc stamped at each door.
+  Default 0.60 m (≈ ½ a door width). If two rooms share one colour
+  across a door in RViz, bump it; if a single room is split into two
+  colours, drop it.
+- `z_slab_min` / `z_slab_max` — vertical band of FALCON voxels that
+  count toward the BEV. Defaults 0.30 / 1.80 m.
+- `min_room_cells` — drops specks (default 80, ≈ 1.8 m² at 0.15 m).
+- `corridor_thresh_m` — rooms with median clearance below this get
+  tagged `corridor` instead of `room`. Default 1.20 m.
+- `bbox_xmin/xmax/ymin/ymax` — the BEV window. Defaults frame the
+  hospital world.
+
+See `semantic_mapper/README.md` for the debugging workflow when
+segmentation looks off.
+
+## Bridging from FALCON
+
+`ros_bridge_docker/run_bridge.sh` already bridges 1→2 and 2→1
+topics. The semantic mapper only needs 1→2 for the voxel point-clouds;
+no changes there.
+
+Future nodes (oracle, RPT\*) will live in this same container and can
+talk to:
+
+- `/scene_graph`, `/scene_graph/markers`, `/scene_graph/bev` — native ROS 2.
+- `/falcon/connectivity_graph` — FALCON → bridge → ROS 2.
+- `/falcon/set_bbox` — ROS 2 → bridge → FALCON (for per-room
+  exploration bounds).

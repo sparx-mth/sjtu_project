@@ -2,13 +2,8 @@
 # ============================================================
 # falcon_docker/run_hospital.sh — FALCON + external Gazebo drone
 #
-# Equivalent to the "Terminal 3" docker run command in README.md.
-# The GPU stays free for Gazebo on the host.
-# FALCON receives depth images via ros1_bridge.
-#
-# Usage:
-#   ./run_hospital.sh              → interactive shell
-#   ./run_hospital.sh roslaunch …  → run a command directly
+# v11: now also mounts adapter/scripts/bev_publisher.py so the
+#       BEV publisher can run alongside the FALCON adapter.
 # ============================================================
 
 IMAGE="falcon-ros:noetic"
@@ -25,6 +20,7 @@ docker run -it --rm \
     --env CUDA_VISIBLE_DEVICES="" \
     --volume /tmp/.X11-unix:/tmp/.X11-unix:rw \
     --volume "${SCRIPT_DIR}/adapter/scripts/falcon_adapter.py:/catkin_ws/src/falcon_adapter/scripts/falcon_adapter.py" \
+    --volume "${SCRIPT_DIR}/adapter/scripts/bev_publisher.py:/catkin_ws/src/falcon_adapter/scripts/bev_publisher.py" \
     --volume "${SCRIPT_DIR}/adapter/launch/gazebo_exploration.launch:/catkin_ws/src/falcon_adapter/launch/gazebo_exploration.launch" \
     --volume "${SCRIPT_DIR}/hospital.yaml:/catkin_ws/src/FALCON/falcon_planner/exploration_manager/config/map/hospital.yaml" \
     --network host \

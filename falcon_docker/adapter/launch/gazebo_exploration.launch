@@ -1,15 +1,20 @@
 <launch>
   <!--
-    gazebo_exploration.launch  (v10 — bridge only)
+    gazebo_exploration.launch  (v11 — bridge + BEV publisher)
     ══════════════════════════════════════════════════════════════
 
-    Usage:
-      # Normal — fly manually, FALCON builds map
-      roslaunch falcon_adapter gazebo_exploration.launch
+    What runs here:
+      * FALCON exploration planner (unchanged)
+      * FALCON trajectory server  (unchanged)
+      * falcon_adapter            drone topics → FALCON topics
+      * bev_publisher             FALCON voxels → nav_msgs/OccupancyGrid
+                                   at /falcon/bev_2d  (new in v11)
+      * odom_visualization        (unchanged)
 
-      # With noise injection
+    Usage:
+      roslaunch falcon_adapter gazebo_exploration.launch
       roslaunch falcon_adapter gazebo_exploration.launch \
-        noise_pos_std:=0.05 noise_depth_std:=0.02
+          noise_pos_std:=0.05 noise_depth_std:=0.02
   -->
 
   <arg name="map_name"   default="hospital" />
@@ -22,13 +27,26 @@
   <arg name="noise_depth_proportional" default="0.0" />
   <arg name="noise_seed"               default="-1" />
 
+  <!-- BEV publisher knobs (match the hospital bbox used by MORE) -->
+  <arg name="bev_xmin"       default="-12.0" />
+  <arg name="bev_ymin"       default="-34.0" />
+  <arg name="bev_xmax"       default=" 12.0" />
+  <arg name="bev_ymax"       default=" 17.0" />
+  <arg name="bev_resolution" default=" 0.15" />
+  <arg name="bev_z_min"      default=" 0.30" />
+  <arg name="bev_z_max"      default=" 1.80" />
+  <arg name="bev_publish_hz"   default=" 2.0"  />
+  <!-- Cells to dilate OCC by after rasterization (wall thickening).
+       1 = defensive default; set to 0 for raw, 2 if walls erode a lot. -->
+  <arg name="bev_occ_dilate"   default=" 1" />
+
   <!-- Topic mapping -->
   <arg name="odometry_topic"     value="/odom_world" />
   <arg name="sensor_pose_topic"  value="/map_ros/pose" />
   <arg name="depth_image"        value="/map_ros/depth" />
 
   <!-- ══════════════════════════════════════════════════════════
-       Load FALCON config files
+       Load FALCON config files (unchanged)
        ══════════════════════════════════════════════════════════ -->
   <rosparam command="load" file="$(find exploration_manager)/config/robot/uav_model_simulator.yaml"/>
   <rosparam command="load" file="$(find exploration_manager)/config/map/$(arg map_name).yaml"/>
@@ -40,17 +58,13 @@
   <rosparam command="load" file="$(find exploration_utils)/config/perception_utils.yaml"/>
   <rosparam command="load" file="$(find exploration_manager)/config/exploration_manager.yaml"/>
 
-  <!-- ══════════════════════════════════════════════════════════
-       Camera intrinsics — must match Gazebo depth camera
-       640x480, HFOV 90°  →  fx=fy=320, cx=320, cy=240
-       ══════════════════════════════════════════════════════════ -->
+  <!-- Camera intrinsics (match Gazebo depth camera) -->
   <param name="/uav_model/sensing_parameters/camera_intrinsics/fx" value="320.0" />
   <param name="/uav_model/sensing_parameters/camera_intrinsics/fy" value="320.0" />
   <param name="/uav_model/sensing_parameters/camera_intrinsics/cx" value="320.0" />
   <param name="/uav_model/sensing_parameters/camera_intrinsics/cy" value="240.0" />
   <param name="/uav_model/sensing_parameters/image_width"  value="640" />
   <param name="/uav_model/sensing_parameters/image_height" value="480" />
-
   <param name="/uav_model/sensing_parameters/min_depth" value="0.1" />
   <param name="/uav_model/sensing_parameters/max_depth" value="5.0" />
 
@@ -58,7 +72,7 @@
   <param name="/transformer/pose_topic_type"     value="pose" />
   <param name="/transformer/timestamp_tolerance" value="0.05" />
 
-  <!-- Speed tuning (affects FALCON trajectory generation) -->
+  <!-- Speed tuning -->
   <param name="/uav_model/dynamics_parameters/max_linear_velocity"      value="0.2" />
   <param name="/uav_model/dynamics_parameters/max_linear_acceleration"  value="0.3" />
   <param name="/uav_model/dynamics_parameters/max_yaw_velocity"         value="0.2" />
@@ -92,7 +106,7 @@
   <node pkg="fast_planner" name="traj_server" type="traj_server" output="screen"
         respawn="true" respawn_delay="3" />
 
-  <!-- Bridge adapter: drone topics -> FALCON topics -->
+  <!-- Bridge adapter: drone topics → FALCON topics -->
   <node pkg="falcon_adapter" type="falcon_adapter.py"
         name="falcon_adapter" output="screen">
     <param name="drone_ns"                 value="$(arg drone_ns)" />
@@ -109,6 +123,25 @@
     <param name="noise_depth_std"          value="$(arg noise_depth_std)" />
     <param name="noise_depth_proportional" value="$(arg noise_depth_proportional)" />
     <param name="noise_seed"               value="$(arg noise_seed)" />
+  </node>
+
+  <!-- NEW: 2D BEV publisher — FALCON voxels → nav_msgs/OccupancyGrid.
+       This is what the MORE/perception side now consumes. -->
+  <node pkg="falcon_adapter" type="bev_publisher.py"
+        name="bev_publisher" output="screen">
+    <param name="frame_id"      value="world" />
+    <param name="resolution"    value="$(arg bev_resolution)" />
+    <param name="bbox_xmin"     value="$(arg bev_xmin)" />
+    <param name="bbox_ymin"     value="$(arg bev_ymin)" />
+    <param name="bbox_xmax"     value="$(arg bev_xmax)" />
+    <param name="bbox_ymax"     value="$(arg bev_ymax)" />
+    <param name="z_slab_min"    value="$(arg bev_z_min)" />
+    <param name="z_slab_max"    value="$(arg bev_z_max)" />
+    <param name="publish_hz"        value="$(arg bev_publish_hz)" />
+    <param name="occ_dilate_cells"  value="$(arg bev_occ_dilate)" />
+    <param name="out_topic"     value="/falcon/bev_2d" />
+    <param name="occ_topic"     value="/voxel_mapping/occupancy_grid_occupied" />
+    <param name="free_topic"    value="/voxel_mapping/occupancy_grid_free" />
   </node>
 
   <!-- Robot visualizer -->
