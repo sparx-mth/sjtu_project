@@ -1,15 +1,14 @@
 """
-semantic_pipeline.launch.py — FALCON BEV → scene graph.
+semantic_pipeline.launch.py — FALCON BEV -> scene graph (+ object mapper + YOLO).
 
-Launches the ROS 2 perception node (and optionally RViz). The node
-subscribes to nav_msgs/OccupancyGrid published by the FALCON-side
-`bev_publisher` at /falcon/bev_2d. All geometry (bbox, resolution,
-origin) comes from the grid header itself, so it's not configurable
-here — tune it on the FALCON side, in gazebo_exploration.launch.
+Launches:
+  * yolo_detector         RGB -> Detection2DArray @ 1 Hz        (toggle: start_yolo)
+  * semantic_mapper_node  Voronoi + rooms + scene graph
+  * object_mapper_node    YOLO detections -> 2D world XY
+  * rviz2                                                       (toggle: start_rviz)
 
-Override any knob on the command line, e.g.:
-    ros2 launch semantic_mapper semantic_pipeline.launch.py \\
-        door_cut_m:=0.8 start_rviz:=true
+Disable YOLO if you want to run it in a separate shell for debugging:
+    ros2 launch semantic_mapper semantic_pipeline.launch.py start_yolo:=false
 """
 
 from launch import LaunchDescription
@@ -34,8 +33,32 @@ def generate_launch_description():
         DeclareLaunchArgument('room_iou_threshold',  default_value='0.15'),
         DeclareLaunchArgument('tick_rate',           default_value='2.0'),
 
+        # Object mapper knobs.
+        DeclareLaunchArgument('min_observations',    default_value='2'),
+        DeclareLaunchArgument('dedup_radius_m',      default_value='0.70'),
+        DeclareLaunchArgument('min_conf',            default_value='0.25'),
+
+        # YOLO knobs.
+        DeclareLaunchArgument('yolo_model',  default_value='yolov8s-world.pt'),
+        DeclareLaunchArgument('yolo_device', default_value='cuda:0'),
+        DeclareLaunchArgument('yolo_min_dt', default_value='1.0'),  # 1 Hz
+
         DeclareLaunchArgument('start_rviz', default_value='false'),
+        DeclareLaunchArgument('start_yolo', default_value='true'),
     ]
+
+    yolo = Node(
+        package='semantic_mapper',
+        executable='yolo_detector',
+        name='yolo_detector',
+        output='screen',
+        condition=IfCondition(LaunchConfiguration('start_yolo')),
+        parameters=[{
+            'model_path': LaunchConfiguration('yolo_model'),
+            'device':     LaunchConfiguration('yolo_device'),
+            'min_dt':     LaunchConfiguration('yolo_min_dt'),
+        }],
+    )
 
     mapper = Node(
         package='semantic_mapper',
@@ -51,6 +74,19 @@ def generate_launch_description():
         }],
     )
 
+    object_mapper = Node(
+        package='semantic_mapper',
+        executable='object_mapper_node',
+        name='object_mapper',
+        output='screen',
+        parameters=[{
+            'world_frame':      LaunchConfiguration('world_frame'),
+            'min_observations': LaunchConfiguration('min_observations'),
+            'dedup_radius_m':   LaunchConfiguration('dedup_radius_m'),
+            'min_conf':         LaunchConfiguration('min_conf'),
+        }],
+    )
+
     rviz = Node(
         package='rviz2', executable='rviz2', name='rviz2',
         arguments=['-d', PathJoinSubstitution([
@@ -60,4 +96,4 @@ def generate_launch_description():
         output='screen',
     )
 
-    return LaunchDescription(args + [mapper, rviz])
+    return LaunchDescription(args + [yolo, mapper, object_mapper, rviz])

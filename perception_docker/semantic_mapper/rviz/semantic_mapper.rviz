@@ -35,9 +35,6 @@ Visualization Manager:
       Reference Frame: world
 
     # ── BEV occupancy from FALCON's voxel map ──
-    # Published by bev_publisher INSIDE the FALCON container and
-    # bridged into ROS 2. The bridge maps ROS 1 latched → ROS 2
-    # VOLATILE (not TRANSIENT_LOCAL), so we match VOLATILE here.
     - Class: rviz_default_plugins/Map
       Name: BEV
       Topic:
@@ -49,22 +46,7 @@ Visualization Manager:
       Draw Behind: true
       Enabled: true
 
-    # ── Scene-graph markers ──
-    #
-    # Namespaces (toggle individually if visualization gets busy):
-    #   room_fill            coloured cells, one colour per room
-    #   skeleton             Voronoi spine, same colour as its room
-    #                        — same colour = cut worked;
-    #                        shared colour = missed cut
-    #   rooms                sphere at each room's centroid
-    #   room_labels          "R0 (123)" above each centroid
-    #   doors_discovered     BRIGHT ORANGE: door seen by FALCON, cuts the graph
-    #   doors_pending        FAINT GREY:    door known but not observed yet
-    #   door_labels          "d0", "d12", ... (for discovered doors)
-    #   door_labels_pending  same but dim (for pending doors)
-    #   cut_disks            dark-red floor dots showing exactly where
-    #                        the skeleton was punched (discovered only)
-    #   room_room_edges      yellow lines room → door → room (topology)
+    # ── Scene-graph markers (rooms + doors + edges) ──
     - Class: rviz_default_plugins/MarkerArray
       Name: SceneGraph
       Topic:
@@ -83,8 +65,19 @@ Visualization Manager:
         cut_disks:            true
         room_room_edges:      true
 
+    # ── Detected objects on the map + legend ──
+    # obj:<class>   coloured cell patch (one namespace per class)
+    # obj_labels    small class tag hovering over each object
+    # legend        "OBJECTS" header + "<class> xN" rows in map corner
+    # legend_sw     colour swatch next to each legend row
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Objects
+      Topic:
+        Value: /perception/object_markers
+        Reliability Policy: Reliable
+      Enabled: true
+
   # ── Top-down orthographic, framed for the hospital map ──
-  # Hospital spans roughly x=[-9..9], y=[-32..15].
   Views:
     Current:
       Class: rviz_default_plugins/TopDownOrtho
@@ -93,7 +86,7 @@ Visualization Manager:
       X: 0
       Y: -8.5
       Angle: 0
-      Scale: 18    # ≈ pixels per metre
+      Scale: 18
       Invert Z Axis: false
       Near Clip Distance: 0.01
     Saved:

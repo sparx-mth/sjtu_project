@@ -24,6 +24,7 @@ setup(
         'console_scripts': [
             'yolo_detector        = semantic_mapper.yolo_detector:main',
             'semantic_mapper_node = semantic_mapper.semantic_mapper_node:main',
+            'object_mapper_node   = semantic_mapper.object_mapper_node:main',
             'room_labeler         = semantic_mapper.room_labeler:main',
         ],
     },
