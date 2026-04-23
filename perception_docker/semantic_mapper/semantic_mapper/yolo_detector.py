@@ -26,11 +26,38 @@ from cv_bridge import CvBridge
 # well-separated prompts. Add/remove per scene as needed.
 DEFAULT_VOCABULARY = [
     "person",
-    "chair", "bed", "couch", "table", "desk",
-    "toilet", "sink", "refrigerator",
-    "tv", "potted plant", "trash can",
-]
 
+    "chair",
+    "office chair",
+    "wheelchair",
+    "sofa",
+
+    "table",
+    "desk",
+    "bedside table",
+    "cabinet",
+    "drawer",
+    "shelf",
+    "cart",
+
+    "toilet",
+    "sink",
+    "shower",
+
+    "tv",
+    "refrigerator",
+    "trash can",
+    "vending machine",
+
+    "hospital bed",
+    "medical trolley",
+    "surgical trolley",
+    "instrument cart",
+    "anesthesia machine",
+    "x-ray machine",
+    "iv stand",
+    "blood pressure monitor",
+]
 
 class YoloDetector(Node):
     def __init__(self):
@@ -40,7 +67,7 @@ class YoloDetector(Node):
         P("rgb_topic",           "/simple_drone/front/image_raw")
         P("model_path",          "yolov8s-world.pt")
         P("device",              "cuda:0")
-        P("conf_thresh",         0.70)       # low: object_mapper filters again
+        P("conf_thresh",         0.80)       # low: object_mapper filters again
         P("imgsz",               640)
         P("min_dt",              1.0)        # 1 Hz
         P("vocabulary",          DEFAULT_VOCABULARY)
