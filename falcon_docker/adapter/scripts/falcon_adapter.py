@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-falcon_adapter.py  (v10 — Clean bridge, no control)
+falcon_adapter.py  (v11 — quieter startup)
 
 Bridges drone topics to FALCON topics. That's it.
 
@@ -13,6 +13,8 @@ exploration from the pose + depth it receives.
 
 Optional Gaussian noise injection on pose and depth for
 evaluating map quality under sensor degradation.
+
+v11 change: replaced 7-line loginfo banner with a single line.
 """
 
 import rospy
@@ -89,21 +91,11 @@ class FalconAdapter:
         rospy.Subscriber(self.drone_ns + "/front_depth/depth/camera_info",
                          CameraInfo, self.cam_info_cb)
 
-        # ── Banner ──
-        rospy.loginfo("=" * 50)
-        rospy.loginfo("  FALCON Adapter v10  (bridge only)")
-        rospy.loginfo("  Drone: %s", self.drone_ns)
-        rospy.loginfo("  Rate:  odom %.0fHz  depth %.0fHz",
-                      1.0 / self.odom_min_dt, 1.0 / self.depth_min_dt)
-        if self.noise_enabled:
-            rospy.loginfo("  Noise: pos=%.4fm  yaw=%.4frad"
-                          "  depth=%.4fm  depth%%=%.2f%%",
-                          self.noise_pos_std, self.noise_yaw_std,
-                          self.noise_depth_std,
-                          self.noise_depth_proportional * 100)
-        else:
-            rospy.loginfo("  Noise: OFF")
-        rospy.loginfo("=" * 50)
+        # ── One-line banner ──
+        rospy.loginfo(
+            "falcon_adapter ready  drone=%s  odom=%.0fHz  depth=%.0fHz  noise=%s",
+            self.drone_ns, 1.0 / self.odom_min_dt, 1.0 / self.depth_min_dt,
+            "on" if self.noise_enabled else "off")
 
     # ──────────────────────────────────────────────────────────
     #  Pose callback  (drone -> FALCON)

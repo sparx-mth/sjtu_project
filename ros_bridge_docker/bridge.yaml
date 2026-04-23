@@ -1,0 +1,111 @@
+# ============================================================
+# ros_bridge_docker/bridge.yaml — static topic list for FALCON
+#
+# Loaded onto the ROS1 parameter server by entrypoint.sh via
+# `rosparam load`, then consumed by `ros2 run ros1_bridge
+# parameter_bridge`.
+#
+# IMPORTANT: The `topics:` list creates BIDIRECTIONAL bridges.
+# The bridge infers direction at runtime from who publishes /
+# subscribes on each side. There is NO `direction:` key in Foxy.
+#
+# QoS rules of thumb for Gazebo sims:
+#   - Sensor data (Image, CameraInfo, PointCloud, LaserScan):
+#       reliability: best_effort, durability: volatile
+#     → Gazebo plugins publish with SensorDataQoS; a reliable
+#       subscriber will NOT receive these messages (this is the
+#       bug that made your depth silently stall).
+#   - Commands, poses, small messages:
+#       reliability: reliable, durability: volatile
+# ============================================================
+
+topics:
+
+  # ── SENSOR DATA (ROS2 sim → ROS1 FALCON) ─────────────────────
+  # Best-effort because Gazebo's camera plugin publishes best-effort.
+  - topic: /simple_drone/front_depth/depth/image_raw
+    type: sensor_msgs/msg/Image
+    queue_size: 2
+    qos:
+      history: keep_last
+      depth: 2
+      reliability: best_effort
+      durability: volatile
+
+  - topic: /simple_drone/front_depth/depth/camera_info
+    type: sensor_msgs/msg/CameraInfo
+    queue_size: 2
+    qos:
+      history: keep_last
+      depth: 2
+      reliability: best_effort
+      durability: volatile
+
+  # ── POSE (ROS2 sim → ROS1 FALCON adapter) ────────────────────
+  # Pose is small and reliable; mirror the sjtu_drone publisher.
+  - topic: /simple_drone/gt_pose
+    type: geometry_msgs/msg/Pose
+    queue_size: 10
+    qos:
+      history: keep_last
+      depth: 10
+      reliability: reliable
+      durability: volatile
+
+  # ── MANUAL / TELEOP CONTROL (ROS1 → ROS2 sim) ────────────────
+  # Whatever teleop node you use on ROS1 publishes these; the
+  # bridge forwards them to the sjtu_drone plugin in Gazebo.
+  - topic: /simple_drone/cmd_vel
+    type: geometry_msgs/msg/Twist
+    queue_size: 10
+    qos:
+      history: keep_last
+      depth: 10
+      reliability: reliable
+      durability: volatile
+
+  - topic: /simple_drone/takeoff
+    type: std_msgs/msg/Empty
+    queue_size: 1
+    qos:
+      history: keep_last
+      depth: 1
+      reliability: reliable
+      durability: volatile
+
+  - topic: /simple_drone/land
+    type: std_msgs/msg/Empty
+    queue_size: 1
+    qos:
+      history: keep_last
+      depth: 1
+      reliability: reliable
+      durability: volatile
+
+  - topic: /simple_drone/posctrl
+    type: std_msgs/msg/Bool
+    queue_size: 1
+    qos:
+      history: keep_last
+      depth: 1
+      reliability: reliable
+      durability: volatile
+
+# ─────────────────────────────────────────────────────────────
+# NOTES ON WHAT'S *NOT* HERE AND WHY
+#
+# /tf, /tf_static  — intentionally omitted.
+#   falcon_adapter.py publishes world→body→camera itself, with
+#   wall-clock stamps. Bridging the sim's /tf would inject
+#   sim-time-stamped frames into the ROS1 graph (remember the
+#   1.77e9-second delay on base_footprint?), confusing FALCON.
+#
+# /clock  — intentionally omitted.
+#   FALCON runs on wall clock (no /use_sim_time). Bridging /clock
+#   in would either have no effect or risk setting use_sim_time
+#   behavior inconsistently if any node auto-subscribes.
+#
+# /simple_drone/odom, /imu, /front_color  — not needed by FALCON.
+#   Skipping them keeps the ROS2→ROS1 bandwidth free for depth,
+#   which is the bottleneck topic.
+# ─────────────────────────────────────────────────────────────

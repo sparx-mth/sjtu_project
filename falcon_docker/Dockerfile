@@ -91,6 +91,10 @@ RUN /bin/bash -c "\
         -DCUDA_NVCC_FLAGS=\"-gencode arch=compute_${CUDA_ARCH},code=sm_${CUDA_ARCH}\" \
     "
 
+# ── 9b. Patch FALCON SOP timeout (1s → 10s) and rebuild ──────
+COPY fix_falcon_sop.sh /fix_falcon_sop.sh
+RUN bash /fix_falcon_sop.sh
+
 # ── 10. Shell + entrypoint ────────────────────────────────────
 RUN echo "source /opt/ros/noetic/setup.bash"          >> /root/.bashrc \
     && echo "source /catkin_ws/devel/setup.bash"       >> /root/.bashrc \
