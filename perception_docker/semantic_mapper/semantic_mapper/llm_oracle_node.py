@@ -47,7 +47,7 @@ from rclpy.node import Node
 from rclpy.qos import (QoSProfile, ReliabilityPolicy, DurabilityPolicy,
                        HistoryPolicy)
 
-from std_msgs.msg import String, ColorRGBA
+from std_msgs.msg import String, ColorRGBA, Bool
 from geometry_msgs.msg import Point
 from visualization_msgs.msg import Marker, MarkerArray
 
@@ -143,6 +143,7 @@ class LLMOracleNode(Node):
 
         self._latest_sg = None
         self._latest_labels = {}   # {pid_str: {"label": "...", ...}}
+        self._target_seen = False   # set by /target_seen — pauses ticks
 
         latched = QoSProfile(reliability=ReliabilityPolicy.RELIABLE,
                              durability=DurabilityPolicy.TRANSIENT_LOCAL,
@@ -152,6 +153,8 @@ class LLMOracleNode(Node):
                                  self._sg_cb, latched)
         self.create_subscription(String, self.labels_topic,
                                  self._labels_cb, latched)
+        self.create_subscription(Bool, "/target_seen",
+                                 self._target_seen_cb, latched)
         self.pub = self.create_publisher(String, self.out_topic, latched)
         # Separate MarkerArray topic so the user can toggle it in RViz
         # independently of the scene-graph markers.
@@ -198,9 +201,19 @@ class LLMOracleNode(Node):
             self.get_logger().warn(f"bad labels JSON: {e}",
                                    throttle_duration_sec=5.0)
 
+    def _target_seen_cb(self, msg: Bool):
+        if msg.data and not self._target_seen:
+            self.get_logger().info(
+                "received /target_seen=True — pausing LLM oracle ticks.")
+        self._target_seen = bool(msg.data)
+
     # ── Tick ──────────────────────────────────────────────────────
     def _tick(self):
         self._n["ticks"] += 1
+        # Once the target is found, stop burning LLM cycles. Stays
+        # paused for the lifetime of the process.
+        if self._target_seen:
+            return
         if self._latest_sg is None:
             return
         rooms_raw = self._latest_sg.get("rooms", []) or []

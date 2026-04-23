@@ -28,6 +28,7 @@ setup(
             # LLM oracle add-on:
             'room_classifier_node = semantic_mapper.room_classifier_node:main',
             'llm_oracle_node      = semantic_mapper.llm_oracle_node:main',
+            'target_watcher_node  = semantic_mapper.target_watcher_node:main',
             'llm_check            = semantic_mapper.llm_check:main',
         ],
     },

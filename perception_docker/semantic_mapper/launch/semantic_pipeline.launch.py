@@ -67,6 +67,7 @@ def generate_launch_description():
         DeclareLaunchArgument('start_rviz', default_value='false'),
         DeclareLaunchArgument('start_yolo', default_value='true'),
         DeclareLaunchArgument('start_llm',  default_value='true'),
+        DeclareLaunchArgument('start_target_watcher', default_value='true'),
     ]
 
     yolo = Node(
@@ -133,6 +134,20 @@ def generate_launch_description():
         }],
     )
 
+    target_watcher = Node(
+        package='semantic_mapper',
+        executable='target_watcher_node',
+        name='target_watcher',
+        output='screen',
+        # Runs regardless of start_llm — fuzzy match falls back to
+        # token/substring if the LLM isn't available. If you really
+        # want it off, launch with start_target_watcher:=false.
+        condition=IfCondition(LaunchConfiguration('start_target_watcher')),
+        parameters=[{
+            'target_object': LaunchConfiguration('target_object'),
+        }],
+    )
+
     rviz = Node(
         package='rviz2', executable='rviz2', name='rviz2',
         arguments=['-d', PathJoinSubstitution([
@@ -143,5 +158,6 @@ def generate_launch_description():
     )
 
     return LaunchDescription(args + [
-        yolo, mapper, object_mapper, room_classifier, llm_oracle, rviz,
+        yolo, mapper, object_mapper, room_classifier, llm_oracle,
+        target_watcher, rviz,
     ])
