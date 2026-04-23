@@ -11,19 +11,30 @@ FALCON-side `bev_publisher` node (value encoding: -1 unknown, 0 free,
                      ─► 8-connected CC
                      ─► nearest-skeleton paint
                      ─► rooms (IoU-matched across ticks → stable IDs)
+                     ─► per-room stats: objects, τ_r, F_r
                      ─► scene graph (rooms, doors, edges) as JSON
 
 No PointCloud2, no z-slab, no BEV rebuild, no bbox parameters — the
 grid header already says where the map is and how big it is. The
 FALCON container handles all 3D-to-2D conversion.
+
+v12 additions (LLM-oracle support):
+  * Subscribe to /map_ros/pose to track current room; accumulate
+    cumulative time-in-room τ_r per room_id.
+  * Subscribe to /perception/objects; attach per-room objects lists.
+  * Compute frontier clusters (free cells adjacent to unknown) every
+    tick; assign each cluster to a room by majority vote; count per
+    room to produce F_r. Cluster size floor avoids noise.
+  * Extend /scene_graph JSON: each room gets  time_in_room_s ,
+    frontier_clusters , and  objects .
 """
 
 import json
 import colorsys
-from collections import OrderedDict
+from collections import OrderedDict, Counter
 
 import numpy as np
-from scipy.ndimage import (binary_closing, binary_opening,
+from scipy.ndimage import (binary_closing, binary_opening, binary_dilation,
                            distance_transform_edt, label as cc_label)
 
 try:
@@ -38,7 +49,7 @@ from rclpy.qos import (QoSProfile, ReliabilityPolicy, DurabilityPolicy,
                        HistoryPolicy)
 
 from nav_msgs.msg import OccupancyGrid
-from geometry_msgs.msg import Point
+from geometry_msgs.msg import Point, PoseStamped
 from std_msgs.msg import ColorRGBA, String
 from visualization_msgs.msg import Marker, MarkerArray
 
@@ -216,6 +227,16 @@ class SemanticMapperNode(Node):
         P('room_iou_threshold',  0.15)
         P('tick_rate',           2.0)
 
+        # Frontier clustering: clusters smaller than this many cells are
+        # dropped as noise. At 0.15 m resolution, 4 cells ≈ 0.09 m² —
+        # single-cell flicker on wall joints is filtered out but even
+        # small openings survive.
+        P('frontier_min_cluster_cells', 4)
+
+        # Topics for pose + objects used to populate per-room state.
+        P('pose_topic',           '/map_ros/pose')
+        P('objects_topic',        '/perception/objects')
+
         P('viz_fill_alpha', 0.32)
         P('viz_door_r',     0.25)
         P('viz_door_h',     1.40)
@@ -230,6 +251,7 @@ class SemanticMapperNode(Node):
         self.door_discover_m = float(g('door_discover_m'))
         self.min_room_cells  = int(g('min_room_cells'))
         self.tick_rate       = float(g('tick_rate'))
+        self.frontier_min_cluster_cells = int(g('frontier_min_cluster_cells'))
         self.viz = {k: g('viz_' + k) for k in
                     ('fill_alpha', 'door_r', 'door_h', 'text_h',
                      'edge_w', 'cut_disk')}
@@ -254,6 +276,21 @@ class SemanticMapperNode(Node):
         self.xmin = None
         self.ymin = None
         self._skel = None
+        self._room_pid_lbl = None   # (H,W) int32: 0 = no room, >0 = pid+1
+
+        # ── Per-room accumulated state (survives across ticks) ──
+        # Keyed by persistent room id (pid). Cleared when grid geometry
+        # changes (registry is reset anyway — PIDs no longer meaningful).
+        self.time_in_room_s = {}      # pid -> float seconds
+        self._last_tick_wall = None   # wall clock of previous _tick
+        self._last_room_pid  = None   # which room the drone was in last tick
+        self._drone_xy       = None   # latest pose (wx, wy), or None
+
+        # Latest objects snapshot from /perception/objects (list of dicts).
+        self._latest_objects = []
+
+        # Per-room frontier cluster counts, recomputed each tick.
+        self._frontier_counts = {}    # pid -> int
 
         # ── ROS glue ──
         # Our outbound /scene_graph uses TRANSIENT_LOCAL so late-joining
@@ -270,6 +307,12 @@ class SemanticMapperNode(Node):
                              history=HistoryPolicy.KEEP_LAST, depth=5)
         self.create_subscription(OccupancyGrid, str(g('bev_topic')),
                                  self._grid_cb, bev_qos)
+        # Pose + objects — best-effort is fine, we only sample latest
+        # on the tick.
+        self.create_subscription(PoseStamped, str(g('pose_topic')),
+                                 self._pose_cb, 20)
+        self.create_subscription(String, str(g('objects_topic')),
+                                 self._objects_cb, latched)
 
         self.pub_markers = self.create_publisher(
             MarkerArray, '/scene_graph/markers', 1)
@@ -282,6 +325,10 @@ class SemanticMapperNode(Node):
         self.get_logger().info(
             f"semantic_mapper ready. Subscribed to {g('bev_topic')} "
             f"(nav_msgs/OccupancyGrid). {len(self.doors)} doors loaded.")
+        self.get_logger().info(
+            f"  pose    = {g('pose_topic')}   (for τ_r)")
+        self.get_logger().info(
+            f"  objects = {g('objects_topic')}   (for per-room object lists)")
 
     # ── Geometry helpers (grid-dependent) ──
     def w2c(self, x, y):
@@ -328,8 +375,11 @@ class SemanticMapperNode(Node):
             for d in self.doors:
                 d['cell'] = self.w2c(*d['xy'])
             # Shape changed → IoU matching across ticks no longer works,
-            # reset the registry so room IDs restart cleanly.
+            # reset the registry so room IDs restart cleanly. The
+            # accumulated per-room state is keyed by PID, so reset too.
             self.registry = RoomRegistry(self.registry.iou)
+            self.time_in_room_s = {}
+            self._last_room_pid = None
             self.get_logger().info(
                 f"grid geometry: {W}×{H} @ {self.res:.3f} m, "
                 f"origin ({self.xmin:.2f}, {self.ymin:.2f}); "
@@ -337,6 +387,29 @@ class SemanticMapperNode(Node):
                 f"discover={self.door_discover_cells}c")
 
         self._hb['grid'] += 1
+
+    # ── Pose + objects (latest-sample caches used by the tick) ──
+    def _pose_cb(self, msg: PoseStamped):
+        self._drone_xy = (float(msg.pose.position.x),
+                          float(msg.pose.position.y))
+
+    def _objects_cb(self, msg: String):
+        try:
+            data = json.loads(msg.data)
+            objs = data.get('objects', [])
+            # Accept only entries with an 'xy' pair; ignore malformed.
+            self._latest_objects = [
+                {'id':    int(o.get('id', -1)),
+                 'class': str(o.get('class', '')),
+                 'xy':    (float(o['xy'][0]), float(o['xy'][1])),
+                 'count': int(o.get('count', 0))}
+                for o in objs
+                if isinstance(o.get('xy'), (list, tuple))
+                and len(o['xy']) == 2
+            ]
+        except (json.JSONDecodeError, TypeError, ValueError) as e:
+            self.get_logger().warn(f"bad /perception/objects payload: {e}",
+                                   throttle_duration_sec=5.0)
 
     # ── Door discovery (FALCON has seen the doorway?) ──
     def _update_discovered(self):
@@ -379,6 +452,129 @@ class SemanticMapperNode(Node):
                               if (r['mask'][y0:y1, x0:x1] & annulus).any()})
             d['rooms'] = touched
 
+    # ── Per-room PID label image (for XY → room lookup) ──
+    def _build_room_pid_lbl(self, rooms):
+        """room_pid_lbl[y, x] = pid+1 if cell belongs to pid, else 0."""
+        lbl = np.zeros(self.grid.shape, dtype=np.int32)
+        for pid, r in rooms.items():
+            lbl[r['mask']] = pid + 1
+        return lbl
+
+    def _room_at_xy(self, wx, wy, snap_cells=3):
+        """Return pid of room containing (wx, wy), or None.
+
+        Objects projected from the camera often land ON a wall cell,
+        in a doorway cut disk, or a couple of cells outside the healed
+        free mask. Those should still be credited to the adjacent
+        room, not dropped. If the exact cell isn't in any room, vote
+        among non-zero neighbours within a ±snap_cells window.
+
+        At 0.15 m resolution, snap_cells=3 is a 0.9 m × 0.9 m window —
+        conservative enough that an object in a corridor won't be
+        snapped across a wall into a room (walls are ≥ one cut-disk
+        radius wide). Set snap_cells=0 to restore strict exact-cell
+        lookup.
+        """
+        if self._room_pid_lbl is None:
+            return None
+        cx, cy = self.w2c(wx, wy)
+        H, W = self._room_pid_lbl.shape
+        if not (0 <= cx < W and 0 <= cy < H):
+            return None
+        v = int(self._room_pid_lbl[cy, cx])
+        if v > 0:
+            return v - 1
+        if snap_cells > 0:
+            r = int(snap_cells)
+            y0, y1 = max(0, cy - r), min(H, cy + r + 1)
+            x0, x1 = max(0, cx - r), min(W, cx + r + 1)
+            patch = self._room_pid_lbl[y0:y1, x0:x1]
+            vals = patch[patch > 0]
+            if vals.size > 0:
+                winner = Counter(vals.tolist()).most_common(1)[0][0]
+                return int(winner) - 1
+        return None
+
+    # ── τ_r: accumulate drone's time in its current room ──
+    def _accumulate_time(self, now_s):
+        if self._last_tick_wall is None:
+            self._last_tick_wall = now_s
+            self._last_room_pid  = (self._room_at_xy(*self._drone_xy)
+                                    if self._drone_xy is not None else None)
+            return
+        dt = max(0.0, now_s - self._last_tick_wall)
+        self._last_tick_wall = now_s
+        # Credit the time that JUST elapsed to the room the drone was
+        # in during that interval (i.e. last tick's room). Transitions
+        # are imprecise at the tick boundary by design; at 2 Hz the
+        # error is bounded by 0.5 s, negligible for the oracle.
+        if self._last_room_pid is not None:
+            self.time_in_room_s[self._last_room_pid] = (
+                self.time_in_room_s.get(self._last_room_pid, 0.0) + dt)
+        self._last_room_pid = (self._room_at_xy(*self._drone_xy)
+                               if self._drone_xy is not None else None)
+
+    # ── F_r: count frontier clusters per room ──
+    def _compute_frontier_counts(self, rooms):
+        """A frontier cell = free cell adjacent to an unknown cell.
+        Cluster via 8-conn CC; assign each cluster to a room by majority
+        vote over pids at its cells. Clusters smaller than the floor are
+        dropped. Returns {pid: count}."""
+        if self.grid is None or self._room_pid_lbl is None:
+            return {pid: 0 for pid in rooms}
+
+        free = (self.grid >= 0) & (self.grid <= self.FREE_MAX)
+        unk  = (self.grid == self.UNK)
+        # 4-connected unknown neighbourhood catches the standard frontier
+        # definition (up/down/left/right). Diagonal contacts produce
+        # noisier/smaller clusters on room corners.
+        struct4 = np.array([[0, 1, 0],
+                            [1, 1, 1],
+                            [0, 1, 0]], dtype=bool)
+        unk_dil = binary_dilation(unk, structure=struct4)
+        frontier = free & unk_dil
+
+        counts = {pid: 0 for pid in rooms}
+        if not frontier.any():
+            return counts
+
+        fc_lbl, n = cc_label(frontier,
+                             structure=np.ones((3, 3), np.uint8))
+        if n == 0:
+            return counts
+
+        # Flatten once, then use label map to assign each cluster to a pid.
+        # For each cluster k, majority-vote room_pid_lbl at cluster cells.
+        flat_lbl = fc_lbl.ravel()
+        flat_pid = self._room_pid_lbl.ravel()
+        # Pre-gather per-cluster pid lists (each entry > 0 is pid+1).
+        for k in range(1, n + 1):
+            sel = (flat_lbl == k)
+            size = int(sel.sum())
+            if size < self.frontier_min_cluster_cells:
+                continue
+            pids_here = flat_pid[sel]
+            pids_here = pids_here[pids_here > 0]
+            if pids_here.size == 0:
+                continue
+            winner = Counter(pids_here.tolist()).most_common(1)[0][0] - 1
+            if winner in counts:
+                counts[winner] += 1
+        return counts
+
+    # ── Objects → rooms ──
+    def _assign_objects_to_rooms(self, rooms):
+        per_room = {pid: [] for pid in rooms}
+        for o in self._latest_objects:
+            pid = self._room_at_xy(*o['xy'])
+            if pid is None or pid not in per_room:
+                continue
+            per_room[pid].append({'id':    o['id'],
+                                  'class': o['class'],
+                                  'xy':    list(o['xy']),
+                                  'count': o['count']})
+        return per_room
+
     # ── Main tick ──
     def _tick(self):
         self._hb['tick'] += 1
@@ -394,6 +590,21 @@ class SemanticMapperNode(Node):
             free_mask, cut_cells, self.door_cut_cells, self.min_room_cells)
         rooms = self.registry.update(stats, self.c2w)
         self._link_doors(rooms)
+
+        # Build PID label image once — used by time tracking, frontier
+        # voting, and object→room assignment.
+        self._room_pid_lbl = self._build_room_pid_lbl(rooms)
+
+        # Accumulate τ_r for current interval.
+        now_s = self.get_clock().now().nanoseconds * 1e-9
+        self._accumulate_time(now_s)
+
+        # F_r and per-room objects.
+        self._frontier_counts = self._compute_frontier_counts(rooms)
+        per_room_objs = self._assign_objects_to_rooms(rooms)
+
+        # Stash for scene-graph emission.
+        self._per_room_objs = per_room_objs
 
         self._publish_markers(rooms)
         self._publish_scene_graph(rooms)
@@ -458,18 +669,21 @@ class SemanticMapperNode(Node):
             m.points = points_from_mask(sk_in_room, 0.25, 1500)
             arr.markers.append(m)
 
-        # 3. Room centroids + labels.
+        # 3. Room centroids + labels (now also show τ and F).
         for room in rooms.values():
-            col = self._rgb(room['id'])
+            pid = room['id']
+            col = self._rgb(pid)
             s = mk('rooms', Marker.SPHERE, 0.6, col)
             s.pose.position = Point(x=room['centroid'][0],
                                     y=room['centroid'][1], z=2.0)
             arr.markers.append(s)
+            tau = self.time_in_room_s.get(pid, 0.0)
+            Fr  = self._frontier_counts.get(pid, 0)
             t = mk('room_labels', Marker.TEXT_VIEW_FACING,
                    (0, 0, float(self.viz['text_h'])), (1, 1, 1))
             t.pose.position = Point(x=room['centroid'][0],
                                     y=room['centroid'][1], z=3.0)
-            t.text = f"R{room['id']}  ({room['n_cells']})"
+            t.text = f"R{pid}  τ={tau:.0f}s  F={Fr}"
             arr.markers.append(t)
 
         # 4. Doors — bright if discovered, grey ghost if not.
@@ -524,11 +738,17 @@ class SemanticMapperNode(Node):
         self.pub_markers.publish(arr)
 
     def _publish_scene_graph(self, rooms):
+        per_obj = getattr(self, '_per_room_objs', {})
         sg = {
             'stamp': self.get_clock().now().nanoseconds * 1e-9,
-            'rooms': [{'id': r['id'],
+            'rooms': [{'id':       r['id'],
                        'centroid': list(r['centroid']),
-                       'n_cells': r['n_cells']}
+                       'n_cells':  r['n_cells'],
+                       'time_in_room_s':    float(
+                           self.time_in_room_s.get(r['id'], 0.0)),
+                       'frontier_clusters': int(
+                           self._frontier_counts.get(r['id'], 0)),
+                       'objects':  per_obj.get(r['id'], [])}
                       for r in rooms.values()],
             'doors': [{'id': d['id'],
                        'xy': list(d['xy']),
@@ -536,6 +756,7 @@ class SemanticMapperNode(Node):
                        'discovered': d['discovered']}
                       for d in self.doors],
             'edges': [],
+            'current_room': self._last_room_pid,
         }
         seen = set()
         for d in self.doors:
@@ -560,11 +781,17 @@ class SemanticMapperNode(Node):
         else:
             free = int(((self.grid >= 0) & (self.grid <= self.FREE_MAX)).sum())
             occ  = int((self.grid >= self.OCC_MIN).sum())
+            total_F = sum(self._frontier_counts.values())
+            per_obj = getattr(self, '_per_room_objs', {})
+            n_assigned = sum(len(v) for v in per_obj.values())
+            n_seen = len(self._latest_objects)
             self.get_logger().info(
                 f"hb  grid={hb['grid']} tick={hb['tick']}  "
                 f"free={free} occ={occ}  "
                 f"rooms={len(self.registry.rooms)}  "
-                f"doors={n_disc}/{len(self.doors)}")
+                f"doors={n_disc}/{len(self.doors)}  "
+                f"cur_room={self._last_room_pid}  F_total={total_F}  "
+                f"objs_in_rooms={n_assigned}/{n_seen}")
         self._hb = dict(grid=0, tick=0)
 
 

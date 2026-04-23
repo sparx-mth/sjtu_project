@@ -1,14 +1,28 @@
 """
-semantic_pipeline.launch.py — FALCON BEV -> scene graph (+ object mapper + YOLO).
+semantic_pipeline.launch.py — FALCON BEV -> scene graph (+ object mapper +
+                              YOLO + room classifier + LLM oracle).
 
 Launches:
   * yolo_detector         RGB -> Detection2DArray @ 1 Hz        (toggle: start_yolo)
-  * semantic_mapper_node  Voronoi + rooms + scene graph
+  * semantic_mapper_node  Voronoi + rooms + scene graph (with τ_r, F_r, objects)
   * object_mapper_node    YOLO detections -> 2D world XY
+  * room_classifier_node  objects/room -> LLM -> room label     (toggle: start_llm)
+  * llm_oracle_node       target + rooms -> prob distribution   (toggle: start_llm)
   * rviz2                                                       (toggle: start_rviz)
 
-Disable YOLO if you want to run it in a separate shell for debugging:
-    ros2 launch semantic_mapper semantic_pipeline.launch.py start_yolo:=false
+The LLM nodes talk to an LLM backend configured via environment
+variables passed into the container (see run_perception.sh):
+    LLM_BACKEND   ollama | openai
+    LLM_BASE_URL  default http://localhost:11434  (Ollama host-net)
+    LLM_MODEL     default qwen2.5:3b-instruct
+    LLM_API_KEY   (only required for openai-compat servers that want one)
+
+To launch with a different target:
+    ros2 launch semantic_mapper semantic_pipeline.launch.py \
+        target_object:="coffee mug"
+
+Or change it at runtime:
+    ros2 param set /llm_oracle target_object "apple"
 """
 
 from launch import LaunchDescription
@@ -32,6 +46,8 @@ def generate_launch_description():
         DeclareLaunchArgument('min_room_cells',      default_value='40'),
         DeclareLaunchArgument('room_iou_threshold',  default_value='0.15'),
         DeclareLaunchArgument('tick_rate',           default_value='2.0'),
+        DeclareLaunchArgument('frontier_min_cluster_cells',
+                              default_value='4'),
 
         # Object mapper knobs.
         DeclareLaunchArgument('min_observations',    default_value='2'),
@@ -43,8 +59,14 @@ def generate_launch_description():
         DeclareLaunchArgument('yolo_device', default_value='cuda:0'),
         DeclareLaunchArgument('yolo_min_dt', default_value='1.0'),  # 1 Hz
 
+        # LLM knobs.
+        DeclareLaunchArgument('target_object',      default_value='car keys'),
+        DeclareLaunchArgument('oracle_period_s',    default_value='10.0'),
+        DeclareLaunchArgument('classifier_rate_hz', default_value='1.0'),
+
         DeclareLaunchArgument('start_rviz', default_value='false'),
         DeclareLaunchArgument('start_yolo', default_value='true'),
+        DeclareLaunchArgument('start_llm',  default_value='true'),
     ]
 
     yolo = Node(
@@ -70,6 +92,7 @@ def generate_launch_description():
                 'bev_topic', 'world_frame',
                 'door_cut_m', 'door_match_radius_m', 'door_discover_m',
                 'min_room_cells', 'room_iou_threshold', 'tick_rate',
+                'frontier_min_cluster_cells',
             )
         }],
     )
@@ -87,6 +110,29 @@ def generate_launch_description():
         }],
     )
 
+    room_classifier = Node(
+        package='semantic_mapper',
+        executable='room_classifier_node',
+        name='room_classifier',
+        output='screen',
+        condition=IfCondition(LaunchConfiguration('start_llm')),
+        parameters=[{
+            'tick_rate_hz': LaunchConfiguration('classifier_rate_hz'),
+        }],
+    )
+
+    llm_oracle = Node(
+        package='semantic_mapper',
+        executable='llm_oracle_node',
+        name='llm_oracle',
+        output='screen',
+        condition=IfCondition(LaunchConfiguration('start_llm')),
+        parameters=[{
+            'target_object':  LaunchConfiguration('target_object'),
+            'tick_period_s':  LaunchConfiguration('oracle_period_s'),
+        }],
+    )
+
     rviz = Node(
         package='rviz2', executable='rviz2', name='rviz2',
         arguments=['-d', PathJoinSubstitution([
@@ -96,4 +142,6 @@ def generate_launch_description():
         output='screen',
     )
 
-    return LaunchDescription(args + [yolo, mapper, object_mapper, rviz])
+    return LaunchDescription(args + [
+        yolo, mapper, object_mapper, room_classifier, llm_oracle, rviz,
+    ])

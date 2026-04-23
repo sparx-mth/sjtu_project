@@ -25,7 +25,10 @@ setup(
             'yolo_detector        = semantic_mapper.yolo_detector:main',
             'semantic_mapper_node = semantic_mapper.semantic_mapper_node:main',
             'object_mapper_node   = semantic_mapper.object_mapper_node:main',
-            'room_labeler         = semantic_mapper.room_labeler:main',
+            # LLM oracle add-on:
+            'room_classifier_node = semantic_mapper.room_classifier_node:main',
+            'llm_oracle_node      = semantic_mapper.llm_oracle_node:main',
+            'llm_check            = semantic_mapper.llm_check:main',
         ],
     },
 )

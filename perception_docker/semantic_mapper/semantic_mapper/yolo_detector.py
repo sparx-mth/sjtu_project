@@ -67,7 +67,7 @@ class YoloDetector(Node):
         P("rgb_topic",           "/simple_drone/front/image_raw")
         P("model_path",          "yolov8s-world.pt")
         P("device",              "cuda:0")
-        P("conf_thresh",         0.80)       # low: object_mapper filters again
+        P("conf_thresh",         0.70)       # low: object_mapper filters again
         P("imgsz",               640)
         P("min_dt",              1.0)        # 1 Hz
         P("vocabulary",          DEFAULT_VOCABULARY)
