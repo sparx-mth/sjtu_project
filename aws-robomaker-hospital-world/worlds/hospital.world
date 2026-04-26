@@ -166,6 +166,13 @@
         <pose>0.626494 -0.743667 -0 0 1e-06 -1.53446</pose>
       </include>
     </model>
+    <model name="Chair_3">
+      <include>
+        <uri>model://Chair</uri>
+        <static>true</static>
+        <pose>-0.603067 -0.77859 -1e-05 0 0 -1.54998</pose>
+      </include>
+    </model>
     <model name="Scrubs_1">
       <include>
         <uri>model://Scrubs</uri>
@@ -467,6 +474,13 @@
         <pose>-1.26728 -5.69226 0 0 0 -0.008733</pose>
       </include>
     </model>
+    <model name="aws_robomaker_residential_Trash_01_4">
+      <include>
+        <uri>model://aws_robomaker_residential_Trash_01</uri>
+        <static>true</static>
+        <pose>-1.46728 -5.9226 0.8 0 0 -0.008733</pose>
+      </include>
+    </model>
     <model name="aws_robomaker_residential_PortraitA_01_2">
       <include>
         <uri>model://aws_robomaker_residential_PortraitA_01</uri>
@@ -481,11 +495,123 @@
         <pose>-1.97245 -6.9216 1.41115 0 -0 0</pose>
       </include>
     </model>
+    <model name="aws_robomaker_residential_PortraitE_02_7">
+      <include>
+        <uri>model://aws_robomaker_residential_PortraitE_02</uri>
+        <static>true</static>
+        <pose>-1.23245 -6.9216 1.99115 -0 0 0</pose>
+      </include>
+    </model>
+    <model name="aws_robomaker_residential_PortraitE_01_4">
+      <include>
+        <uri>model://aws_robomaker_residential_PortraitE_01</uri>
+        <static>true</static>
+        <pose>-0.133410 -3.38620 1.57344 0 0 -1.570830</pose>
+      </include>
+    </model>
+    <model name="aws_robomaker_residential_PortraitE_01_5">
+      <include>
+        <uri>model://aws_robomaker_residential_PortraitE_01</uri>
+        <static>true</static>
+        <pose>-0.133410 -2.58620 1.27344 0 0 -1.570830</pose>
+      </include>
+    </model>
+    <light name="room_point_light" type="point">
+      <pose>-2 -9 2.6 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.05 0.05 0.05 1</specular>
+      <attenuation>
+        <range>6</range>
+        <constant>0.9</constant>
+        <linear>0.07</linear>
+        <quadratic>0.01</quadratic>
+      </attenuation>
+      <cast_shadows>false</cast_shadows>
+    </light>
+    <model name="terrazzo_floor_panel">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <pose>-3 -3 0.002 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>6 7 0.004</size>
+            </box>
+          </geometry>
+          <material>
+            <script>
+              <uri>model://my_textures/materials/scripts</uri>
+              <uri>model://my_textures/materials/textures</uri>
+              <name>MyTextures/TerrazzoFloor</name>
+            </script>
+          </material>
+        </visual>
+        <collision name="collision">
+          <pose>0 0 0.002 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>3 3 0.004</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+        <visual name="wall_visual">
+      <pose>0 0 1.2 0 0 0</pose>
+      <geometry>
+        <box>
+          <size>3.0 0.01 2.4</size>
+        </box>
+      </geometry>
+      <material>
+        <script>
+          <uri>model://my_textures/materials/scripts</uri>
+          <uri>model://my_textures/materials/textures</uri>
+          <name>MyTextures/BrickWall</name>
+        </script>
+      </material>
+    </visual>
+    <model name='Board_01_001'>
+        <static>true</static>
+        <include>
+            <uri>model://aws_robomaker_residential_Board_01</uri>
+        </include>
+        <pose frame=''>-0.413410 -4.85620 1.87344 0 0 -1.570830</pose>
+	</model>
+    <model name='Board_01_002'>
+        <static>true</static>
+        <include>
+            <uri>model://aws_robomaker_residential_Board_01</uri>
+        </include>
+        <pose frame=''>-1.63245 -6.9216 1.99115 -0 0 0</pose>
+	</model>
+    <model name='Board_01_003'>
+        <static>true</static>
+        <include>
+            <uri>model://aws_robomaker_residential_Board_01</uri>
+        </include>
+        <pose frame=''>-0.413410 -4.85620 1.27344 0 0 -1.570830</pose>
+	</model>
+    <model name="aws_robomaker_residential_Trash_01_5">
+      <include>
+        <uri>model://aws_robomaker_residential_Trash_01</uri>
+        <static>true</static>
+        <pose>-0.413410 -4.85620 1.47344 0 0 -0.008733</pose>
+      </include>
+    </model>
     <model name="Drawer_3">
       <include>
         <uri>model://Drawer</uri>
         <static>true</static>
         <pose>-3.02001 -6.54343 0 0 -0 1.56555</pose>
+      </include>
+    </model>
+    <model name="aws_robomaker_residential_Trash_01_6">
+      <include>
+        <uri>model://aws_robomaker_residential_Trash_01</uri>
+        <static>true</static>
+        <pose>-2.82001 -6.54343 1.1 0 -0 -0.008733</pose>
       </include>
     </model>
     <model name="Drawer_4">
@@ -495,6 +621,13 @@
         <pose>-2.99762 -5.94782 0 0 -0 1.56555</pose>
       </include>
     </model>
+    <model name="aws_robomaker_residential_Trash_01_7">
+      <include>
+        <uri>model://aws_robomaker_residential_Trash_01</uri>
+        <static>true</static>
+        <pose>-2.79762 -5.94782 0.8 0 -0 -0.008733</pose>
+      </include>
+    </model>
     <model name="aws_robomaker_residential_PortraitD_02_2">
       <include>
         <uri>model://aws_robomaker_residential_PortraitD_02</uri>
@@ -502,6 +635,20 @@
         <pose>-2.43341 -3.38621 1.54508 0 -0 1.57083</pose>
       </include>
     </model>
+    <model name='Board_01_004'>
+        <static>true</static>
+        <include>
+            <uri>model://aws_robomaker_residential_Board_01</uri>
+        </include>
+        <pose frame=''>-2.43341 -2.38621 1.85508 0 -0 1.57083</pose>
+	</model>
+    <model name='Board_01_005'>
+        <static>true</static>
+        <include>
+            <uri>model://aws_robomaker_residential_Board_01</uri>
+        </include>
+        <pose frame=''>-2.43341 -3.98621 1.65508 0 -0 1.57083</pose>
+	</model>
     <model name="ElderLadyPatient_1">
       <include>
         <uri>model://ElderLadyPatient</uri>
@@ -985,6 +1132,20 @@
         <pose>-3.4385 -6.00525 1.84129 0 -0 1.56777</pose>
       </include>
     </model>
+    <model name='Board_01_006'>
+        <static>true</static>
+        <include>
+            <uri>model://aws_robomaker_residential_Board_01</uri>
+        </include>
+        <pose frame=''>-3.4385 -5.30525 2.14129 0 -0 1.56777</pose>
+	</model>
+    <model name='Board_01_007'>
+        <static>true</static>
+        <include>
+            <uri>model://aws_robomaker_residential_Board_01</uri>
+        </include>
+        <pose frame=''>-3.4385 -6.20525 1.74129 0 -0 1.56777</pose>
+	</model>
     <model name="aws_robomaker_residential_PortraitD_01_7">
       <include>
         <uri>model://aws_robomaker_residential_PortraitD_01</uri>
@@ -1188,11 +1349,11 @@
         <pose>3.85701 14.8779 1.69742 0 -0 0</pose>
       </include>
     </model>
-    <model name="Chair_3">
+    <model name="Chair_5">
       <include>
         <uri>model://Chair</uri>
         <static>true</static>
-        <pose>-1.37633 -0.795802 0 -1e-06 0 -1.54998</pose>
+        <pose>-0.413410 -2.85620 0 0 0 -1.570830</pose>
       </include>
     </model>
     <model name="XRayMachine_1">

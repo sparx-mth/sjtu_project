@@ -1,0 +1,35 @@
+<?xml version="1.0" ?>
+<sdf version="1.6">
+  <model name="my_textures">
+    <static>true</static>
+    <link name="link">
+
+      <!-- Floor panel -->
+      <visual name="floor_visual">
+        <pose>0 0 0.002 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>3.0 3.0 0.004</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://my_textures/materials/scripts</uri>
+            <uri>model://my_textures/materials/textures</uri>
+            <name>MyTextures/TerrazzoFloor</name>
+          </script>
+        </material>
+      </visual>
+
+      <collision name="floor_collision">
+        <pose>0 0 0.002 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>3.0 3.0 0.004</size>
+          </box>
+        </geometry>
+      </collision>
+
+    </link>
+  </model>
+</sdf>

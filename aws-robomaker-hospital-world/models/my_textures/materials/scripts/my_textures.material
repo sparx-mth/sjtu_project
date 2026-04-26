@@ -1,0 +1,39 @@
+material MyTextures/TerrazzoFloor
+{
+  technique
+  {
+    pass
+    {
+      ambient 1 1 1 1
+      diffuse 1 1 1 1
+      specular 0.02 0.02 0.02 1
+      lighting on
+
+      texture_unit
+      {
+        texture terrazzo.jpg
+        scale 3 3
+      }
+    }
+  }
+}
+
+material MyTextures/BrickWall
+{
+  technique
+  {
+    pass
+    {
+      ambient 1 1 1 1
+      diffuse 1 1 1 1
+      specular 0.02 0.02 0.02 1
+      lighting on
+
+      texture_unit
+      {
+        texture brick_wall.png
+        scale 2 2
+      }
+    }
+  }
+}
