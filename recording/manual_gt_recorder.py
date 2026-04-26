@@ -217,10 +217,11 @@ class ManualGTRecorder(Node):
         - 16UC1: scaled by depth_scale_to_meters
         """
         if depth_msg.encoding == "32FC1":
-            depth = self.bridge.imgmsg_to_cv2(depth_msg, desired_encoding="passthrough")
+            depth = self.bridge.imgmsg_to_cv2(depth_msg, desired_encoding="32FC1")
             depth = np.array(depth, dtype=np.float32)
-            depth[~np.isfinite(depth)] = 0.0
-            depth[depth < 0.0] = 0.0
+            depth[~np.isfinite(depth)] = 100.0
+            depth[depth <= 0.0] = 100.0
+            print(f"Depth range: {depth.min():.2f} - {depth.max():.2f} m")
             return depth
 
         if depth_msg.encoding == "16UC1":
@@ -263,11 +264,12 @@ class ManualGTRecorder(Node):
             return
 
         frame_name = f"{self.frame_idx:06d}"
-        rgb_path = self.rgb_dir / f"{frame_name}.png"
-        depth_path = self.depth_dir / f"{frame_name}.npy"
+        rgb_path = self.rgb_dir / f"{frame_name}.jpg"
+        depth_path = self.depth_dir / f"{frame_name}.png"
 
         cv2.imwrite(str(rgb_path), bgr)
-        np.save(depth_path, depth_m.astype(np.float32))
+        depth_mm = (depth_m * 1000).astype(np.uint16)
+        cv2.imwrite(str(depth_path), depth_mm)
 
         rgb_stamp_ns = self._stamp_to_ns(rgb_msg)
         depth_stamp_ns = self._stamp_to_ns(depth_msg)
