@@ -30,6 +30,10 @@ setup(
             'llm_oracle_node      = semantic_mapper.llm_oracle_node:main',
             'target_watcher_node  = semantic_mapper.target_watcher_node:main',
             'llm_check            = semantic_mapper.llm_check:main',
+            # Path planning + tracking + goal sampling:
+            'path_planner_node    = semantic_mapper.path_planner_node:main',
+            'path_tracker_node    = semantic_mapper.path_tracker_node:main',
+            'goal_sampler_node    = semantic_mapper.goal_sampler_node:main',
         ],
     },
 )

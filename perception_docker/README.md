@@ -24,7 +24,7 @@ ollama serve &
 ```bash
 # rebuild + launch the pipeline
 ./run_perception.sh ros2 launch semantic_mapper semantic_pipeline.launch.py \
-    target_object:='Toilet seat'  start_rviz:=true
+    target_object:='toilet'  start_rviz:=true
 ```
 
 Retarget at runtime: `ros2 param set /llm_oracle target_object "apple"`.

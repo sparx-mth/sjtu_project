@@ -37,6 +37,10 @@ RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu12
 # scikit-image: medial_axis (Voronoi/skeleton extraction) and find_contours
 #               (room polygon outlines for RViz). Required by the new
 #               MORE-style semantic_mapper_node.
+# ompl:         pre-built wheels exist on PyPI for Py 3.10/3.11/3.12;
+#               Humble uses 3.10 so this resolves to a binary install
+#               (no source build, no apt). Used by path_planner_node
+#               (BIT*).
 RUN pip install --no-cache-dir \
         "ultralytics==8.3.0" \
         "scipy>=1.10" \
@@ -44,6 +48,7 @@ RUN pip install --no-cache-dir \
         "scikit-image>=0.21" \
         "openai>=1.30" \
         "transforms3d>=0.4" \
+        "ompl" \
         "ftfy" "regex" "tqdm" \
         "git+https://github.com/openai/CLIP.git"
 
@@ -52,6 +57,10 @@ RUN pip install --no-cache-dir \
 #    here because the build container has no GPU, but we can
 #    confirm the wheel's CUDA build tag matches what we asked for.)
 RUN python3 -c "import torch; print('torch', torch.__version__, 'built for CUDA', torch.version.cuda); assert torch.version.cuda and torch.version.cuda.startswith('12.'), 'unexpected torch CUDA build'"
+
+# ── Sanity check: OMPL bindings importable. Fails the build
+#    early if the pip wheel layout drifts. ──
+RUN python3 -c "from ompl import base, geometric; print('OMPL OK')"
 
 # ── Workspace ───────────────────────────────────────────────
 RUN mkdir -p /ros2_ws/src
