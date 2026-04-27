@@ -2,8 +2,10 @@
 # ============================================================
 # falcon_docker/run_hospital.sh — FALCON + external Gazebo drone
 #
-# v11: now also mounts adapter/scripts/bev_publisher.py so the
-#       BEV publisher can run alongside the FALCON adapter.
+# v12: now also mounts adapter/scripts/cmd_to_vel.py — the
+#      closed-loop velocity controller that takes FALCON's
+#      PositionCommand and produces /simple_drone/cmd_vel,
+#      orchestrates takeoff, and gates odom to FALCON.
 # ============================================================
 
 IMAGE="falcon-ros:noetic"
@@ -20,6 +22,7 @@ docker run -it --rm \
     --env CUDA_VISIBLE_DEVICES="" \
     --volume /tmp/.X11-unix:/tmp/.X11-unix:rw \
     --volume "${SCRIPT_DIR}/adapter/scripts/falcon_adapter.py:/catkin_ws/src/falcon_adapter/scripts/falcon_adapter.py" \
+    --volume "${SCRIPT_DIR}/adapter/scripts/cmd_to_vel.py:/catkin_ws/src/falcon_adapter/scripts/cmd_to_vel.py" \
     --volume "${SCRIPT_DIR}/adapter/scripts/bev_publisher.py:/catkin_ws/src/falcon_adapter/scripts/bev_publisher.py" \
     --volume "${SCRIPT_DIR}/adapter/launch/gazebo_exploration.launch:/catkin_ws/src/falcon_adapter/launch/gazebo_exploration.launch" \
     --volume "${SCRIPT_DIR}/hospital.yaml:/catkin_ws/src/FALCON/falcon_planner/exploration_manager/config/map/hospital.yaml" \

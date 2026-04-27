@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <package format="2">
   <name>falcon_adapter</name>
-  <version>0.1.0</version>
-  <description>Bridges FALCON planner topics to sjtu_drone in Gazebo</description>
+  <version>0.2.0</version>
+  <description>Bridges FALCON planner topics to sjtu_drone in Gazebo (sensing + closed-loop control)</description>
   <maintainer email="dev@example.com">developer</maintainer>
   <license>MIT</license>
   <buildtool_depend>catkin</buildtool_depend>
@@ -12,4 +12,5 @@
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>tf</exec_depend>
+  <exec_depend>quadrotor_msgs</exec_depend>
 </package>

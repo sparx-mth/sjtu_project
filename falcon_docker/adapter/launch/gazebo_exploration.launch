@@ -1,53 +1,105 @@
 <launch>
   <!--
-    gazebo_exploration.launch  (v11 — bridge + BEV publisher)
-    ══════════════════════════════════════════════════════════════
+    gazebo_exploration.launch  (v13 — safety + autonomous takeoff + mapping scan)
+    ════════════════════════════════════════════════════════════════════════════
 
-    What runs here:
-      * FALCON exploration planner (unchanged)
-      * FALCON trajectory server  (unchanged)
-      * falcon_adapter            drone topics → FALCON topics
-      * bev_publisher             FALCON voxels → nav_msgs/OccupancyGrid
-                                   at /falcon/bev_2d  (new in v11)
-      * odom_visualization        (unchanged)
-
-    Usage:
-      roslaunch falcon_adapter gazebo_exploration.launch
-      roslaunch falcon_adapter gazebo_exploration.launch \
-          noise_pos_std:=0.05 noise_depth_std:=0.02
+    Changes from v12:
+      * NEW safety knobs:
+          obstacles_inflation: hard inflation in the ESDF (default 0.30 m, was 0.15 m)
+          safe_distance:       soft B-spline penalty distance (default 1.5 m, was 1.2 m)
+        These two together push planned trajectories meaningfully away from walls.
+      * NEW mapping-scan args plumbed to cmd_to_vel:
+          mapping_scan_enabled (default true)
+          mapping_yaw_rate     (default 0.4 rad/s ≈ 23°/s)
+          mapping_scan_revs    (default 1.0 full revolution before exploration)
+        The drone yaws in place to build the local voxel map before FALCON
+        starts planning, so it's not flying through unknown space.
+      * Increased takeoff_timeout to 30s and made takeoff retry every 1s,
+        which the new cmd_to_vel implements.
   -->
 
   <arg name="map_name"   default="hospital" />
   <arg name="drone_ns"   default="/simple_drone" />
 
-  <!-- Noise injection (all default 0 = off) -->
+  <!-- ══════════════════════════════════════════════════════════════════
+       SPEED KNOBS
+       ══════════════════════════════════════════════════════════════════ -->
+  <arg name="max_vel"     default="0.2" />
+  <arg name="max_acc"     default="0.3" />
+  <arg name="max_yaw_vel" default="0.5" />
+  <arg name="max_yaw_acc" default="0.5" />
+
+  <!-- ══════════════════════════════════════════════════════════════════
+       SAFETY KNOBS (raised from v12 defaults)
+       ════════════════════════════════════════════════════════════════════
+       Two complementary mechanisms:
+
+       obstacles_inflation: HARD inflation in the voxel map. Walls are
+         literally treated as thicker by this many meters. Cannot be
+         beaten by the optimizer. Set this to (drone_radius + margin).
+         The sjtu_drone is ~25cm radius, so 0.30m gives a 5cm safety margin.
+
+       safe_distance: SOFT penalty in the B-spline optimizer. Pushes the
+         trajectory away from inflated walls. Should be larger than
+         obstacles_inflation to give the optimizer real room to work.
+
+       For tighter spaces:  inflation=0.20 safe_dist=1.0
+       For default flight:  inflation=0.30 safe_dist=1.5  ← current default
+       For wide corridors:  inflation=0.40 safe_dist=2.0
+  -->
+  <arg name="obstacles_inflation" default="0.30" />
+  <arg name="safe_distance"       default="1.5" />
+
+  <!-- Frontier viewpoint clearance. Raising candidate_rmin keeps FALCON
+       from picking viewpoints right next to walls. -->
+  <arg name="frontier_min_clearance"          default="0.5" />
+  <arg name="frontier_min_occ_clearance"      default="1.2" />
+  <arg name="frontier_candidate_rmin"         default="2.0" />
+  <arg name="frontier_candidate_rmax"         default="3.5" />
+
+  <!-- Controller gains -->
+  <arg name="ctrl_Kp_xy"  default="1.0" />
+  <arg name="ctrl_Kp_z"   default="1.5" />
+  <arg name="ctrl_Kp_yaw" default="1.5" />
+
+  <!-- ══════════════════════════════════════════════════════════════════
+       TAKEOFF & MAPPING SCAN
+       ══════════════════════════════════════════════════════════════════ -->
+  <arg name="auto_takeoff"         default="true" />
+  <arg name="takeoff_z_thresh"     default="0.5" />
+  <arg name="takeoff_timeout"      default="30.0" />
+  <arg name="hover_settle_sec"     default="2.5" />
+
+  <arg name="mapping_scan_enabled" default="true" />
+  <arg name="mapping_yaw_rate"     default="0.4" />
+  <arg name="mapping_scan_revs"    default="1.0" />
+
+  <!-- Noise injection -->
   <arg name="noise_pos_std"            default="0.0" />
   <arg name="noise_yaw_std"            default="0.0" />
   <arg name="noise_depth_std"          default="0.0" />
   <arg name="noise_depth_proportional" default="0.0" />
   <arg name="noise_seed"               default="-1" />
 
-  <!-- BEV publisher knobs (match the hospital bbox used by MORE) -->
-  <arg name="bev_xmin"       default="-12.0" />
-  <arg name="bev_ymin"       default="-34.0" />
-  <arg name="bev_xmax"       default=" 12.0" />
-  <arg name="bev_ymax"       default=" 17.0" />
-  <arg name="bev_resolution" default=" 0.15" />
-  <arg name="bev_z_min"      default=" 0.30" />
-  <arg name="bev_z_max"      default=" 1.80" />
-  <arg name="bev_publish_hz"   default=" 2.0"  />
-  <!-- Cells to dilate OCC by after rasterization (wall thickening).
-       1 = defensive default; set to 0 for raw, 2 if walls erode a lot. -->
-  <arg name="bev_occ_dilate"   default=" 1" />
+  <!-- BEV publisher -->
+  <arg name="bev_xmin"        default="-12.0" />
+  <arg name="bev_ymin"        default="-34.0" />
+  <arg name="bev_xmax"        default=" 12.0" />
+  <arg name="bev_ymax"        default=" 17.0" />
+  <arg name="bev_resolution"  default=" 0.15" />
+  <arg name="bev_z_min"       default=" 0.30" />
+  <arg name="bev_z_max"       default=" 1.80" />
+  <arg name="bev_publish_hz"  default=" 2.0"  />
+  <arg name="bev_occ_dilate"  default=" 1" />
 
   <!-- Topic mapping -->
-  <arg name="odometry_topic"     value="/odom_world" />
-  <arg name="sensor_pose_topic"  value="/map_ros/pose" />
   <arg name="depth_image"        value="/map_ros/depth" />
+  <arg name="sensor_pose_topic"  value="/map_ros/pose" />
+  <arg name="odometry_topic"     value="/odom_world_gated" />
 
-  <!-- ══════════════════════════════════════════════════════════
-       Load FALCON config files (unchanged)
-       ══════════════════════════════════════════════════════════ -->
+  <!-- ══════════════════════════════════════════════════════════════════
+       Load FALCON config files
+       ══════════════════════════════════════════════════════════════════ -->
   <rosparam command="load" file="$(find exploration_manager)/config/robot/uav_model_simulator.yaml"/>
   <rosparam command="load" file="$(find exploration_manager)/config/map/$(arg map_name).yaml"/>
   <rosparam command="load" file="$(find voxel_mapping)/config/voxel_mapping.yaml"/>
@@ -58,7 +110,7 @@
   <rosparam command="load" file="$(find exploration_utils)/config/perception_utils.yaml"/>
   <rosparam command="load" file="$(find exploration_manager)/config/exploration_manager.yaml"/>
 
-  <!-- Camera intrinsics (match Gazebo depth camera) -->
+  <!-- Camera intrinsics -->
   <param name="/uav_model/sensing_parameters/camera_intrinsics/fx" value="320.0" />
   <param name="/uav_model/sensing_parameters/camera_intrinsics/fy" value="320.0" />
   <param name="/uav_model/sensing_parameters/camera_intrinsics/cx" value="320.0" />
@@ -72,29 +124,39 @@
   <param name="/transformer/pose_topic_type"     value="pose" />
   <param name="/transformer/timestamp_tolerance" value="0.05" />
 
-  <!-- Speed tuning -->
-  <param name="/uav_model/dynamics_parameters/max_linear_velocity"      value="0.2" />
-  <param name="/uav_model/dynamics_parameters/max_linear_acceleration"  value="0.3" />
-  <param name="/uav_model/dynamics_parameters/max_yaw_velocity"         value="0.2" />
-  <param name="/uav_model/dynamics_parameters/max_yaw_acceleration"     value="0.2" />
+  <!-- Speed limits -->
+  <param name="/uav_model/dynamics_parameters/max_linear_velocity"     value="$(arg max_vel)" />
+  <param name="/uav_model/dynamics_parameters/max_linear_acceleration" value="$(arg max_acc)" />
+  <param name="/uav_model/dynamics_parameters/max_yaw_velocity"        value="$(arg max_yaw_vel)" />
+  <param name="/uav_model/dynamics_parameters/max_yaw_acceleration"    value="$(arg max_yaw_acc)" />
 
-  <!-- Wall clearance -->
-  <param name="/bspline_opt/safe_distance"                          value="1.2" />
-  <param name="/frontier_finder/min_candidate_clearance"            value="0.5" />
-  <param name="/frontier_finder/min_candidate_occupied_clearance"   value="1.0" />
-  <param name="/frontier_finder/candidate_rmin"                     value="2.0" />
-  <param name="/frontier_finder/candidate_rmax"                     value="3.5" />
+  <!--
+    Safety: HARD obstacle inflation in the voxel map.
+    This grows every occupied voxel by `obstacles_inflation` meters in
+    every direction in the ESDF. The B-spline optimizer's distance cost
+    sees inflated obstacles, so the trajectory has to detour around them.
+    Cannot be beaten by trade-offs against other costs.
+  -->
+  <param name="/voxel_mapping/obstacles_inflation" value="$(arg obstacles_inflation)" />
 
-  <!-- Traj server initial movement -->
-  <param name="/traj_server/init_dx"  value="0.5" />
+  <!-- Safety: SOFT B-spline collision penalty distance -->
+  <param name="/bspline_opt/safe_distance" value="$(arg safe_distance)" />
+
+  <!-- Frontier viewpoint clearances -->
+  <param name="/frontier_finder/min_candidate_clearance"            value="$(arg frontier_min_clearance)" />
+  <param name="/frontier_finder/min_candidate_occupied_clearance"   value="$(arg frontier_min_occ_clearance)" />
+  <param name="/frontier_finder/candidate_rmin"                     value="$(arg frontier_candidate_rmin)" />
+  <param name="/frontier_finder/candidate_rmax"                     value="$(arg frontier_candidate_rmax)" />
+
+  <!-- traj_server's startup ramp must stay disabled - cmd_to_vel owns takeoff -->
+  <param name="/traj_server/init_dx"  value="0.0" />
   <param name="/traj_server/init_dy"  value="0.0" />
-  <param name="/traj_server/init_dz"  value="1.0" />
+  <param name="/traj_server/init_dz"  value="0.0" />
 
-  <!-- ══════════════════════════════════════════════════════════
+  <!-- ══════════════════════════════════════════════════════════════════
        Nodes
-       ══════════════════════════════════════════════════════════ -->
+       ══════════════════════════════════════════════════════════════════ -->
 
-  <!-- FALCON exploration planner (respawn on crash) -->
   <node pkg="exploration_manager" name="exploration_node" type="exploration_node" output="screen"
         respawn="true" respawn_delay="3">
     <remap from="/odom_world"                    to="$(arg odometry_topic)"/>
@@ -102,13 +164,11 @@
     <remap from="/transformer/sensor_pose_topic" to="$(arg sensor_pose_topic)"/>
   </node>
 
-  <!-- FALCON trajectory server (respawn on crash) -->
   <node pkg="fast_planner" name="traj_server" type="traj_server" output="screen"
         respawn="true" respawn_delay="3" />
 
-  <!-- Bridge adapter: drone topics → FALCON topics -->
-  <node pkg="falcon_adapter" type="falcon_adapter.py"
-        name="falcon_adapter" output="screen">
+  <!-- Sensing bridge: drone → FALCON  (UNCHANGED) -->
+  <node pkg="falcon_adapter" type="falcon_adapter.py" name="falcon_adapter" output="screen">
     <param name="drone_ns"                 value="$(arg drone_ns)" />
     <param name="world_frame"              value="world" />
     <param name="body_frame"               value="body" />
@@ -125,28 +185,55 @@
     <param name="noise_seed"               value="$(arg noise_seed)" />
   </node>
 
-  <!-- NEW: 2D BEV publisher — FALCON voxels → nav_msgs/OccupancyGrid.
-       This is what the MORE/perception side now consumes. -->
-  <node pkg="falcon_adapter" type="bev_publisher.py"
-        name="bev_publisher" output="screen">
-    <param name="frame_id"      value="world" />
-    <param name="resolution"    value="$(arg bev_resolution)" />
-    <param name="bbox_xmin"     value="$(arg bev_xmin)" />
-    <param name="bbox_ymin"     value="$(arg bev_ymin)" />
-    <param name="bbox_xmax"     value="$(arg bev_xmax)" />
-    <param name="bbox_ymax"     value="$(arg bev_ymax)" />
-    <param name="z_slab_min"    value="$(arg bev_z_min)" />
-    <param name="z_slab_max"    value="$(arg bev_z_max)" />
-    <param name="publish_hz"        value="$(arg bev_publish_hz)" />
-    <param name="occ_dilate_cells"  value="$(arg bev_occ_dilate)" />
-    <param name="out_topic"     value="/falcon/bev_2d" />
-    <param name="occ_topic"     value="/voxel_mapping/occupancy_grid_occupied" />
-    <param name="free_topic"    value="/voxel_mapping/occupancy_grid_free" />
+  <!-- Closed-loop control bridge: FALCON → drone  (UPDATED) -->
+  <node pkg="falcon_adapter" type="cmd_to_vel.py" name="cmd_to_vel" output="screen">
+    <param name="drone_ns"          value="$(arg drone_ns)" />
+    <param name="auto_takeoff"      value="$(arg auto_takeoff)" />
+    <param name="takeoff_z_thresh"  value="$(arg takeoff_z_thresh)" />
+    <param name="takeoff_timeout"   value="$(arg takeoff_timeout)" />
+    <param name="takeoff_retry_sec" value="1.0" />
+    <param name="hover_settle_sec"  value="$(arg hover_settle_sec)" />
+
+    <!-- Mapping scan -->
+    <param name="mapping_scan_enabled" value="$(arg mapping_scan_enabled)" />
+    <param name="mapping_yaw_rate"     value="$(arg mapping_yaw_rate)" />
+    <param name="mapping_scan_revs"    value="$(arg mapping_scan_revs)" />
+
+    <param name="cmd_timeout_sec"   value="0.5" />
+
+    <param name="Kp_xy"             value="$(arg ctrl_Kp_xy)" />
+    <param name="Kp_z"              value="$(arg ctrl_Kp_z)" />
+    <param name="Kp_yaw"            value="$(arg ctrl_Kp_yaw)" />
+
+    <param name="vel_xy_sat"        value="$(eval 1.5 * arg('max_vel'))" />
+    <param name="vel_z_sat"         value="$(eval 1.5 * arg('max_vel'))" />
+    <param name="yaw_rate_sat"      value="$(eval 1.2 * arg('max_yaw_vel'))" />
+    <param name="accel_limit"       value="$(eval 2.0 * arg('max_acc'))" />
+    <param name="yaw_accel_limit"   value="$(eval 2.0 * arg('max_yaw_acc'))" />
+
+    <param name="ctrl_rate_hz"      value="50.0" />
+    <param name="odom_gate_rate_hz" value="30.0" />
   </node>
 
-  <!-- Robot visualizer -->
+  <!-- BEV publisher (unchanged) -->
+  <node pkg="falcon_adapter" type="bev_publisher.py" name="bev_publisher" output="screen">
+    <param name="frame_id"       value="world" />
+    <param name="resolution"     value="$(arg bev_resolution)" />
+    <param name="bbox_xmin"      value="$(arg bev_xmin)" />
+    <param name="bbox_ymin"      value="$(arg bev_ymin)" />
+    <param name="bbox_xmax"      value="$(arg bev_xmax)" />
+    <param name="bbox_ymax"      value="$(arg bev_ymax)" />
+    <param name="z_slab_min"     value="$(arg bev_z_min)" />
+    <param name="z_slab_max"     value="$(arg bev_z_max)" />
+    <param name="publish_hz"     value="$(arg bev_publish_hz)" />
+    <param name="occ_dilate_cells" value="$(arg bev_occ_dilate)" />
+    <param name="out_topic"      value="/falcon/bev_2d" />
+    <param name="occ_topic"      value="/voxel_mapping/occupancy_grid_occupied" />
+    <param name="free_topic"     value="/voxel_mapping/occupancy_grid_free" />
+  </node>
+
   <node pkg="odom_visualization" name="odom_visualization" type="odom_visualization" output="screen">
-    <remap from="~odometry" to="$(arg odometry_topic)"/>
+    <remap from="~odometry" to="/odom_world"/>
   </node>
 
 </launch>
