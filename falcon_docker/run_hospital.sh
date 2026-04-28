@@ -19,7 +19,7 @@ docker run -it --rm \
     --gpus all \
     --env DISPLAY="${DISPLAY}" \
     --env QT_X11_NO_MITSHM=1 \
-    --env CUDA_VISIBLE_DEVICES="" \
+    --env NVIDIA_DRIVER_CAPABILITIES=all \
     --volume /tmp/.X11-unix:/tmp/.X11-unix:rw \
     --volume "${SCRIPT_DIR}/adapter/scripts/falcon_adapter.py:/catkin_ws/src/falcon_adapter/scripts/falcon_adapter.py" \
     --volume "${SCRIPT_DIR}/adapter/scripts/cmd_to_vel.py:/catkin_ws/src/falcon_adapter/scripts/cmd_to_vel.py" \

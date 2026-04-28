@@ -1,20 +1,26 @@
 # falcon_docker/docker-compose.yml
 services:
 
-  # ── Hospital / external Gazebo (CPU-only) ──────────────────
+  # ── Hospital / external Gazebo (GPU-enabled for FALCON) ────
   falcon-hospital:
     build:
       context: .
       dockerfile: Dockerfile
       args:
-        CUDA_ARCH: "120"   # RTX 5070=120, 40xx=89, 30xx=86
+        CUDA_ARCH: "89"   # RTX 5070=120, 40xx=89, 30xx=86
     image: falcon-ros:noetic
     container_name: falcon
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     environment:
       - DISPLAY=${DISPLAY}
       - QT_X11_NO_MITSHM=1
-      - CUDA_VISIBLE_DEVICES=            # force CPU-only
-      - NVIDIA_VISIBLE_DEVICES=void
+      - NVIDIA_DRIVER_CAPABILITIES=all
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
     network_mode: host
@@ -28,7 +34,7 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        CUDA_ARCH: "120"
+        CUDA_ARCH: "89"
     image: falcon-ros:noetic
     container_name: falcon-gpu
     deploy:

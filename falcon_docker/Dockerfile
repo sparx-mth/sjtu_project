@@ -8,7 +8,7 @@
 # ============================================================
 FROM nvidia/cuda:12.8.0-devel-ubuntu20.04
 
-ARG CUDA_ARCH=120
+ARG CUDA_ARCH=89
 # ↑ RTX 5070=120, RTX 40xx=89, RTX 30xx=86, RTX 20xx=75
 
 ENV DEBIAN_FRONTEND=noninteractive
