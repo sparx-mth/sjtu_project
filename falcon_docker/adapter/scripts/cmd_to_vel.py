@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """
-cmd_to_vel.py  (v2)
-
-Changes from v1:
+cmd_to_vel.py
   * Takeoff command is RE-SENT every second while in TAKING_OFF until
     the drone reports flying. Handles the case where the bridge wasn't
     ready when the first /takeoff was published.
@@ -90,6 +88,11 @@ class CmdToVel:
         # Watchdog
         self.cmd_timeout_sec = rospy.get_param("~cmd_timeout_sec", 0.5)
 
+        # pos_cmd sanity (rejects FALCON discontinuity glitches)
+        self.pos_cmd_jump_threshold = rospy.get_param(
+            "~pos_cmd_jump_threshold", 3.0)
+        self.rejected_pos_cmd_count = 0
+
         # Gains and saturations
         self.Kp_xy   = rospy.get_param("~Kp_xy", 1.0)
         self.Kp_z    = rospy.get_param("~Kp_z",  1.5)
@@ -150,6 +153,40 @@ class CmdToVel:
         self.cur_odom = msg
 
     def pos_cmd_cb(self, msg):
+        # ── Sanity guard ─────────────────────────────────────────────
+        # Drop pos_cmd that contains NaN/Inf or that jumps unreasonably
+        # far from current pose. Both indicate FALCON published a
+        # bad trajectory (negative duration, evaluated out of range).
+        # By NOT updating last_pos_cmd_t, the ACTIVE-state watchdog
+        # transitions to EMERGENCY_HOVER after cmd_timeout_sec.
+        px, py, pz = msg.position.x, msg.position.y, msg.position.z
+        if not (math.isfinite(px) and math.isfinite(py) and math.isfinite(pz)
+                and math.isfinite(msg.yaw)):
+            self.rejected_pos_cmd_count += 1
+            rospy.logerr_throttle(1.0,
+                "cmd_to_vel: pos_cmd contains NaN/Inf "
+                "(traj_id=%d) — rejecting [reject_count=%d]",
+                msg.trajectory_id, self.rejected_pos_cmd_count)
+            return
+
+        if self.cur_odom is not None:
+            cp = self.cur_odom.pose.pose.position
+            d = math.sqrt((px - cp.x) ** 2 +
+                          (py - cp.y) ** 2 +
+                          (pz - cp.z) ** 2)
+            if d > self.pos_cmd_jump_threshold:
+                self.rejected_pos_cmd_count += 1
+                rospy.logerr_throttle(1.0,
+                    "cmd_to_vel: pos_cmd is %.2fm from odom "
+                    "(traj_id=%d, ref=(%.2f,%.2f,%.2f), "
+                    "drone=(%.2f,%.2f,%.2f)) — rejecting, likely "
+                    "negative-duration trajectory glitch "
+                    "[reject_count=%d]",
+                    d, msg.trajectory_id, px, py, pz,
+                    cp.x, cp.y, cp.z, self.rejected_pos_cmd_count)
+                return
+
+        # ── Accept ───────────────────────────────────────────────────
         self.last_pos_cmd = msg
         self.last_pos_cmd_t = rospy.Time.now()
         if msg.trajectory_id >= 1 and not self.first_real_traj:
@@ -188,6 +225,11 @@ class CmdToVel:
             rospy.loginfo_throttle(2.0,
                 "cmd_to_vel: TAKING_OFF  z=%.2f  drone_state=%s  takeoff_pubs=%d",
                 z, str(self.drone_state), self.takeoff_count)
+        elif self.rejected_pos_cmd_count > 0 and self.state in (S.ACTIVE, S.EMERGENCY_HOVER):
+            rospy.logwarn_throttle(5.0,
+                "cmd_to_vel: %d pos_cmd rejected so far "
+                "(state=%s) — investigate FALCON optimizer health",
+                self.rejected_pos_cmd_count, self.state)
 
     # ─────────────────── Odom gate ────────────────────────────────────────
 
