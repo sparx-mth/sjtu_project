@@ -1,6 +1,6 @@
-# sjtu_drone + AWS RoboMaker Hospital World (ROS2 Humble)
+# sjtu_drone + AWS RoboMaker Worlds (ROS2 Humble)
 
-This guide explains how to run the **SJTU Drone simulation** with the **AWS RoboMaker Hospital world** on ROS2 Humble using Docker.
+This guide explains how to run the **SJTU Drone simulation** with several **AWS RoboMaker worlds** (and the sjtu_drone playground) on ROS2 Humble using Docker.
 
 ---
 
@@ -23,8 +23,31 @@ Run:
 ```bash
 cd /sjtu_project/sjtu_drone
 chmod +x run.sh
-./run.sh --no-map hospital.world
+./run.sh --no-map hospital   # or: small_house, bookstore, small_warehouse, playground
 ```
+
+---
+
+## Available Worlds
+
+`run.sh` defaults to `hospital`. To use other worlds, clone the corresponding repo into the workspace root (next to `sjtu_drone/`). Then call `./run.sh <env_name>`.
+
+| Env name | Size | Style | Get it |
+|---|---|---|---|
+| `hospital` | ~50×50 m | Multi-room hospital | `git clone https://github.com/aws-robotics/aws-robomaker-hospital-world.git` *(then `cd aws-robomaker-hospital-world && ./setup.sh`)* |
+| `small_house` | ~15×15 m | Residential rooms | `git clone https://github.com/aws-robotics/aws-robomaker-small-house-world.git` *(then `cd aws-robomaker-small-house-world && ./setup.sh`)* |
+| `bookstore` | ~15×10 m | Retail aisles | `git clone https://github.com/aws-robotics/aws-robomaker-bookstore-world.git` |
+| `small_warehouse` | ~20×15 m | Industrial shelves & clutter | `git clone -b ros1 https://github.com/aws-robotics/aws-robomaker-small-warehouse-world.git` |
+| `playground` | ~20×20 m | Open obstacles | *(ships with sjtu_drone — no clone needed)* |
+
+A matching `<env>.yaml` for FALCON lives in `falcon_docker/`. To run an env with both the simulator and FALCON:
+
+```bash
+./run.sh small_warehouse              # in sjtu_drone/
+./run_hospital.sh small_warehouse     # in falcon_docker/, separate terminal
+```
+
+> The script name `run_hospital.sh` is historical — it works for any env via the first arg. Default (no arg) is still `hospital`.
 
 ---
 
@@ -224,7 +247,7 @@ Then launch:
 
 ```bash
 cd sjtu_drone
-./run.sh --no-map hospital.world
+./run.sh --no-map hospital   # or another env: small_house, bookstore, small_warehouse, playground
 ```
 
 Wait until you see `Gazebo is running` and `The drone plugin finished loading!`.
@@ -255,7 +278,9 @@ cd falcon_docker
 xhost +local:docker 2>/dev/null || true
 ```
 ```bash
-./run_hospital.sh
+./run_hospital.sh           # defaults to hospital
+# or pick an env:
+./run_hospital.sh small_warehouse
 ```
 or
 

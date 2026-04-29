@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-falcon_adapter.py  (v11 — quieter startup)
+falcon_adapter.py  (v12 — drift + jitter on localisation)
 
 Bridges drone topics to FALCON topics. That's it.
 
@@ -11,10 +11,27 @@ Bridges drone topics to FALCON topics. That's it.
 You fly the drone manually. FALCON builds the map and plans
 exploration from the pose + depth it receives.
 
-Optional Gaussian noise injection on pose and depth for
-evaluating map quality under sensor degradation.
+Localisation-noise injection (all default 0 = clean):
 
-v11 change: replaced 7-line loginfo banner with a single line.
+  jitter — i.i.d. Gaussian, sampled fresh each tick:
+      ~noise_pos_std        position std-dev    [m]
+      ~noise_yaw_std        yaw std-dev         [rad]
+
+  drift  — random walk on the world-frame offset; ACCUMULATES.
+           Variance grows as  σ_per_m² · Δd  +  σ_per_s² · Δt,
+           so reported std-dev grows as √(distance, time).
+      ~drift_pos_per_m      [m / sqrt(m)]   per-meter-of-travel pos drift
+      ~drift_yaw_per_m      [rad / sqrt(m)] per-meter-of-travel yaw drift
+      ~drift_pos_per_s      [m / sqrt(s)]   hover/bias pos drift
+      ~drift_yaw_per_s      [rad / sqrt(s)] hover/bias yaw drift
+
+Depth noise (~noise_depth_std, ~noise_depth_proportional) is
+unrelated to localisation and unchanged.
+
+TF is always published with ground-truth pose so RViz looks right;
+only the topics fed into FALCON (/odom_world, /map_ros/pose) are
+perturbed. That keeps the visualization a fair witness of how
+much FALCON's *belief* deviates from reality.
 """
 
 import rospy
@@ -45,15 +62,36 @@ class FalconAdapter:
         cam_z = rospy.get_param("~cam_offset_z", 0.0)
 
         # ── Noise parameters (all default 0 = off) ──
-        self.noise_pos_std   = rospy.get_param("~noise_pos_std", 0.0)
-        self.noise_yaw_std   = rospy.get_param("~noise_yaw_std", 0.0)
+        # Jitter: i.i.d. Gaussian, fresh sample per callback.
+        # (Names kept for backward compat with v10–v11.)
+        self.noise_pos_std   = rospy.get_param("~noise_pos_std", 0.0)   # m   jitter
+        self.noise_yaw_std   = rospy.get_param("~noise_yaw_std", 0.0)   # rad jitter
         self.noise_depth_std = rospy.get_param("~noise_depth_std", 0.0)
         self.noise_depth_proportional = rospy.get_param("~noise_depth_proportional", 0.0)
 
+        # Drift: random walk on the world->body offset; ACCUMULATES.
+        # Variance per unit distance traveled (the VIO-style term)
+        self.drift_pos_per_m = rospy.get_param("~drift_pos_per_m", 0.0)  # m / sqrt(m)
+        self.drift_yaw_per_m = rospy.get_param("~drift_yaw_per_m", 0.0)  # rad / sqrt(m)
+        # Variance per unit time (gyro/bias drift while hovering)
+        self.drift_pos_per_s = rospy.get_param("~drift_pos_per_s", 0.0)  # m / sqrt(s)
+        self.drift_yaw_per_s = rospy.get_param("~drift_yaw_per_s", 0.0)  # rad / sqrt(s)
+
+        self.pose_noise_enabled = (
+            self.noise_pos_std   > 0 or self.noise_yaw_std   > 0 or
+            self.drift_pos_per_m > 0 or self.drift_yaw_per_m > 0 or
+            self.drift_pos_per_s > 0 or self.drift_yaw_per_s > 0
+        )
         self.noise_enabled = (
-            self.noise_pos_std > 0 or self.noise_yaw_std > 0 or
+            self.pose_noise_enabled or
             self.noise_depth_std > 0 or self.noise_depth_proportional > 0
         )
+
+        # Drift state — accumulates from node start, never reset.
+        self.drift_p          = np.zeros(3)   # accumulated position offset
+        self.drift_yaw        = 0.0           # accumulated yaw offset (rad)
+        self.drift_last_pos   = None
+        self.drift_last_time  = None
 
         noise_seed = rospy.get_param("~noise_seed", -1)
         self.rng = np.random.RandomState(int(noise_seed) if noise_seed >= 0 else None)
@@ -92,10 +130,18 @@ class FalconAdapter:
                          CameraInfo, self.cam_info_cb)
 
         # ── One-line banner ──
+        if self.pose_noise_enabled:
+            noise_desc = ("jitter(p=%.3g,yaw=%.3g) "
+                          "drift(p/m=%.3g,yaw/m=%.3g,p/s=%.3g,yaw/s=%.3g)") % (
+                self.noise_pos_std, self.noise_yaw_std,
+                self.drift_pos_per_m, self.drift_yaw_per_m,
+                self.drift_pos_per_s, self.drift_yaw_per_s)
+        else:
+            noise_desc = "off"
         rospy.loginfo(
-            "falcon_adapter ready  drone=%s  odom=%.0fHz  depth=%.0fHz  noise=%s",
+            "falcon_adapter ready  drone=%s  odom=%.0fHz  depth=%.0fHz  pose_noise=%s",
             self.drone_ns, 1.0 / self.odom_min_dt, 1.0 / self.depth_min_dt,
-            "on" if self.noise_enabled else "off")
+            noise_desc)
 
     # ──────────────────────────────────────────────────────────
     #  Pose callback  (drone -> FALCON)
@@ -122,8 +168,14 @@ class FalconAdapter:
         self.prev_time = now
         self.cur_pose = msg
 
-        # Choose what FALCON sees (noisy or clean)
-        falcon_pose = self._add_pose_noise(msg) if self.noise_enabled else msg
+        # Choose what FALCON sees (noisy or clean).
+        # IMPORTANT: drift must be advanced *before* the pose is built,
+        # so that drift_p / drift_yaw reflect the latest random walk step.
+        if self.pose_noise_enabled:
+            self._update_drift(msg, now)
+            falcon_pose = self._add_pose_noise(msg)
+        else:
+            falcon_pose = msg
 
         fp = falcon_pose.position
         fo = falcon_pose.orientation
@@ -205,29 +257,70 @@ class FalconAdapter:
     #  Noise helpers
     # ──────────────────────────────────────────────────────────
 
+    def _update_drift(self, gt_pose, now):
+        """Advance the accumulated drift offset by one tick.
+
+        Uses a discrete random walk whose variance scales linearly with
+        distance traveled and elapsed time, both of which are added in
+        quadrature (independent noise sources).  After a trajectory of
+        length D over time T, the resulting drift offset has std-dev
+
+            σ_pos = sqrt(σ_per_m² · D + σ_per_s² · T)
+
+        which is the standard √(distance) growth seen in real VIO/SLAM.
+        """
+        p = np.array([gt_pose.position.x,
+                      gt_pose.position.y,
+                      gt_pose.position.z])
+        if self.drift_last_pos is None:
+            self.drift_last_pos  = p
+            self.drift_last_time = now
+            return
+
+        dd = float(np.linalg.norm(p - self.drift_last_pos))
+        dt = max((now - self.drift_last_time).to_sec(), 0.0)
+        self.drift_last_pos  = p
+        self.drift_last_time = now
+
+        var_pos = (self.drift_pos_per_m ** 2) * dd + (self.drift_pos_per_s ** 2) * dt
+        var_yaw = (self.drift_yaw_per_m ** 2) * dd + (self.drift_yaw_per_s ** 2) * dt
+
+        if var_pos > 0.0:
+            self.drift_p   += self.rng.normal(0.0, np.sqrt(var_pos), 3)
+        if var_yaw > 0.0:
+            self.drift_yaw += self.rng.normal(0.0, np.sqrt(var_yaw))
+
     def _add_pose_noise(self, pose_msg):
-        """New Pose with Gaussian noise on position + yaw."""
+        """Apply drift (accumulated) + jitter (i.i.d.) to a Pose.
+
+            p_noisy   = p_gt   + drift_p   + N(0, noise_pos_std² · I)
+            yaw_noisy = yaw_gt + drift_yaw + N(0, noise_yaw_std²)
+
+        Roll/pitch are left clean — for an indoor drone they are
+        well-stabilized by the IMU and are not what mapping cares about.
+        """
         noisy = Pose()
 
+        # Position: GT + accumulated drift offset + per-tick jitter
+        noisy.position.x = pose_msg.position.x + self.drift_p[0]
+        noisy.position.y = pose_msg.position.y + self.drift_p[1]
+        noisy.position.z = pose_msg.position.z + self.drift_p[2]
         if self.noise_pos_std > 0:
-            noisy.position.x = pose_msg.position.x + self.rng.normal(0, self.noise_pos_std)
-            noisy.position.y = pose_msg.position.y + self.rng.normal(0, self.noise_pos_std)
-            noisy.position.z = pose_msg.position.z + self.rng.normal(0, self.noise_pos_std)
-        else:
-            noisy.position = pose_msg.position
+            noisy.position.x += self.rng.normal(0.0, self.noise_pos_std)
+            noisy.position.y += self.rng.normal(0.0, self.noise_pos_std)
+            noisy.position.z += self.rng.normal(0.0, self.noise_pos_std)
 
+        # Orientation: drift + jitter on yaw only
         q = pose_msg.orientation
+        roll, pitch, yaw = tft.euler_from_quaternion([q.x, q.y, q.z, q.w])
+        yaw += self.drift_yaw
         if self.noise_yaw_std > 0:
-            roll, pitch, yaw = tft.euler_from_quaternion([q.x, q.y, q.z, q.w])
-            yaw += self.rng.normal(0, self.noise_yaw_std)
-            nq = tft.quaternion_from_euler(roll, pitch, yaw)
-            noisy.orientation.x = nq[0]
-            noisy.orientation.y = nq[1]
-            noisy.orientation.z = nq[2]
-            noisy.orientation.w = nq[3]
-        else:
-            noisy.orientation = pose_msg.orientation
-
+            yaw += self.rng.normal(0.0, self.noise_yaw_std)
+        nq = tft.quaternion_from_euler(roll, pitch, yaw)
+        noisy.orientation.x = nq[0]
+        noisy.orientation.y = nq[1]
+        noisy.orientation.z = nq[2]
+        noisy.orientation.w = nq[3]
         return noisy
 
     def _add_depth_noise(self, depth_msg):

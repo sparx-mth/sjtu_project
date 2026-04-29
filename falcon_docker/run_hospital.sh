@@ -19,6 +19,24 @@ IMAGE="falcon-ros:noetic"
 CONTAINER="falcon"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# -----------------------------
+# Environment name (defaults to hospital). Selects which <env>.yaml to mount
+# into FALCON's exploration_manager config dir.
+# Usage: ./run_hospital.sh [env_name] [extra docker CMD ...]
+#   ./run_hospital.sh                 -> mounts hospital.yaml
+#   ./run_hospital.sh playground      -> mounts playground.yaml
+# -----------------------------
+ENV_NAME="${1:-hospital}"
+if [[ $# -ge 1 ]]; then shift; fi
+
+if [[ ! -f "${SCRIPT_DIR}/${ENV_NAME}.yaml" ]]; then
+  echo "[ERROR] Map config not found: ${SCRIPT_DIR}/${ENV_NAME}.yaml"
+  echo "        Available configs:"
+  ls -1 "${SCRIPT_DIR}"/*.yaml 2>/dev/null | xargs -n1 basename || true
+  exit 1
+fi
+echo "[INFO] FALCON env: ${ENV_NAME}  (config: ${SCRIPT_DIR}/${ENV_NAME}.yaml)"
+
 xhost +local:docker 2>/dev/null || true
 
 docker run -it --rm \
@@ -36,7 +54,7 @@ docker run -it --rm \
     --volume "${SCRIPT_DIR}/adapter/scripts/bev_publisher.py:/catkin_ws/src/falcon_adapter/scripts/bev_publisher.py" \
     --volume "${SCRIPT_DIR}/adapter/scripts/exploration_monitor.py:/catkin_ws/src/falcon_adapter/scripts/exploration_monitor.py" \
     --volume "${SCRIPT_DIR}/adapter/launch/gazebo_exploration.launch:/catkin_ws/src/falcon_adapter/launch/gazebo_exploration.launch" \
-    --volume "${SCRIPT_DIR}/hospital.yaml:/catkin_ws/src/FALCON/falcon_planner/exploration_manager/config/map/hospital.yaml" \
+    --volume "${SCRIPT_DIR}/${ENV_NAME}.yaml:/catkin_ws/src/FALCON/falcon_planner/exploration_manager/config/map/${ENV_NAME}.yaml" \
     --network host \
     "${IMAGE}" \
     "${@:-bash}"
