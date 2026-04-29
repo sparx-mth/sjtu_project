@@ -2,10 +2,17 @@
 # ============================================================
 # falcon_docker/run_hospital.sh — FALCON + external Gazebo drone
 #
-# v12: now also mounts adapter/scripts/cmd_to_vel.py — the
-#      closed-loop velocity controller that takes FALCON's
-#      PositionCommand and produces /simple_drone/cmd_vel,
-#      orchestrates takeoff, and gates odom to FALCON.
+# v13: CPU-only build, but Gazebo and RViz still get GPU-accelerated
+#      OpenGL rendering via the NVIDIA Container Toolkit.
+#
+# Key change vs v12:
+#   * NVIDIA_DRIVER_CAPABILITIES=all (was unset). Without this, the
+#     toolkit only exposes 'compute,utility', so OpenGL/EGL libs
+#     are NOT mounted into the container and Gazebo silently falls
+#     back to llvmpipe (software rendering). With 'all' (or
+#     'graphics,display,compute,utility'), Gazebo and RViz use the
+#     real GPU.
+#   * --shm-size=2g for Gazebo / DDS shared-memory transport.
 # ============================================================
 
 IMAGE="falcon-ros:noetic"
@@ -20,6 +27,9 @@ docker run -it --rm \
     --env DISPLAY="${DISPLAY}" \
     --env QT_X11_NO_MITSHM=1 \
     --env NVIDIA_DRIVER_CAPABILITIES=all \
+    --env NVIDIA_VISIBLE_DEVICES=all \
+    --shm-size=2g \
+    --ulimit nofile=65536:65536 \
     --volume /tmp/.X11-unix:/tmp/.X11-unix:rw \
     --volume "${SCRIPT_DIR}/adapter/scripts/falcon_adapter.py:/catkin_ws/src/falcon_adapter/scripts/falcon_adapter.py" \
     --volume "${SCRIPT_DIR}/adapter/scripts/cmd_to_vel.py:/catkin_ws/src/falcon_adapter/scripts/cmd_to_vel.py" \

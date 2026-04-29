@@ -1,18 +1,46 @@
 #!/usr/bin/env python3
 """
-cmd_to_vel.py
+cmd_to_vel.py  (v12 — predictive reference sampling)
+
+What FALCON actually publishes on /planning/pos_cmd
+───────────────────────────────────────────────────
+A quadrotor_msgs/PositionCommand sampled from a non-uniform B-spline:
+  header.stamp   ← the instant the spline was evaluated by traj_server
+  position       ← spline(t_cur)
+  velocity       ← spline'(t_cur)
+  acceleration   ← spline''(t_cur)
+  yaw, yaw_dot   ← yaw spline(t_cur), yaw spline'(t_cur)
+traj_server runs at 100 Hz; this controller runs at 50 Hz; ROS network
+latency is ~5–15 ms. So the cached pos_cmd is typically 15–35 ms stale
+by the time we act on it, and on a curve we're missing the acc term.
+
+Change vs v11
+─────────────
+In ACTIVE state, instead of feeding cmd.position / cmd.velocity straight
+into the P+FF law, we extrapolate the reference forward to "now":
+
+  dt = (rospy.Time.now() - cmd.header.stamp) + ctrl_lookahead
+  ref_p   = cmd.position     + cmd.velocity*dt + 0.5*cmd.acceleration*dt²
+  ref_v   = cmd.velocity     + cmd.acceleration*dt
+  ref_yaw = cmd.yaw          + cmd.yaw_dot*dt
+
+This re-samples the same B-spline FALCON sampled, just at the right time
+(plus an optional small lookahead to compensate for the drone's actuator
+response delay). Acceleration becomes feedforward via ref_v. No gain
+changes, no saturation changes — just an honest reference.
+
+dt is clamped to [0, max_extrap_dt] so a stalled FALCON can't make the
+extrapolation run away.
+
+Other behavior
+──────────────
   * Takeoff command is RE-SENT every second while in TAKING_OFF until
-    the drone reports flying. Handles the case where the bridge wasn't
-    ready when the first /takeoff was published.
-  * NEW state MAPPING_SCAN between HOVER_SETTLE and HOVERING: the drone
-    slowly yaws 360° while hovering, so the depth camera builds out a
-    full local map before exploration begins. Prevents FALCON from
-    planning into mostly-unknown space.
-  * Logs the moment FALCON sends its first real trajectory, with its
-    starting xyz, so you can compare against drone position to spot a
-    z-bias problem if the gating logic ever fails again.
-  * Periodic status print so you immediately see if cmd_to_vel is
-    waiting on /odom_world (== bridge problem).
+    the drone reports flying.
+  * MAPPING_SCAN between HOVER_SETTLE and HOVERING: drone slowly yaws
+    360° so the depth camera builds out a local map before exploration.
+  * Logs the first real FALCON trajectory it receives.
+  * Periodic status print so you immediately see if we're waiting on
+    /odom_world (== bridge problem).
 
 State machine:
   WAIT_ODOM ──▶ TAKING_OFF ──▶ HOVER_SETTLE ──▶ MAPPING_SCAN ──▶ HOVERING ──▶ ACTIVE
@@ -103,6 +131,17 @@ class CmdToVel:
         self.accel_limit       = rospy.get_param("~accel_limit", 0.6)
         self.yaw_accel_limit   = rospy.get_param("~yaw_accel_limit", 1.0)
 
+        # Predictive reference sampling (v12).
+        #   ctrl_lookahead   : seconds added on top of header-stamp staleness.
+        #                      Compensates for actuator response delay so the
+        #                      drone aims slightly *ahead* of "right now".
+        #                      Set to 0.0 to only compensate staleness.
+        #   max_extrap_dt    : hard cap on the extrapolation horizon. Protects
+        #                      against the case where pos_cmd's clock is wrong
+        #                      or where FALCON is briefly stalled.
+        self.ctrl_lookahead = rospy.get_param("~ctrl_lookahead", 0.05)
+        self.max_extrap_dt  = rospy.get_param("~max_extrap_dt",  0.2)
+
         self.ctrl_rate_hz      = rospy.get_param("~ctrl_rate_hz", 50.0)
         self.odom_gate_rate_hz = rospy.get_param("~odom_gate_rate_hz", 30.0)
 
@@ -111,7 +150,8 @@ class CmdToVel:
         self.state_entered = rospy.Time.now()
         self.cur_odom = None
         self.last_pos_cmd = None
-        self.last_pos_cmd_t = rospy.Time(0)
+        self.last_pos_cmd_t = rospy.Time(0)        # receipt time (used for staleness watchdog)
+        self.last_pos_cmd_eval_t = rospy.Time(0)   # spline-evaluation time (header.stamp; used for predictive sampling)
         self.first_real_traj = False
         self.takeoff_pose = None
         self.last_takeoff_pub = rospy.Time(0)
@@ -135,9 +175,10 @@ class CmdToVel:
 
         rospy.loginfo(
             "cmd_to_vel ready  drone=%s  ctrl=%.0fHz  vel_sat=(%.2f,%.2f)  "
-            "yaw_rate_sat=%.2f  mapping_scan=%s",
+            "yaw_rate_sat=%.2f  mapping_scan=%s  lookahead=%.0fms",
             self.drone_ns, self.ctrl_rate_hz, self.vel_xy_sat, self.vel_z_sat,
-            self.yaw_rate_sat, self.mapping_scan_enabled)
+            self.yaw_rate_sat, self.mapping_scan_enabled,
+            1000.0 * self.ctrl_lookahead)
 
         rospy.Timer(rospy.Duration(1.0 / self.ctrl_rate_hz), self.ctrl_loop)
         rospy.Timer(rospy.Duration(1.0 / self.odom_gate_rate_hz), self.odom_gate_loop)
@@ -188,7 +229,16 @@ class CmdToVel:
 
         # ── Accept ───────────────────────────────────────────────────
         self.last_pos_cmd = msg
-        self.last_pos_cmd_t = rospy.Time.now()
+        now = rospy.Time.now()
+        self.last_pos_cmd_t = now
+        # header.stamp = the instant traj_server evaluated the B-spline.
+        # If it is missing/zero (shouldn't happen with FALCON's traj_server,
+        # but be defensive), fall back to receipt time. dt will then be ~0
+        # and the extrapolation collapses to the legacy behavior.
+        if msg.header.stamp.to_sec() > 0.0:
+            self.last_pos_cmd_eval_t = msg.header.stamp
+        else:
+            self.last_pos_cmd_eval_t = now
         if msg.trajectory_id >= 1 and not self.first_real_traj:
             rospy.loginfo("cmd_to_vel: first FALCON trajectory  id=%d  "
                           "ref_start=(%.2f, %.2f, %.2f)  yaw=%.2f",
@@ -376,19 +426,54 @@ class CmdToVel:
         self._project_and_publish(vx_w, vy_w, vz_w, wz, yaw_cur)
 
     def _run_pid_from_pos_cmd(self, cmd):
+        """
+        FALCON publishes pos_cmd by sampling its B-spline at time
+        cmd.header.stamp. By the time we get here, the spline has moved
+        on by  dt = (now - header.stamp) + ctrl_lookahead.  Use the same
+        kinematic state the message carries to extrapolate the reference
+        forward by dt (a Taylor expansion of the spline using its own
+        velocity and acceleration). This:
+          (a) corrects the "where on the track am I supposed to be NOW"
+              question instead of using the stale published point,
+          (b) folds cmd.acceleration into the velocity feedforward, which
+              is otherwise unused.
+
+        dt is clamped to [0, max_extrap_dt] so we can't run away if
+        FALCON briefly stalls or clocks disagree.
+        """
         if self.cur_odom is None or cmd is None:
             self._publish_zero_vel()
             return
+
+        # Predictive sampling horizon
+        dt = (rospy.Time.now() - self.last_pos_cmd_eval_t).to_sec() + self.ctrl_lookahead
+        if dt < 0.0:
+            dt = 0.0
+        elif dt > self.max_extrap_dt:
+            dt = self.max_extrap_dt
+
+        # Re-sample the spline at "now" (Taylor: x + v*dt + 0.5*a*dt^2)
+        half_dt2 = 0.5 * dt * dt
+        ref_px = cmd.position.x + cmd.velocity.x * dt + cmd.acceleration.x * half_dt2
+        ref_py = cmd.position.y + cmd.velocity.y * dt + cmd.acceleration.y * half_dt2
+        ref_pz = cmd.position.z + cmd.velocity.z * dt + cmd.acceleration.z * half_dt2
+        ref_vx = cmd.velocity.x + cmd.acceleration.x * dt
+        ref_vy = cmd.velocity.y + cmd.acceleration.y * dt
+        ref_vz = cmd.velocity.z + cmd.acceleration.z * dt
+        ref_yaw     = wrap_pi(cmd.yaw + cmd.yaw_dot * dt)
+        ref_yaw_dot = cmd.yaw_dot
+
         cur = self.cur_odom.pose.pose
         yaw_cur = quat_to_yaw(cur.orientation)
-        ex = cmd.position.x - cur.position.x
-        ey = cmd.position.y - cur.position.y
-        ez = cmd.position.z - cur.position.z
-        eyaw = wrap_pi(cmd.yaw - yaw_cur)
-        vx_w = cmd.velocity.x + self.Kp_xy * ex
-        vy_w = cmd.velocity.y + self.Kp_xy * ey
-        vz_w = cmd.velocity.z + self.Kp_z  * ez
-        wz   = cmd.yaw_dot    + self.Kp_yaw * eyaw
+        ex   = ref_px - cur.position.x
+        ey   = ref_py - cur.position.y
+        ez   = ref_pz - cur.position.z
+        eyaw = wrap_pi(ref_yaw - yaw_cur)
+
+        vx_w = ref_vx + self.Kp_xy * ex
+        vy_w = ref_vy + self.Kp_xy * ey
+        vz_w = ref_vz + self.Kp_z  * ez
+        wz   = ref_yaw_dot + self.Kp_yaw * eyaw
         self._project_and_publish(vx_w, vy_w, vz_w, wz, yaw_cur)
 
     def _project_and_publish(self, vx_w, vy_w, vz_w, wz, yaw_cur):

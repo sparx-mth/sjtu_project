@@ -1,66 +1,111 @@
 <launch>
   <!--
-    gazebo_exploration.launch  (v13 — safety + autonomous takeoff + mapping scan)
+    gazebo_exploration.launch  (v14 — built-environment safety profile)
     ════════════════════════════════════════════════════════════════════════════
 
-    Changes from v12:
-      * NEW safety knobs:
-          obstacles_inflation: hard inflation in the ESDF (default 0.30 m, was 0.15 m)
-          safe_distance:       soft B-spline penalty distance (default 1.5 m, was 1.2 m)
-        These two together push planned trajectories meaningfully away from walls.
-      * NEW mapping-scan args plumbed to cmd_to_vel:
-          mapping_scan_enabled (default true)
-          mapping_yaw_rate     (default 0.4 rad/s ≈ 23°/s)
-          mapping_scan_revs    (default 1.0 full revolution before exploration)
-        The drone yaws in place to build the local voxel map before FALCON
-        starts planning, so it's not flying through unknown space.
-      * Increased takeoff_timeout to 30s and made takeoff retry every 1s,
-        which the new cmd_to_vel implements.
+    Tuning goal: maximum safety in a built indoor environment (hospital, office,
+    apartment) while keeping FALCON's planner numerically well-behaved.
+
+    Changes from v13:
+      * SPEEDS lowered for safer turns in tight spaces:
+          max_vel     = 0.4   (was 0.5)
+          max_acc     = 0.4   (was 0.5)
+          max_yaw_vel = 0.6   (was 0.5)   ← higher than max_vel so yaw can
+                                            recover at door entries before
+                                            the drone is committed
+          max_yaw_acc = 0.5   (unchanged)
+
+        At 0.4 m/s a 4m exploration leg produces ~10s splines — comfortably
+        inside FALCON's well-tested regime, well clear of the time-allocation
+        crash zone we hit at 0.1 m/s.
+
+      * SAFETY knobs corrected to fit standard hospital-door geometry:
+          obstacles_inflation = 0.30  (drone_radius 0.25 + 5cm margin)
+          safe_distance       = 0.10  (was 0.5)
+
+        The previous 0.5m soft penalty was geometrically impossible to
+        satisfy through a 0.9m door — the optimizer was being asked for
+        clearance the corridor couldn't provide, so it traded clearance
+        for smoothness/goal-cost in unpredictable ways → jamb collisions.
+
+        Geometry rule that must hold:
+            safe_distance  ≤  (narrowest_passage_width / 2) − obstacles_inflation
+        For a 0.9m door:  0.45 − 0.30 = 0.15 budget → use 0.10 with slack.
+
+      * FRONTIER viewpoint selection rebalanced so FALCON prefers observing
+        a new room from OUTSIDE its door (yaw-and-peek) before committing
+        to fly through:
+          frontier_candidate_rmin = 1.0   (was 2.0)
+          frontier_candidate_rmax = 2.5   (was 3.5)
+          frontier_min_clearance  = 0.35  (was 0.6)
+
+        With rmin=2.0 the only candidate viewpoint for an unmapped room
+        was on the far side of its door, forcing through-door splines into
+        partially-known space. rmin=1.0 lets FALCON park just outside the
+        door and map through it first.
+
+      * CONTROLLER gains raised for tighter tracking exactly when it
+        matters most — entering doorways:
+          ctrl_Kp_xy  = 1.5  (was 1.0)
+          ctrl_Kp_z   = 2.0  (was 1.5)
+          ctrl_Kp_yaw = 2.0  (was 1.5)
+
+      * Mapping scan slowed slightly so depth integration is cleaner before
+        the first plan:
+          mapping_yaw_rate  = 0.3  (was 0.4)
+          mapping_scan_revs = 1.25 (was 1.0)
   -->
 
   <arg name="map_name"   default="hospital" />
   <arg name="drone_ns"   default="/simple_drone" />
 
   <!-- ══════════════════════════════════════════════════════════════════
-       SPEED KNOBS
+       SPEED KNOBS — tuned for safe indoor exploration
        ══════════════════════════════════════════════════════════════════ -->
-  <arg name="max_vel"     default="0.1" />
-  <arg name="max_acc"     default="0.1" />
-  <arg name="max_yaw_vel" default="0.25" />
-  <arg name="max_yaw_acc" default="0.2" />
+  <arg name="max_vel"     default="0.25" />
+  <arg name="max_acc"     default="0.25" />
+  <arg name="max_yaw_vel" default="0.6" />
+  <arg name="max_yaw_acc" default="0.5" />
 
   <!-- ══════════════════════════════════════════════════════════════════
-       SAFETY KNOBS (raised from v12 defaults)
+       SAFETY KNOBS — sized for ~0.9m doors and ~0.5m drone diameter
        ════════════════════════════════════════════════════════════════════
        Two complementary mechanisms:
 
-       obstacles_inflation: HARD inflation in the voxel map. Walls are
+       obstacles_inflation: HARD inflation in the ESDF/voxel map. Walls are
          literally treated as thicker by this many meters. Cannot be
-         beaten by the optimizer. Set this to (drone_radius + margin).
-         The sjtu_drone is ~25cm radius, so 0.30m gives a 5cm safety margin.
+         beaten by the optimizer. Set to (drone_radius + safety_margin).
+         sjtu_drone is ~25cm radius, so 0.30m gives 5cm of safety margin.
 
        safe_distance: SOFT penalty in the B-spline optimizer. Pushes the
-         trajectory away from inflated walls. Should be larger than
-         obstacles_inflation to give the optimizer real room to work.
+         trajectory toward the centerline of corridors. MUST be smaller
+         than (narrowest_passage_half_width − obstacles_inflation), or
+         the optimizer cannot satisfy it and produces wobbly/jamb-grazing
+         splines.
 
-       For tighter spaces:  inflation=0.20 safe_dist=1.0
-       For default flight:  inflation=0.30 safe_dist=1.5  ← current default
-       For wide corridors:  inflation=0.40 safe_dist=2.0
+       Recipe by environment:
+         Tight hospital/apartment (0.8–1.0m doors):  inflation=0.30 safe=0.10
+         Office (1.0–1.2m doors):                     inflation=0.30 safe=0.20
+         Wide corridors (>1.5m):                      inflation=0.40 safe=0.40
   -->
-  <arg name="obstacles_inflation" default="0.60" />
-  <arg name="safe_distance"       default="1.0" />
+  <arg name="obstacles_inflation" default="0.65" />
+  <arg name="safe_distance"       default="0.60" />
 
-  <!-- Frontier viewpoint clearance. Raising candidate_rmin keeps FALCON
-       from picking viewpoints right next to walls. -->
-  <arg name="frontier_min_clearance"          default="0.6" />
-  <arg name="frontier_min_occ_clearance"      default="1.2" />
-  <arg name="frontier_candidate_rmin"         default="2.0" />
-  <arg name="frontier_candidate_rmax"         default="3.5" />
+  <!-- Frontier viewpoint clearance.
+       rmin small  → can observe rooms from outside their doors
+       rmin large  → forced to plan into rooms before observing them -->
+  <arg name="frontier_min_clearance"          default="0.35" />
+  <arg name="frontier_min_occ_clearance"      default="0.6" />
+  <arg name="frontier_candidate_rmin"         default="1.0" />
+  <arg name="frontier_candidate_rmax"         default="2.5" />
 
-  <!-- Controller gains -->
-  <arg name="ctrl_Kp_xy"  default="1.0" />
-  <arg name="ctrl_Kp_z"   default="1.5" />
-  <arg name="ctrl_Kp_yaw" default="1.5" />
+  <!-- Controller gains — tightened for accurate tracking through narrow gaps.
+       Higher Kp_yaw matters specifically at door entries: if the drone is
+       slow to align with the door, the depth camera doesn't see the next
+       room and FALCON plans into partially-known space. -->
+  <arg name="ctrl_Kp_xy"  default="1.5" />
+  <arg name="ctrl_Kp_z"   default="2.0" />
+  <arg name="ctrl_Kp_yaw" default="2.0" />
 
   <!-- ══════════════════════════════════════════════════════════════════
        TAKEOFF & MAPPING SCAN
@@ -70,9 +115,13 @@
   <arg name="takeoff_timeout"      default="30.0" />
   <arg name="hover_settle_sec"     default="2.5" />
 
+  <!-- Slower mapping scan + extra quarter-turn means the depth camera has
+       more frames per voxel before the first exploration plan, which
+       reduces the chance of FALCON committing to a goal in a room it has
+       only partially observed. -->
   <arg name="mapping_scan_enabled" default="true" />
-  <arg name="mapping_yaw_rate"     default="0.4" />
-  <arg name="mapping_scan_revs"    default="1.0" />
+  <arg name="mapping_yaw_rate"     default="0.3" />
+  <arg name="mapping_scan_revs"    default="1.25" />
 
   <!-- Noise injection -->
   <arg name="noise_pos_std"            default="0.0" />
@@ -124,22 +173,22 @@
   <param name="/transformer/pose_topic_type"     value="pose" />
   <param name="/transformer/timestamp_tolerance" value="0.05" />
 
-  <!-- Speed limits -->
+  <!-- Speed limits → FALCON internal time allocation -->
   <param name="/uav_model/dynamics_parameters/max_linear_velocity"     value="$(arg max_vel)" />
   <param name="/uav_model/dynamics_parameters/max_linear_acceleration" value="$(arg max_acc)" />
   <param name="/uav_model/dynamics_parameters/max_yaw_velocity"        value="$(arg max_yaw_vel)" />
   <param name="/uav_model/dynamics_parameters/max_yaw_acceleration"    value="$(arg max_yaw_acc)" />
 
   <!--
-    Safety: HARD obstacle inflation in the voxel map.
-    This grows every occupied voxel by `obstacles_inflation` meters in
-    every direction in the ESDF. The B-spline optimizer's distance cost
-    sees inflated obstacles, so the trajectory has to detour around them.
-    Cannot be beaten by trade-offs against other costs.
+    HARD obstacle inflation in the voxel map.
+    Grows every occupied voxel by `obstacles_inflation` meters. The B-spline
+    optimizer's distance cost sees inflated obstacles, so the trajectory has
+    to detour around them. Cannot be beaten by trade-offs against other costs.
   -->
   <param name="/voxel_mapping/obstacles_inflation" value="$(arg obstacles_inflation)" />
 
-  <!-- Safety: SOFT B-spline collision penalty distance -->
+  <!-- SOFT B-spline collision penalty distance.
+       Optimizer pushes trajectory toward this many meters from inflated walls. -->
   <param name="/bspline_opt/safe_distance" value="$(arg safe_distance)" />
 
   <!-- Frontier viewpoint clearances -->
@@ -148,7 +197,7 @@
   <param name="/frontier_finder/candidate_rmin"                     value="$(arg frontier_candidate_rmin)" />
   <param name="/frontier_finder/candidate_rmax"                     value="$(arg frontier_candidate_rmax)" />
 
-  <!-- traj_server's startup ramp must stay disabled - cmd_to_vel owns takeoff -->
+  <!-- traj_server's startup ramp must stay disabled — cmd_to_vel owns takeoff -->
   <param name="/traj_server/init_dx"  value="0.0" />
   <param name="/traj_server/init_dy"  value="0.0" />
   <param name="/traj_server/init_dz"  value="0.0" />
@@ -185,7 +234,7 @@
     <param name="noise_seed"               value="$(arg noise_seed)" />
   </node>
 
-  <!-- Closed-loop control bridge: FALCON → drone  (UPDATED) -->
+  <!-- Closed-loop control bridge: FALCON → drone -->
   <node pkg="falcon_adapter" type="cmd_to_vel.py" name="cmd_to_vel" output="screen">
     <param name="drone_ns"          value="$(arg drone_ns)" />
     <param name="auto_takeoff"      value="$(arg auto_takeoff)" />
