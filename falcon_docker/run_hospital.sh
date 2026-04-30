@@ -55,6 +55,8 @@ docker run -it --rm \
     --volume "${SCRIPT_DIR}/adapter/scripts/exploration_monitor.py:/catkin_ws/src/falcon_adapter/scripts/exploration_monitor.py" \
     --volume "${SCRIPT_DIR}/adapter/launch/gazebo_exploration.launch:/catkin_ws/src/falcon_adapter/launch/gazebo_exploration.launch" \
     --volume "${SCRIPT_DIR}/${ENV_NAME}.yaml:/catkin_ws/src/FALCON/falcon_planner/exploration_manager/config/map/${ENV_NAME}.yaml" \
+    --volume "${SCRIPT_DIR}/adapter/scripts/run_recorder.py:/catkin_ws/src/falcon_adapter/scripts/run_recorder.py" \
+    --volume "${SCRIPT_DIR}/runs:/home/falcon/runs" \
     --network host \
     "${IMAGE}" \
     "${@:-bash}"

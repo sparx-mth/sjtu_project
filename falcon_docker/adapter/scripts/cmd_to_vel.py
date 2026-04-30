@@ -145,8 +145,7 @@ class CmdToVel:
         self.ctrl_rate_hz      = rospy.get_param("~ctrl_rate_hz", 50.0)
         self.odom_gate_rate_hz = rospy.get_param("~odom_gate_rate_hz", 30.0)
 
-        # Internal state
-        self.state = S.WAIT_ODOM
+        self.state = S.TAKING_OFF if self.auto_takeoff else S.WAIT_ODOM
         self.state_entered = rospy.Time.now()
         self.cur_odom = None
         self.last_pos_cmd = None
