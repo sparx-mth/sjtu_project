@@ -69,12 +69,20 @@ class RunRecorder:
         self.gt_topic    = rospy.get_param("~gt_topic", "/simple_drone/gt_pose")
         self.falcon_odom_topic = rospy.get_param("~falcon_odom_topic", "/odom_world")
 
+        # Optional layers — match what FALCON's RViz config shows. These
+        # default to common FALCON topic names; if your build uses
+        # different names, override via params. Empty string = disabled.
+        self.free_topic     = rospy.get_param("~free_topic",     "/sdf_map/free")
+        self.frontier_topic = rospy.get_param("~frontier_topic", "/planning_vis/frontier")
+
         self.run_dir = os.path.join(self.output_dir, self.run_name)
         os.makedirs(self.run_dir, exist_ok=True)
 
         self.lock = threading.Lock()
         self.t0   = None
-        self.latest_voxel_msg = None
+        self.latest_voxel_msg    = None
+        self.latest_free_msg     = None
+        self.latest_frontier_msg = None
         self.coverage    = deque(maxlen=200000)
         self.gt_traj     = deque(maxlen=200000)
         self.falcon_traj = deque(maxlen=200000)
@@ -84,10 +92,19 @@ class RunRecorder:
         rospy.Subscriber(self.voxel_topic, PointCloud2,  self._voxel_cb, queue_size=2)
         rospy.Subscriber(self.gt_topic, Pose,            self._gt_cb,    queue_size=50)
         rospy.Subscriber(self.falcon_odom_topic, Odometry, self._falcon_cb, queue_size=50)
+        if self.free_topic:
+            rospy.Subscriber(self.free_topic, PointCloud2,
+                             self._free_cb, queue_size=2)
+        if self.frontier_topic:
+            rospy.Subscriber(self.frontier_topic, PointCloud2,
+                             self._frontier_cb, queue_size=2)
 
         rospy.on_shutdown(self._dump)
         rospy.Timer(rospy.Duration(10.0), self._heartbeat)
-        rospy.loginfo("recorder: run=%s out=%s", self.run_name, self.run_dir)
+        rospy.loginfo("recorder: run=%s out=%s  voxel=%s  free=%s  frontier=%s",
+                      self.run_name, self.run_dir, self.voxel_topic,
+                      self.free_topic or "(disabled)",
+                      self.frontier_topic or "(disabled)")
 
     def _now(self):
         t = rospy.Time.now().to_sec()
@@ -100,6 +117,14 @@ class RunRecorder:
         with self.lock:
             self.latest_voxel_msg = msg
             self.coverage.append((t, msg.width * msg.height))
+
+    def _free_cb(self, msg):
+        with self.lock:
+            self.latest_free_msg = msg
+
+    def _frontier_cb(self, msg):
+        with self.lock:
+            self.latest_frontier_msg = msg
 
     def _gt_cb(self, msg):
         t = self._now()
@@ -129,15 +154,30 @@ class RunRecorder:
     def _dump(self):
         rospy.loginfo("recorder: saving to %s ...", self.run_dir)
         with self.lock:
-            if self.latest_voxel_msg is not None:
-                pts = np.array(list(pc2.read_points(
-                    self.latest_voxel_msg,
-                    field_names=("x", "y", "z"), skip_nans=True)),
-                    dtype=np.float32)
-            else:
+            def _to_array(msg, label):
+                if msg is None:
+                    return np.zeros((0, 3), dtype=np.float32)
+                try:
+                    return np.array(list(pc2.read_points(
+                        msg, field_names=("x", "y", "z"), skip_nans=True)),
+                        dtype=np.float32)
+                except Exception as e:
+                    rospy.logwarn("recorder: failed to parse %s pc: %s", label, e)
+                    return np.zeros((0, 3), dtype=np.float32)
+
+            if self.latest_voxel_msg is None:
                 rospy.logwarn("recorder: no voxel msgs received! saving empty.")
-                pts = np.zeros((0, 3), dtype=np.float32)
-            np.save(os.path.join(self.run_dir, "voxels.npy"), pts)
+            pts          = _to_array(self.latest_voxel_msg,    "occupancy")
+            free_pts     = _to_array(self.latest_free_msg,     "free")
+            frontier_pts = _to_array(self.latest_frontier_msg, "frontier")
+            np.save(os.path.join(self.run_dir, "voxels.npy"),    pts)
+            # Save the optional layers only if non-empty so analyze_batch.py
+            # can detect their presence by checking file existence.
+            if free_pts.shape[0] > 0:
+                np.save(os.path.join(self.run_dir, "free_voxels.npy"), free_pts)
+            if frontier_pts.shape[0] > 0:
+                np.save(os.path.join(self.run_dir, "frontier_voxels.npy"),
+                        frontier_pts)
 
             cov = np.array(self.coverage) if self.coverage else np.zeros((0, 2))
             np.savetxt(os.path.join(self.run_dir, "coverage.csv"),
@@ -157,6 +197,8 @@ class RunRecorder:
                 "duration_sec": duration,
                 "path_length_m": float(self.gt_path_length),
                 "final_voxels": n_voxels,
+                "final_free_voxels":     int(len(free_pts)),
+                "final_frontier_voxels": int(len(frontier_pts)),
                 "avg_discovery_voxels_per_sec":
                     (n_voxels / duration) if duration > 0 else 0.0,
                 "noise": {
@@ -167,8 +209,9 @@ class RunRecorder:
             with open(os.path.join(self.run_dir, "summary.json"), "w") as f:
                 json.dump(summary, f, indent=2)
 
-        rospy.loginfo("recorder: %d voxels, %.1fs, %.1fm path → %s",
-                      n_voxels, duration, self.gt_path_length, self.run_dir)
+        rospy.loginfo("recorder: %d occ + %d free + %d frontier  %.1fs  %.1fm  → %s",
+                      n_voxels, len(free_pts), len(frontier_pts),
+                      duration, self.gt_path_length, self.run_dir)
 
 
 if __name__ == "__main__":

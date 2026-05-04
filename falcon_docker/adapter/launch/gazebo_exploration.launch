@@ -110,10 +110,10 @@
   <!-- Frontier viewpoint clearance.
        rmin small  → can observe rooms from outside their doors
        rmin large  → forced to plan into rooms before observing them -->
-  <arg name="frontier_min_clearance"          default="0.35" />
-  <arg name="frontier_min_occ_clearance"      default="0.6" />
+  <arg name="frontier_min_clearance"      default="0.50" />   <!-- was 0.35 -->
+  <arg name="frontier_min_occ_clearance"  default="0.75" />   <!-- was 0.6 -->
   <arg name="frontier_candidate_rmin"         default="1.0" />
-  <arg name="frontier_candidate_rmax"         default="2.5" />
+  <arg name="frontier_candidate_rmax"         default="5.5" />
 
   <!-- Controller gains — tightened for accurate tracking through narrow gaps.
        Higher Kp_yaw matters specifically at door entries: if the drone is
@@ -320,6 +320,17 @@
       <param name="voxel_topic" value="/voxel_mapping/occupancy_grid_occupied" />
   </node>
 
+
+    <!-- Completion watcher: writes <output_dir>/<run_name>/.exploration_done
+       when /planning/replan emits data=2 (FALCON: no more frontiers).
+       batch_runner.py polls for that file. settle_sec ignores transient
+       data=2 messages that some FALCON variants emit at startup. -->
+  <node pkg="falcon_adapter" type="completion_watcher.py" name="completion_watcher" output="screen">
+      <param name="run_name"   value="$(arg run_name)" />
+      <param name="output_dir" value="$(arg output_dir)" />
+      <param name="settle_sec" value="30.0" />
+  </node>
+
   <node pkg="exploration_manager" name="exploration_node" type="exploration_node" output="screen"
         respawn="true" respawn_delay="3">
     <remap from="/odom_world"                    to="$(arg odometry_topic)"/>
@@ -407,11 +418,11 @@
     <param name="Kp_z"              value="$(arg ctrl_Kp_z)" />
     <param name="Kp_yaw"            value="$(arg ctrl_Kp_yaw)" />
 
-    <param name="vel_xy_sat"        value="$(eval 2.5 * arg('max_vel'))" />
-    <param name="vel_z_sat"         value="$(eval 2.5 * arg('max_vel'))" />
-    <param name="yaw_rate_sat"      value="$(eval 2.5 * arg('max_yaw_vel'))" />
-    <param name="accel_limit"       value="$(eval 3.0 * arg('max_acc'))" />
-    <param name="yaw_accel_limit"   value="$(eval 2.5 * arg('max_yaw_acc'))" />
+    <param name="vel_xy_sat"        value="$(eval 5.0 * arg('max_vel'))" />
+    <param name="vel_z_sat"         value="$(eval 5.0 * arg('max_vel'))" />
+    <param name="yaw_rate_sat"      value="$(eval 4.0 * arg('max_yaw_vel'))" />
+    <param name="accel_limit"       value="$(eval 6.0 * arg('max_acc'))" />
+    <param name="yaw_accel_limit"   value="$(eval 4.0 * arg('max_yaw_acc'))" />
 
     <param name="ctrl_rate_hz"      value="50.0" />
     <param name="odom_gate_rate_hz" value="30.0" />

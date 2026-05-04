@@ -2,17 +2,17 @@
 # ============================================================
 # falcon_docker/run_hospital.sh — FALCON + external Gazebo drone
 #
-# v13: CPU-only build, but Gazebo and RViz still get GPU-accelerated
-#      OpenGL rendering via the NVIDIA Container Toolkit.
+# v14: adds completion_watcher.py + batch_runner.py mounts so you
+#      can run a batch of N successful experiments back-to-back:
 #
-# Key change vs v12:
-#   * NVIDIA_DRIVER_CAPABILITIES=all (was unset). Without this, the
-#     toolkit only exposes 'compute,utility', so OpenGL/EGL libs
-#     are NOT mounted into the container and Gazebo silently falls
-#     back to llvmpipe (software rendering). With 'all' (or
-#     'graphics,display,compute,utility'), Gazebo and RViz use the
-#     real GPU.
-#   * --shm-size=2g for Gazebo / DDS shared-memory transport.
+#        ./run_hospital.sh hospital                      # interactive
+#        # then inside the container:
+#        python3 /catkin_ws/src/falcon_adapter/scripts/batch_runner.py hospital 10 300
+#
+# v13 (preserved): NVIDIA_DRIVER_CAPABILITIES=all so Gazebo/RViz get
+# real GPU OpenGL (otherwise toolkit only mounts compute libs and
+# Gazebo silently falls back to llvmpipe). --shm-size=2g for
+# Gazebo / DDS shared memory.
 # ============================================================
 
 IMAGE="falcon-ros:noetic"
@@ -53,9 +53,11 @@ docker run -it --rm \
     --volume "${SCRIPT_DIR}/adapter/scripts/cmd_to_vel.py:/catkin_ws/src/falcon_adapter/scripts/cmd_to_vel.py" \
     --volume "${SCRIPT_DIR}/adapter/scripts/bev_publisher.py:/catkin_ws/src/falcon_adapter/scripts/bev_publisher.py" \
     --volume "${SCRIPT_DIR}/adapter/scripts/exploration_monitor.py:/catkin_ws/src/falcon_adapter/scripts/exploration_monitor.py" \
+    --volume "${SCRIPT_DIR}/adapter/scripts/run_recorder.py:/catkin_ws/src/falcon_adapter/scripts/run_recorder.py" \
+    --volume "${SCRIPT_DIR}/adapter/scripts/completion_watcher.py:/catkin_ws/src/falcon_adapter/scripts/completion_watcher.py" \
+    --volume "${SCRIPT_DIR}/adapter/scripts/batch_runner.py:/catkin_ws/src/falcon_adapter/scripts/batch_runner.py" \
     --volume "${SCRIPT_DIR}/adapter/launch/gazebo_exploration.launch:/catkin_ws/src/falcon_adapter/launch/gazebo_exploration.launch" \
     --volume "${SCRIPT_DIR}/${ENV_NAME}.yaml:/catkin_ws/src/FALCON/falcon_planner/exploration_manager/config/map/${ENV_NAME}.yaml" \
-    --volume "${SCRIPT_DIR}/adapter/scripts/run_recorder.py:/catkin_ws/src/falcon_adapter/scripts/run_recorder.py" \
     --volume "${SCRIPT_DIR}/runs:/home/falcon/runs" \
     --network host \
     "${IMAGE}" \
