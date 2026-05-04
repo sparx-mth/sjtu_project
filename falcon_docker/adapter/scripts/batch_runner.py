@@ -98,9 +98,18 @@ def launch_one_run(env_name, run_name, output_dir, timeout_sec, log_file):
     summary_path = os.path.join(run_dir, "summary.json")
     os.makedirs(run_dir, exist_ok=True)
 
-    # Optional: physically respawn / reposition the drone for THIS run.
-    # The hook is a no-op by default. See bottom of this file.
-    respawn_drone_hook(run_name, env_name)
+    # Physically respawn the drone to a random valid pose before this
+    # run. Without this, a crashed previous run leaves the drone wedged
+    # in a wall and the next run can't recover. See respawn_drone_hook.
+    respawn_ok = respawn_drone_hook(run_name, env_name)
+    if not respawn_ok and RESPAWN_RETRY_ON_FAILURE:
+        # Don't burn a run_NN slot on a sim-side glitch — wait briefly
+        # and let the caller treat this attempt as a transient failure.
+        log_file.write("{}  {}  respawn_failed\n".format(
+            datetime.now().isoformat(timespec="seconds"), run_name))
+        log_file.flush()
+        time.sleep(3.0)
+        return "respawn_failed"
 
     cmd = [
         "roslaunch", LAUNCH_PKG, LAUNCH_FILE,
@@ -491,33 +500,71 @@ def aggregate(output_dir, success_run_names, failures):
                   m["t_90pct_coverage_sec"]["std"]), flush=True)
 
 
-# ─────────────────── Optional: drone respawn hook ────────────────────────
+# ─────────────────── Drone respawn ────────────────────────────────────────
+
+# Path to respawn_drone.py inside the FALCON container. Same directory
+# as this script (mounted by run_hospital.sh).
+RESPAWN_SCRIPT = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "respawn_drone.py")
+
+# How the FALCON container reaches the docker daemon to talk to the sim
+# container. run_hospital.sh mounts /var/run/docker.sock for this.
+DOCKER_SOCKET = "/var/run/docker.sock"
+
+# If True, retry the same run after a respawn failure (don't count it
+# as a real failure of FALCON — the sim itself may just be transiently
+# unreachable). False = treat respawn failure as a run failure.
+RESPAWN_RETRY_ON_FAILURE = True
+
 
 def respawn_drone_hook(run_name, env_name):
     """
-    Override this to physically reposition the drone before each run.
+    Teleport the drone to a random valid pose before this run starts.
+    Solves the "previous run crashed → this run starts in a wall" problem.
 
-    The default implementation is a no-op: the drone starts each run
-    from wherever the previous one ended (and from the world's spawn
-    point on the first run).
-
-    To actually teleport, you need a way to call Gazebo's
-    set_entity_state service from inside the FALCON container — which
-    requires that you bridge that service across your ros1_bridge /
-    ros2 setup. Once you've done that, replace this body with something
-    like:
-
-        import rospy
-        from gazebo_msgs.srv import SetModelState
-        # ... pick a random pose from a per-env starts list ...
-        rospy.wait_for_service('/gazebo/set_model_state', timeout=5.0)
-        srv = rospy.ServiceProxy('/gazebo/set_model_state', SetModelState)
-        srv(...)
-
-    Or do it from the host with `docker exec sjtu_drone_<env> ros2 ...`
-    BEFORE invoking this batch script, and just leave this stub empty.
+    Returns True on success, False if respawn was attempted but failed.
+    Returns True (no-op) if the respawn machinery isn't installed, so
+    a missing docker.sock mount doesn't break batches that don't need
+    respawning.
     """
-    return
+    if not os.path.exists(RESPAWN_SCRIPT):
+        # Script not mounted — skip silently. Old batches still work.
+        return True
+
+    if not os.path.exists(DOCKER_SOCKET):
+        # No docker access from inside this container. The user can
+        # either add `-v /var/run/docker.sock:/var/run/docker.sock` to
+        # run_hospital.sh, or run respawn_drone.py themselves on the
+        # host between runs.
+        print("[batch] respawn skipped: no docker.sock mounted "
+              "(add -v /var/run/docker.sock:/var/run/docker.sock to "
+              "run_hospital.sh to enable)", flush=True)
+        return True
+
+    cmd = ["python3", RESPAWN_SCRIPT, env_name]
+    print("[batch] respawn: {}".format(" ".join(cmd)), flush=True)
+    try:
+        # 60s budget covers worst case: 8s takeoff wait + 30s posctrl
+        # flight + headroom for slow ros2 topic echoes.
+        result = subprocess.run(cmd, capture_output=True, text=True,
+                                 timeout=60)
+    except subprocess.TimeoutExpired:
+        print("[batch] respawn timed out after 60s", flush=True)
+        return False
+
+    # Forward respawn output to our log so the user can debug
+    if result.stdout:
+        for line in result.stdout.rstrip().split("\n"):
+            print("  " + line, flush=True)
+    if result.returncode != 0:
+        if result.stderr:
+            for line in result.stderr.rstrip().split("\n"):
+                print("  " + line, flush=True)
+        print("[batch] respawn failed (rc={})".format(result.returncode),
+              flush=True)
+        return False
+    return True
 
 
 # ─────────────────── Main ─────────────────────────────────────────────────
@@ -562,7 +609,26 @@ def main():
 
             if outcome == "success":
                 successes.append(run_name)
+            elif outcome == "respawn_failed":
+                # Transient sim-side issue — don't count against the
+                # success quota AND don't add to failures.json. Just
+                # retry. After a few of these in a row, give up so we
+                # don't loop forever.
+                consecutive_respawn_failures = getattr(
+                    main, "_consecutive_respawn_failures", 0) + 1
+                main._consecutive_respawn_failures = consecutive_respawn_failures
+                run_dir = os.path.join(output_dir, run_name)
+                if os.path.isdir(run_dir):
+                    shutil.rmtree(run_dir, ignore_errors=True)
+                if consecutive_respawn_failures >= 5:
+                    print("[batch] giving up after 5 consecutive respawn "
+                          "failures — check the sim container is up and "
+                          "docker.sock is mounted", flush=True)
+                    break
+                print("[batch] respawn failed, retrying ({}/5 before giving up)"
+                      .format(consecutive_respawn_failures), flush=True)
             else:
+                main._consecutive_respawn_failures = 0
                 failures.append({
                     "run_name":      run_name,
                     "outcome":       outcome,

@@ -28,11 +28,17 @@ ENV TZ=UTC  LANG=C.UTF-8  LC_ALL=C.UTF-8
 ENV ROS_DISTRO=noetic
 
 # ── 1. System tools ───────────────────────────────────────────
+# docker.io provides the docker CLI client. Combined with mounting
+# /var/run/docker.sock at runtime (see run_hospital.sh), this lets
+# scripts inside the FALCON container talk to the host's docker
+# daemon — which is how respawn_drone.py reaches the sim container
+# to teleport the drone between batch runs.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl wget git gnupg2 lsb-release ca-certificates \
     pkg-config ninja-build \
     python3-pip python3-dev \
     sudo locales \
+    docker.io \
     && locale-gen en_US.UTF-8 && rm -rf /var/lib/apt/lists/*
 
 RUN rosdep update

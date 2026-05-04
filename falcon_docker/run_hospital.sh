@@ -2,6 +2,11 @@
 # ============================================================
 # falcon_docker/run_hospital.sh — FALCON + external Gazebo drone
 #
+# v15: adds respawn_drone.py + docker.sock mount so batch_runner.py
+#      can teleport the drone to a random valid pose before each run.
+#      Without this, a crashed run leaves the drone in a wall and the
+#      next attempt can't recover.
+#
 # v14: adds completion_watcher.py + batch_runner.py mounts so you
 #      can run a batch of N successful experiments back-to-back:
 #
@@ -56,6 +61,8 @@ docker run -it --rm \
     --volume "${SCRIPT_DIR}/adapter/scripts/run_recorder.py:/catkin_ws/src/falcon_adapter/scripts/run_recorder.py" \
     --volume "${SCRIPT_DIR}/adapter/scripts/completion_watcher.py:/catkin_ws/src/falcon_adapter/scripts/completion_watcher.py" \
     --volume "${SCRIPT_DIR}/adapter/scripts/batch_runner.py:/catkin_ws/src/falcon_adapter/scripts/batch_runner.py" \
+    --volume "${SCRIPT_DIR}/adapter/scripts/respawn_drone.py:/catkin_ws/src/falcon_adapter/scripts/respawn_drone.py" \
+    --volume /var/run/docker.sock:/var/run/docker.sock \
     --volume "${SCRIPT_DIR}/adapter/launch/gazebo_exploration.launch:/catkin_ws/src/falcon_adapter/launch/gazebo_exploration.launch" \
     --volume "${SCRIPT_DIR}/${ENV_NAME}.yaml:/catkin_ws/src/FALCON/falcon_planner/exploration_manager/config/map/${ENV_NAME}.yaml" \
     --volume "${SCRIPT_DIR}/runs:/home/falcon/runs" \

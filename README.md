@@ -470,6 +470,95 @@ If the drone oscillates, reduce `kp_xy`. If it's sluggish, increase it.
 
 ---
 
+## Batch Experiments
+
+Run N successful FALCON exploration runs in one environment, record timing
+and coverage metrics, and generate an HTML report with charts and a 3D
+voxel map of the result.
+
+### What's there
+
+All scripts live under `falcon_docker/adapter/scripts/`:
+
+| File | Purpose |
+|---|---|
+| `run_recorder.py` | Per-run capture: occupied/free/frontier voxels, trajectory, coverage curve |
+| `completion_watcher.py` | Touches a flag file when FALCON's `/planning/replan` reports no more frontiers |
+| `batch_runner.py` | Spawns N runs back-to-back; discards timed-out attempts; writes aggregate stats |
+| `analyze_batch.py` | Reads a batch dir and emits a single self-contained HTML report (Plotly) |
+
+### Run a batch
+
+Two terminals, the normal startup:
+
+```bash
+# Terminal 1 — sim
+./run.sh playground
+
+# Terminal 2 — open a shell in the FALCON container
+./run_hospital.sh playground
+```
+
+Then **inside the FALCON container shell**, kick off a batch:
+
+```bash
+python3 /catkin_ws/src/falcon_adapter/scripts/batch_runner.py playground 10 300
+```
+
+Args: `<env_name>` `<n_successes>` `<timeout_sec_per_run>`. The script keeps
+running until N successful runs are recorded; timed-out / crashed attempts
+are discarded and retried under the same `run_NN` index.
+
+Output lands in `falcon_docker/runs/<env>_batch_<TIMESTAMP>/`.
+
+### Generate the HTML report
+
+Run on the **host** (so you can `pip install` and open the file in a browser):
+
+```bash
+pip install plotly numpy
+
+python3 falcon_docker/adapter/scripts/analyze_batch.py \
+    falcon_docker/runs/playground_batch_<TS> \
+    ~/playground_report.html
+```
+
+If the `runs/` directory was created by Docker as root and `analyze_batch.py`
+can't write into it, either pass an output path you own (as above) or run
+once: `sudo chown -R $USER:$USER falcon_docker/runs`.
+
+Open `~/playground_report.html` in any browser.
+
+### What the report contains
+
+- **Environment** — map name, voxel resolution, swept-area, plus a 3D voxel map (occupied + free + frontier layers, RViz-style cubes, voxel-grid downsampled)
+- **Voxel discovery curves** — n_voxels vs time, one line per run
+- **Trajectories** — top-down (x, y) paths over the 2D voxel projection
+- **Per-run area metrics** — m²/sec, sec/m², m flown / m² mapped
+- **Per-run voxel metrics** — voxels/sec, voxels/m²
+- **Coverage milestones** — t at 50% / 90% / 99% of final coverage per run
+- **Aggregate** — mean ± std for all metrics across the batch
+
+Files in the batch dir:
+- `runs.csv` — one row per successful run, all metrics
+- `aggregate.json` — mean / std / min / max across the batch
+- `failures.json` — discarded attempts with reason
+- `run_<NN>/` — per-run raw outputs (`voxels.npy`, `free_voxels.npy`, `frontier_voxels.npy`, `coverage.csv`, `trajectory_*.csv`, `summary.json`)
+
+### Tunables
+
+| Env var | Default | Effect |
+|---|---|---|
+| `SWEPT_RADIUS_M` | `2.0` | Radius around trajectory considered "mapped area" (used for m² metrics) |
+| `VOXEL_MAX_CUBES` | `10000` | Cube budget for the 3D voxel map (higher = denser, larger HTML, slower render) |
+
+Example:
+```bash
+VOXEL_MAX_CUBES=20000 python3 .../analyze_batch.py /path/to/batch ~/report.html
+```
+
+---
+
 ## Adding the Depth Camera to the Drone SDF
 
 The sjtu_drone needs a forward-facing depth camera. The current configuration uses:
