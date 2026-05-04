@@ -139,84 +139,94 @@
   <arg name="mapping_yaw_rate"     default="1.0" />
   <arg name="mapping_scan_revs"    default="1.25" />
 
-  <!-- ══════════════════════════════════════════════════════════════════
-       NOISE INJECTION — per-axis, body-frame model
-       ══════════════════════════════════════════════════════════════════
-       Two independent noise sources per body axis (x = forward, y = left,
-       z = up, yaw):
+<!-- ════════════════════════════════════════════════════════════════════
+     NOISE INJECTION — per-axis, body-frame, dead-reckoning model
+     ════════════════════════════════════════════════════════════════════
+     Three independent noise sources per body axis (x = forward, y = left,
+     z = up, yaw). All default to 0 → clean run.
 
-       JITTER — i.i.d. Gaussian, fresh sample per callback. No memory.
-                Models high-frequency sensor / filter chatter.
-                  jitter_<ax>_mean   [m or rad]  constant per-tick offset
-                  jitter_<ax>_std    [m or rad]  per-tick std-dev
+     JITTER — i.i.d. Gaussian, fresh sample per callback. No memory.
+              Models high-frequency sensor / filter chatter.
+                jitter_<ax>_mean   [m or rad]  constant per-tick offset
+                jitter_<ax>_std    [m or rad]  per-tick std-dev
 
-       DRIFT  — accumulating random walk + linear bias. Models VIO/SLAM.
-                After D metres of flight, drift_<ax>(D) ~ N(mean·D, std²·D):
-                  drift_<ax>_mean_per_m  [m/m or rad/m]    bias rate
-                  drift_<ax>_std_per_m   [m/√m or rad/√m]  random-walk rate
+     SCALE-FACTOR DRIFT — error per unit of body-frame motion in this axis.
+              Models IMU/VIO scale errors. The user's "I rotated 90° but
+              actually 89°" is exactly drift_yaw_mean_per_rad ≈ 0.011.
+                drift_<xyz>_mean_per_m   [m/m]   per-axis scale factor
+                drift_<xyz>_std_per_m    [m/√m]  random walk std
+                drift_yaw_mean_per_rad   [rad/rad]  yaw scale factor (NEW)
+                drift_yaw_std_per_rad    [rad/√rad]  yaw walk std    (NEW)
+              The old drift_yaw_*_per_m parameters still work but are
+              re-interpreted as per_rad with a deprecation warning.
 
-       CONVENIENCE ALIASES — set all three position axes at once:
-                  jitter_pos_std        sets jitter_{x,y,z}_std
-                  drift_pos_std_per_m   sets drift_{x,y,z}_std_per_m
-                Per-axis values take precedence if both are set.
+     TIME-BASED BIAS — drift per second, motion-independent. Models always-on
+              gyro/accel bias. Makes the belief wander while hovering.
+                bias_<ax>_per_s_mean   [m/s or rad/s]   constant bias rate
+                bias_<ax>_per_s_std    [m/s/√s, ...]    bias random walk
 
-       Reproducible runs: set noise_seed to any non-negative integer to
-       fix the noise realisation across runs. -1 (default) = nondeterministic.
+     OUTLIERS — rare one-shot pose jumps (tracking loss / depth dropout).
+                outlier_rate_hz   expected events per second
+                outlier_pos_std   one-shot jump magnitude (m)
+                outlier_yaw_std   one-shot jump magnitude (rad)
 
-       Depth noise (noise_depth_std, noise_depth_proportional) is unrelated
-       to localisation and applies independently to the depth image.
+     Suggested presets, calibrated for the hospital map (typical 50 m flight):
 
-       Suggested presets (50 m of flight, isotropic position noise):
-         mild      σ≈0.07m  yaw≈2°    drift_pos_std_per_m=0.01  drift_yaw_std_per_m=0.005
-         moderate  σ≈0.35m  yaw≈8°    drift_pos_std_per_m=0.05  drift_yaw_std_per_m=0.02
-         heavy     σ≈0.70m  yaw≈20°   drift_pos_std_per_m=0.10  drift_yaw_std_per_m=0.05
-  -->
+       mild      drift_yaw_mean_per_rad=0.005   (~0.3° error per radian rotated)
+                 drift_pos_mean_per_m  =0.005   (0.5% scale on translation)
+                 jitter_pos_std=0.02   jitter_yaw_std=0.005
 
-  <!-- Convenience aliases for symmetric position noise (default 0 = inactive) -->
-  <arg name="jitter_pos_std"        default="0.0" />
-  <arg name="drift_pos_std_per_m"   default="0.0" />
+       moderate  drift_yaw_mean_per_rad=0.020   (~1.1° per rad)
+                 drift_pos_mean_per_m  =0.020   (2% scale on translation)
+                 jitter_pos_std=0.05   jitter_yaw_std=0.015
 
-  <!-- Per-axis jitter (mean, std) — defaults route to the convenience alias for std -->
-  <arg name="jitter_x_mean"   default="0.0" />
-  <arg name="jitter_x_std"    default="$(arg jitter_pos_std)" />
-  <arg name="jitter_y_mean"   default="0.0" />
-  <arg name="jitter_y_std"    default="$(arg jitter_pos_std)" />
-  <arg name="jitter_z_mean"   default="0.0" />
-  <arg name="jitter_z_std"    default="$(arg jitter_pos_std)" />
-  <arg name="jitter_yaw_mean" default="0.0" />
-  <arg name="jitter_yaw_std"  default="0.0" />
+       heavy     drift_yaw_mean_per_rad=0.050   (~2.9° per rad — gnarly)
+                 drift_pos_mean_per_m  =0.050   (5% scale)
+                 jitter_pos_std=0.10   jitter_yaw_std=0.030
 
-  <!-- Per-axis drift (bias-per-m, std-per-m) — defaults route to the alias for std -->
-  <arg name="drift_x_mean_per_m"   default="0.0" />
-  <arg name="drift_x_std_per_m"    default="$(arg drift_pos_std_per_m)" />
-  <arg name="drift_y_mean_per_m"   default="0.0" />
-  <arg name="drift_y_std_per_m"    default="$(arg drift_pos_std_per_m)" />
-  <arg name="drift_z_mean_per_m"   default="0.0" />
-  <arg name="drift_z_std_per_m"    default="$(arg drift_pos_std_per_m)" />
-  <arg name="drift_yaw_mean_per_m" default="0.0" />
-  <arg name="drift_yaw_std_per_m"  default="0.0" />
+     For reproducible runs set noise_seed to any non-negative integer.
+-->
 
-  <!-- Slow IMU-style bias: an initial value plus its own random walk per second.
-       Models how a real IMU's bias slowly evolves (calibration drift, thermal). -->
-  <arg name="bias_x_init"          default="0.0" />
-  <arg name="bias_x_walk_per_s"    default="0.0" />
-  <arg name="bias_y_init"          default="0.0" />
-  <arg name="bias_y_walk_per_s"    default="0.0" />
-  <arg name="bias_z_init"          default="0.0" />
-  <arg name="bias_z_walk_per_s"    default="0.0" />
-  <arg name="bias_yaw_init"        default="0.0" />
-  <arg name="bias_yaw_walk_per_s"  default="0.0" />
+<!-- Per-tick jitter -->
+<arg name="jitter_x_mean"   default="0.0" />
+<arg name="jitter_x_std"    default="0.0" />
+<arg name="jitter_y_mean"   default="0.0" />
+<arg name="jitter_y_std"    default="0.0" />
+<arg name="jitter_z_mean"   default="0.0" />
+<arg name="jitter_z_std"    default="0.0" />
+<arg name="jitter_yaw_mean" default="0.0" />
+<arg name="jitter_yaw_std"  default="0.0" />
 
-  <!-- Rare outlier events: tracking glitches / depth dropouts.
-       outlier_rate_hz = 0.1 means ~one event per 10 s of flight.
-       outlier_pos_std/_yaw_std controls the magnitude of the one-shot jump. -->
-  <arg name="outlier_rate_hz"      default="0.0" />
-  <arg name="outlier_pos_std"      default="0.0" />
-  <arg name="outlier_yaw_std"      default="0.0" />
+<!-- Scale-factor drift: error per unit body-frame motion in that axis -->
+<arg name="drift_x_mean_per_m"     default="0.0" />
+<arg name="drift_x_std_per_m"      default="0.0" />
+<arg name="drift_y_mean_per_m"     default="0.0" />
+<arg name="drift_y_std_per_m"      default="0.0" />
+<arg name="drift_z_mean_per_m"     default="0.0" />
+<arg name="drift_z_std_per_m"      default="0.0" />
+<arg name="drift_yaw_mean_per_rad" default="0.0" />
+<arg name="drift_yaw_std_per_rad"  default="0.0" />
 
-  <arg name="noise_depth_std"          default="0.0" />
-  <arg name="noise_depth_proportional" default="0.0" />
-  <arg name="noise_seed"               default="-1" />
+<!-- Time-based bias drift (always-on, motion-independent) -->
+<arg name="bias_x_per_s_mean"   default="0.0" />
+<arg name="bias_x_per_s_std"    default="0.0" />
+<arg name="bias_y_per_s_mean"   default="0.0" />
+<arg name="bias_y_per_s_std"    default="0.0" />
+<arg name="bias_z_per_s_mean"   default="0.0" />
+<arg name="bias_z_per_s_std"    default="0.0" />
+<arg name="bias_yaw_per_s_mean" default="0.0" />
+<arg name="bias_yaw_per_s_std"  default="0.0" />
+
+<!-- Outliers -->
+<arg name="outlier_rate_hz" default="0.0" />
+<arg name="outlier_pos_std" default="0.0" />
+<arg name="outlier_yaw_std" default="0.0" />
+
+<arg name="noise_depth_std"          default="0.0" />
+<arg name="noise_depth_proportional" default="0.0" />
+<arg name="noise_seed"               default="-1" />
+
+<!--  ... and inside the <node pkg="falcon_adapter" type="falcon_adapter.py" ...>  -->
 
   <!-- ══════════════════════════════════════════════════════════════════
        RUN RECORDER — captures voxels, trajectories, coverage curve
@@ -305,8 +315,9 @@
        block of summary.json — those params are published below by the
        falcon_adapter node's own private <param> tags. -->
   <node pkg="falcon_adapter" type="run_recorder.py" name="run_recorder" output="screen">
-    <param name="run_name"   value="$(arg run_name)" />
-    <param name="output_dir" value="$(arg output_dir)" />
+      <param name="run_name"    value="$(arg run_name)" />
+      <param name="output_dir"  value="$(arg output_dir)" />
+      <param name="voxel_topic" value="/voxel_mapping/occupancy_grid_occupied" />
   </node>
 
   <node pkg="exploration_manager" name="exploration_node" type="exploration_node" output="screen"
@@ -334,7 +345,7 @@
     <param name="odom_min_dt"              value="0.04" />
     <param name="depth_min_dt"             value="0.04" />
 
-    <!-- Per-axis jitter (mean, std) — body frame -->
+    <!-- Per-tick jitter (mean, std) — body frame -->
     <param name="jitter_x_mean"   value="$(arg jitter_x_mean)" />
     <param name="jitter_x_std"    value="$(arg jitter_x_std)" />
     <param name="jitter_y_mean"   value="$(arg jitter_y_mean)" />
@@ -344,25 +355,25 @@
     <param name="jitter_yaw_mean" value="$(arg jitter_yaw_mean)" />
     <param name="jitter_yaw_std"  value="$(arg jitter_yaw_std)" />
 
-    <!-- Per-axis drift (bias-per-m, std-per-m) — body frame, accumulating -->
-    <param name="drift_x_mean_per_m"   value="$(arg drift_x_mean_per_m)" />
-    <param name="drift_x_std_per_m"    value="$(arg drift_x_std_per_m)" />
-    <param name="drift_y_mean_per_m"   value="$(arg drift_y_mean_per_m)" />
-    <param name="drift_y_std_per_m"    value="$(arg drift_y_std_per_m)" />
-    <param name="drift_z_mean_per_m"   value="$(arg drift_z_mean_per_m)" />
-    <param name="drift_z_std_per_m"    value="$(arg drift_z_std_per_m)" />
-    <param name="drift_yaw_mean_per_m" value="$(arg drift_yaw_mean_per_m)" />
-    <param name="drift_yaw_std_per_m"  value="$(arg drift_yaw_std_per_m)" />
+    <!-- Scale-factor drift: error per unit body-frame motion (xyz: per m, yaw: per rad) -->
+    <param name="drift_x_mean_per_m"     value="$(arg drift_x_mean_per_m)" />
+    <param name="drift_x_std_per_m"      value="$(arg drift_x_std_per_m)" />
+    <param name="drift_y_mean_per_m"     value="$(arg drift_y_mean_per_m)" />
+    <param name="drift_y_std_per_m"      value="$(arg drift_y_std_per_m)" />
+    <param name="drift_z_mean_per_m"     value="$(arg drift_z_mean_per_m)" />
+    <param name="drift_z_std_per_m"      value="$(arg drift_z_std_per_m)" />
+    <param name="drift_yaw_mean_per_rad" value="$(arg drift_yaw_mean_per_rad)" />
+    <param name="drift_yaw_std_per_rad"  value="$(arg drift_yaw_std_per_rad)" />
 
-    <!-- Slow IMU-style bias: initial value + per-second random walk -->
-    <param name="bias_x_init"          value="$(arg bias_x_init)" />
-    <param name="bias_x_walk_per_s"    value="$(arg bias_x_walk_per_s)" />
-    <param name="bias_y_init"          value="$(arg bias_y_init)" />
-    <param name="bias_y_walk_per_s"    value="$(arg bias_y_walk_per_s)" />
-    <param name="bias_z_init"          value="$(arg bias_z_init)" />
-    <param name="bias_z_walk_per_s"    value="$(arg bias_z_walk_per_s)" />
-    <param name="bias_yaw_init"        value="$(arg bias_yaw_init)" />
-    <param name="bias_yaw_walk_per_s"  value="$(arg bias_yaw_walk_per_s)" />
+    <!-- Time-based bias drift (always-on, motion-independent) -->
+    <param name="bias_x_per_s_mean"   value="$(arg bias_x_per_s_mean)" />
+    <param name="bias_x_per_s_std"    value="$(arg bias_x_per_s_std)" />
+    <param name="bias_y_per_s_mean"   value="$(arg bias_y_per_s_mean)" />
+    <param name="bias_y_per_s_std"    value="$(arg bias_y_per_s_std)" />
+    <param name="bias_z_per_s_mean"   value="$(arg bias_z_per_s_mean)" />
+    <param name="bias_z_per_s_std"    value="$(arg bias_z_per_s_std)" />
+    <param name="bias_yaw_per_s_mean" value="$(arg bias_yaw_per_s_mean)" />
+    <param name="bias_yaw_per_s_std"  value="$(arg bias_yaw_per_s_std)" />
 
     <!-- Outlier (tracking-loss) events -->
     <param name="outlier_rate_hz"      value="$(arg outlier_rate_hz)" />

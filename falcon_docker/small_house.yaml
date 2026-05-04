@@ -11,12 +11,12 @@ map_config:
   #    Tight Z bounds matter here — a house has actual ceilings,
   #    unlike the playground.
   map_size:
-    map_min_x: -10.0
-    map_min_y: -10.0
+    map_min_x: -10.5
+    map_min_y: -10.5
     map_min_z: -1.0
     map_max_x:  10.0
     map_max_y:  10.0
-    map_max_z:  2.5
+    map_max_z:  3.5
     box_min_x:  -8.0
     box_min_y:  -8.0
     box_min_z:   0.0

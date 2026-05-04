@@ -13,9 +13,6 @@ On Ctrl-C / shutdown, writes  <output_dir>/<run_name>/ :
     trajectory_gt.csv     t,x,y,z,yaw_rad — true path
     trajectory_falcon.csv t,x,y,z,yaw_rad — what FALCON believed
     summary.json          {duration, path_length, final_voxels, noise_params}
-
-Use: rosrun falcon_adapter run_recorder.py \\
-        _run_name:=clean _output_dir:=/home/falcon/runs
 """
 
 import json
@@ -33,10 +30,33 @@ from nav_msgs.msg import Odometry
 
 
 def _yaw_from_quat(q):
-    """Yaw (rad) from a geometry_msgs Quaternion. Inline to avoid tf dep."""
     siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
     cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
     return math.atan2(siny_cosp, cosy_cosp)
+
+
+# Parameter names captured into summary.json. Kept aligned with falcon_adapter v15.
+NOISE_PARAM_NAMES = (
+    # Per-tick jitter
+    "jitter_x_mean",   "jitter_x_std",
+    "jitter_y_mean",   "jitter_y_std",
+    "jitter_z_mean",   "jitter_z_std",
+    "jitter_yaw_mean", "jitter_yaw_std",
+    # Scale-factor drift (per-axis body-frame motion)
+    "drift_x_mean_per_m",     "drift_x_std_per_m",
+    "drift_y_mean_per_m",     "drift_y_std_per_m",
+    "drift_z_mean_per_m",     "drift_z_std_per_m",
+    "drift_yaw_mean_per_rad", "drift_yaw_std_per_rad",
+    # Time-based bias drift
+    "bias_x_per_s_mean",   "bias_x_per_s_std",
+    "bias_y_per_s_mean",   "bias_y_per_s_std",
+    "bias_z_per_s_mean",   "bias_z_per_s_std",
+    "bias_yaw_per_s_mean", "bias_yaw_per_s_std",
+    # Outliers
+    "outlier_rate_hz", "outlier_pos_std", "outlier_yaw_std",
+    # Reproducibility
+    "noise_seed",
+)
 
 
 class RunRecorder:
@@ -109,7 +129,6 @@ class RunRecorder:
     def _dump(self):
         rospy.loginfo("recorder: saving to %s ...", self.run_dir)
         with self.lock:
-            # 1. Voxel map
             if self.latest_voxel_msg is not None:
                 pts = np.array(list(pc2.read_points(
                     self.latest_voxel_msg,
@@ -120,13 +139,10 @@ class RunRecorder:
                 pts = np.zeros((0, 3), dtype=np.float32)
             np.save(os.path.join(self.run_dir, "voxels.npy"), pts)
 
-            # 2. Coverage time series
             cov = np.array(self.coverage) if self.coverage else np.zeros((0, 2))
             np.savetxt(os.path.join(self.run_dir, "coverage.csv"),
                        cov, delimiter=",", header="t_sec,n_voxels", comments="")
 
-            # 3. Trajectories — 5-column: t, x, y, z, yaw (rad).
-            #    compare_runs.py also handles the older 4-column format.
             gt = np.array(self.gt_traj)     if self.gt_traj     else np.zeros((0, 5))
             fa = np.array(self.falcon_traj) if self.falcon_traj else np.zeros((0, 5))
             np.savetxt(os.path.join(self.run_dir, "trajectory_gt.csv"),
@@ -134,7 +150,6 @@ class RunRecorder:
             np.savetxt(os.path.join(self.run_dir, "trajectory_falcon.csv"),
                        fa, delimiter=",", header="t_sec,x,y,z,yaw_rad", comments="")
 
-            # 4. Summary (pulls noise params from the adapter for reproducibility)
             duration = float(cov[-1, 0]) if len(cov) else 0.0
             n_voxels = int(len(pts))
             summary = {
@@ -146,25 +161,7 @@ class RunRecorder:
                     (n_voxels / duration) if duration > 0 else 0.0,
                 "noise": {
                     name: rospy.get_param("/falcon_adapter/" + name, 0.0)
-                    for name in (
-                        # Per-axis jitter (mean, std) for x, y, z, yaw
-                        "jitter_x_mean",   "jitter_x_std",
-                        "jitter_y_mean",   "jitter_y_std",
-                        "jitter_z_mean",   "jitter_z_std",
-                        "jitter_yaw_mean", "jitter_yaw_std",
-                        # Per-axis drift (bias-per-m, std-per-m) for x, y, z, yaw
-                        "drift_x_mean_per_m",   "drift_x_std_per_m",
-                        "drift_y_mean_per_m",   "drift_y_std_per_m",
-                        "drift_z_mean_per_m",   "drift_z_std_per_m",
-                        "drift_yaw_mean_per_m", "drift_yaw_std_per_m",
-                        # Slow IMU-style bias
-                        "bias_x_init",   "bias_x_walk_per_s",
-                        "bias_y_init",   "bias_y_walk_per_s",
-                        "bias_z_init",   "bias_z_walk_per_s",
-                        "bias_yaw_init", "bias_yaw_walk_per_s",
-                        # Outlier events
-                        "outlier_rate_hz", "outlier_pos_std", "outlier_yaw_std",
-                    )
+                    for name in NOISE_PARAM_NAMES
                 },
             }
             with open(os.path.join(self.run_dir, "summary.json"), "w") as f:
