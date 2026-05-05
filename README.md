@@ -694,3 +694,120 @@ These are overridden in `gazebo_exploration.launch` and must match the Gazebo de
 | `/voxel_mapping/cam_width` | `640` | Matches Gazebo depth camera |
 | `/voxel_mapping/cam_height` | `360` | Matches Gazebo depth camera |
 | `/voxel_mapping/depth_scaling_factor` | `1.0` | Gazebo publishes 32FC1 depth in meters |
+
+# Trajectory Safety Corrector
+
+Nudges NavDP trajectories away from walls using the repulsive potential field already computed by `PotentialMapperNode`.
+
+## Architecture
+
+```
+Gazebo Sim (drone + cameras)
+   │
+   ├─ /simple_drone/front/image_raw        (RGB 640×360, 120° HFOV)
+   ├─ /simple_drone/front/camera_info
+   └─ /simple_drone/front_depth/depth/image_raw  (depth 640×480, 90° HFOV)
+         │                                            │
+         ▼                                            │
+   PotentialMapperNode                                │
+     DA3 depth → point cloud → occupancy → U_rep      │
+     ├─ /map_local            (OccupancyGrid)         │
+     └─ /potential_field/u_rep (Image 32FC1)          │
+              │                                        │
+              ▼                                        ▼
+        TrajectorySafetyCorrector  ◄──  NavDP Server (best_traj)
+              │
+              ▼
+        corrected_traj ──► Pure Pursuit
+```
+
+## Prerequisites
+
+- **Gazebo** simulation running with the drone spawned (publishes camera topics and TF)
+- **DA3 TensorRT engine** built and available at the path configured in `potential_mapper_node` (default: `~/depth_anything_ws/.../DA3METRIC-LARGE_v1.engine`)
+- **NavDP checkpoint** downloaded (e.g. `navdp-cross-modal.ckpt`)
+
+## Startup (3 terminals)
+
+### Terminal 1 — NavDP Server
+
+```bash
+conda activate navdp
+cd ~/GIT/NavDP/baselines/navdp
+python navdp_server.py --port 8888 --checkpoint ./checkpoints/navdp-cross-modal.ckpt
+```
+
+Wait until you see the server is ready before proceeding.
+
+### Terminal 2 — Potential Mapper Node
+
+```bash
+ros2 run autonomous_system potential_mapper_node
+```
+
+This subscribes to `/simple_drone/front/image_raw`, runs DA3 depth inference, builds the occupancy grid, and publishes `/map_local` + `/potential_field/u_rep`.
+
+Verify it's running:
+
+```bash
+ros2 topic hz /potential_field/u_rep
+```
+
+### Terminal 3 — NavDP Drone Controller
+
+```bash
+python3 navdp_drone_live.py \
+    --port 8888 \
+    --map_yaml /path/to/hospital_map_cropped.yaml \
+    --depth_topic /simple_drone/front_depth/depth/image_raw \
+    --alt 0.3 \
+    --depth_scale 1.73 \
+    --corr_gain 0.1 \
+    --corr_max 0.4
+```
+
+Click on the camera window to set a goal, then press ENTER to start navigation.
+
+## CLI Arguments
+
+| Argument | Default | Description |
+|---|---|---|
+| `--depth_scale` | `1.73` | Compensates for DA3 (RGB cam, 120° HFOV, fx=185) placing walls farther than the depth camera (90° HFOV, fx=320) reports. Computed as `fx_depth / fx_rgb = 320 / 185 = 1.73`. |
+| `--corr_gain` | `1.5` | Scales the gradient vector. Since gradient magnitudes can be large, start with `0.1` and increase. |
+| `--corr_max` | `0.4` | Maximum correction per waypoint in metres. |
+
+## Debug Window
+
+The **Correction Debug** window shows two side-by-side BEV panels (forward = up):
+
+| Left panel | Right panel |
+|---|---|
+| **OCCUPANCY** — grayscale, black = wall | **U_REP** — JET heatmap, red = high potential |
+
+Both panels overlay:
+
+| Symbol | Meaning |
+|---|---|
+| White line + dots | Original NavDP trajectory |
+| Green line + dots | Corrected trajectory |
+| Red arrows | Correction applied (original → corrected) |
+| Cyan arrows | Gradient direction at each waypoint |
+| Yellow diamond | Robot position |
+
+## Tuning
+
+| Symptom | Fix |
+|---|---|
+| Corrections on wrong waypoints | Adjust `--depth_scale` |
+| Too weak | Increase `--corr_gain` |
+| Too aggressive | Decrease `--corr_gain` or `--corr_max` |
+| Pushes into opposite wall in passages | Already handled (gradient cancellation). Lower `--corr_max` if needed |
+| No corrections at all | Check `ros2 topic hz /potential_field/u_rep` is publishing |
+
+## Files Changed
+
+| File | What changed |
+|---|---|
+| `potential_mapper_node.py` | +1 publisher (`/potential_field/u_rep`), +1 method (`publish_u_rep`) |
+| `trajectory_safety_corrector.py` | Full rewrite — no `sparx_agency` imports, consumes topics only |
+| `navdp_drone_live.py` | +1 subscription, split map callback, +debug window |
