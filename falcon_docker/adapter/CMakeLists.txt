@@ -5,6 +5,7 @@ catkin_package()
 
 catkin_install_python(PROGRAMS
   scripts/falcon_adapter.py
+  scripts/falcon_playback.py
   scripts/cmd_to_vel.py
   scripts/bev_publisher.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}

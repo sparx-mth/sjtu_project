@@ -1,0 +1,166 @@
+<launch>
+  <!--
+    playback_exploration.launch — FALCON in dataset playback mode.
+
+    Mirrors the FALCON-side setup from gazebo_exploration.launch (config
+    YAMLs, planner/safety params, speed limits) but swaps:
+      falcon_adapter.py  -> falcon_playback.py     (data feed)
+      cmd_to_vel.py      -> removed                (no closed loop)
+      Gazebo bringup     -> not needed             (no simulation)
+  -->
+
+  <!-- ── Dataset (REQUIRED) ─────────────────────────────────────── -->
+  <arg name="poses_json"   />
+  <arg name="frames_dir"   />
+  <arg name="depth_suffix" default=".npy" />
+  <arg name="depth_scale"  default="1.0" />
+  <arg name="depth_max"    default="0.0" />
+  <arg name="start_index"  default="0" />
+  <arg name="stride"       default="1" />
+  <arg name="loop"         default="false" />
+  <arg name="playback_rate_hz"  default="10.0" />
+  <arg name="startup_delay_sec" default="3.0" />
+
+  <!-- ── Camera intrinsics (set to your real drone's) ───────────── -->
+  <arg name="fx" default="436.0" />
+  <arg name="fy" default="436.0" />
+  <arg name="cx" default="252.0" />
+  <arg name="cy" default="140.0" />
+  <arg name="image_width"  default="504" />
+  <arg name="image_height" default="280" />
+  <arg name="min_depth"    default="0.1" />
+  <arg name="max_depth"    default="5.0" />
+
+  <!-- ── Body -> camera lever-arm ──────────────────────────────── -->
+  <arg name="cam_offset_x" default="0.0" />
+  <arg name="cam_offset_y" default="0.0" />
+  <arg name="cam_offset_z" default="0.0" />
+
+  <!-- ── Map / run ──────────────────────────────────────────────── -->
+  <arg name="map_name"   default="office" />
+  <arg name="run_name"   default="playback" />
+  <arg name="output_dir" default="/home/falcon/runs" />
+
+  <!-- ══════════════════════════════════════════════════════════════════
+       SPEEDS — these populate /manager/max_vel, /manager/max_acc, etc.
+       (via fast_planner.yaml's defaults) and FALCON aborts if they're
+       not positive. Values copied from gazebo_exploration.launch.
+       ══════════════════════════════════════════════════════════════════ -->
+  <arg name="max_vel"     default="0.25" />
+  <arg name="max_acc"     default="0.25" />
+  <arg name="max_yaw_vel" default="0.6" />
+  <arg name="max_yaw_acc" default="0.5" />
+
+  <!-- ── Safety / frontier (same defaults as gazebo run) ────────── -->
+  <arg name="obstacles_inflation"         default="0.30" />
+  <arg name="safe_distance"               default="0.10" />
+  <arg name="frontier_min_clearance"      default="0.35" />
+  <arg name="frontier_min_occ_clearance"  default="0.60" />
+  <arg name="frontier_candidate_rmin"     default="1.0" />
+  <arg name="frontier_candidate_rmax"     default="2.5" />
+
+  <!-- ── Topic names ───────────────────────────────────────────── -->
+  <arg name="depth_image"        value="/map_ros/depth" />
+  <arg name="sensor_pose_topic"  value="/map_ros/pose" />
+  <arg name="odometry_topic"     value="/odom_world" />
+
+  <!-- ══════════════════════════════════════════════════════════════════
+       Load FALCON config files (CRITICAL — populates /manager/*, etc.)
+       ══════════════════════════════════════════════════════════════════ -->
+  <rosparam command="load" file="$(find exploration_manager)/config/robot/uav_model_simulator.yaml"/>
+  <rosparam command="load" file="$(find exploration_manager)/config/map/$(arg map_name).yaml"/>
+  <rosparam command="load" file="$(find voxel_mapping)/config/voxel_mapping.yaml"/>
+  <rosparam command="load" file="$(find pathfinding)/config/astar.yaml"/>
+  <rosparam command="load" file="$(find fast_planner)/config/fast_planner.yaml"/>
+  <rosparam command="load" file="$(find exploration_preprocessing)/config/frontier_finder.yaml"/>
+  <rosparam command="load" file="$(find exploration_preprocessing)/config/hgrid.yaml"/>
+  <rosparam command="load" file="$(find exploration_utils)/config/perception_utils.yaml"/>
+  <rosparam command="load" file="$(find exploration_manager)/config/exploration_manager.yaml"/>
+
+  <!-- ── Camera intrinsics for FALCON's voxel_mapping ──────────── -->
+  <param name="/uav_model/sensing_parameters/camera_intrinsics/fx" value="$(arg fx)" />
+  <param name="/uav_model/sensing_parameters/camera_intrinsics/fy" value="$(arg fy)" />
+  <param name="/uav_model/sensing_parameters/camera_intrinsics/cx" value="$(arg cx)" />
+  <param name="/uav_model/sensing_parameters/camera_intrinsics/cy" value="$(arg cy)" />
+  <param name="/uav_model/sensing_parameters/image_width"  value="$(arg image_width)" />
+  <param name="/uav_model/sensing_parameters/image_height" value="$(arg image_height)" />
+  <param name="/uav_model/sensing_parameters/min_depth"    value="$(arg min_depth)" />
+  <param name="/uav_model/sensing_parameters/max_depth"    value="$(arg max_depth)" />
+
+  <!-- ── Transformer ───────────────────────────────────────────── -->
+  <param name="/transformer/pose_topic_type"     value="pose" />
+  <param name="/transformer/timestamp_tolerance" value="0.05" />
+
+  <!-- ── Dynamics → planner time allocation ────────────────────── -->
+  <param name="/uav_model/dynamics_parameters/max_linear_velocity"     value="$(arg max_vel)" />
+  <param name="/uav_model/dynamics_parameters/max_linear_acceleration" value="$(arg max_acc)" />
+  <param name="/uav_model/dynamics_parameters/max_yaw_velocity"        value="$(arg max_yaw_vel)" />
+  <param name="/uav_model/dynamics_parameters/max_yaw_acceleration"    value="$(arg max_yaw_acc)" />
+
+  <!-- ── Safety / frontier ─────────────────────────────────────── -->
+  <param name="/voxel_mapping/obstacles_inflation"                  value="$(arg obstacles_inflation)" />
+  <param name="/bspline_opt/safe_distance"                          value="$(arg safe_distance)" />
+  <param name="/frontier_finder/min_candidate_clearance"            value="$(arg frontier_min_clearance)" />
+  <param name="/frontier_finder/min_candidate_occupied_clearance"   value="$(arg frontier_min_occ_clearance)" />
+  <param name="/frontier_finder/candidate_rmin"                     value="$(arg frontier_candidate_rmin)" />
+  <param name="/frontier_finder/candidate_rmax"                     value="$(arg frontier_candidate_rmax)" />
+
+  <!-- traj_server ramp disabled (would otherwise nudge takeoff) -->
+  <param name="/traj_server/init_dx" value="0.0" />
+  <param name="/traj_server/init_dy" value="0.0" />
+  <param name="/traj_server/init_dz" value="0.0" />
+
+  <!-- ══════════════════════════════════════════════════════════════════
+       Nodes
+       ══════════════════════════════════════════════════════════════════ -->
+
+  <node pkg="falcon_adapter" type="run_recorder.py" name="run_recorder" output="screen">
+    <param name="run_name"          value="$(arg run_name)" />
+    <param name="output_dir"        value="$(arg output_dir)" />
+    <param name="voxel_topic"       value="/voxel_mapping/occupancy_grid_occupied" />
+    <param name="gt_topic"          value="" />
+    <param name="falcon_odom_topic" value="/odom_world" />
+  </node>
+
+  <node pkg="exploration_manager" name="exploration_node" type="exploration_node" output="screen"
+        respawn="true" respawn_delay="3">
+    <remap from="/odom_world"                    to="$(arg odometry_topic)"/>
+    <remap from="/voxel_mapping/depth_image"     to="$(arg depth_image)"/>
+    <remap from="/transformer/sensor_pose_topic" to="$(arg sensor_pose_topic)"/>
+  </node>
+
+  <node pkg="fast_planner" name="traj_server" type="traj_server" output="screen"
+        respawn="true" respawn_delay="3" />
+
+  <node pkg="falcon_adapter" type="falcon_playback.py" name="falcon_playback" output="screen">
+    <param name="poses_json"        value="$(arg poses_json)" />
+    <param name="frames_dir"        value="$(arg frames_dir)" />
+    <param name="depth_suffix"      value="$(arg depth_suffix)" />
+    <param name="depth_scale"       value="$(arg depth_scale)" />
+    <param name="depth_max"         value="$(arg depth_max)" />
+    <param name="start_index"       value="$(arg start_index)" />
+    <param name="stride"            value="$(arg stride)" />
+    <param name="loop"              value="$(arg loop)" />
+    <param name="playback_rate_hz"  value="$(arg playback_rate_hz)" />
+    <param name="startup_delay_sec" value="$(arg startup_delay_sec)" />
+
+    <param name="fx"                value="$(arg fx)" />
+    <param name="fy"                value="$(arg fy)" />
+    <param name="cx"                value="$(arg cx)" />
+    <param name="cy"                value="$(arg cy)" />
+    <param name="image_width"       value="$(arg image_width)" />
+    <param name="image_height"      value="$(arg image_height)" />
+
+    <param name="cam_offset_x"      value="$(arg cam_offset_x)" />
+    <param name="cam_offset_y"      value="$(arg cam_offset_y)" />
+    <param name="cam_offset_z"      value="$(arg cam_offset_z)" />
+
+    <param name="world_frame"       value="world" />
+    <param name="body_frame"        value="body" />
+    <param name="cam_frame"         value="camera" />
+  </node>
+
+  <node pkg="odom_visualization" name="odom_visualization" type="odom_visualization" output="screen">
+    <remap from="~odometry" to="/odom_world"/>
+  </node>
+</launch>

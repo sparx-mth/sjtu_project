@@ -559,6 +559,88 @@ VOXEL_MAX_CUBES=20000 python3 .../analyze_batch.py /path/to/batch ~/report.html
 
 ---
 
+## Playback Mode (real-drone recordings, no Gazebo)
+
+Feed FALCON pre-recorded depth + pose instead of running Gazebo and the
+bridge. One container, one launch — the voxel mapper builds the map from
+the recording, and you watch it in RViz. No closed-loop control (the
+trajectory is fixed by the recording).
+
+### Dataset layout
+
+```
+my_recording/
+├── poses.json           # [{"image": "frame_NNNNNN.jpg", "pose": {x,y,z,yaw}}, ...]
+└── depth_npy/           # one frame_NNNNNN.npy (float32 depth) per JSON entry
+```
+
+The JSON's `image` field has its extension swapped (`.jpg` → `.npy` by
+default) to find the matching depth file in `frames_dir`.
+
+### Run
+
+```bash
+cd falcon_docker
+./run_playback.sh office /path/to/my_recording   # mounts dataset at /data
+```
+
+Inside the container:
+
+```bash
+roslaunch falcon_adapter playback_exploration.launch \
+    poses_json:=/data/JSON_files/estimated_trajectory_xtend_rectified_depth_take_003_20260429_160647.json \
+    frames_dir:=/data/xtend_rectified_depth_take_003_20260429_160647/depth_npy \
+    map_name:=office \
+    fx:=361.52381185798737 \
+    fy:=410.764442594862 \
+    cx:=229.3434895805878 \
+    cy:=116.76308616209292 \
+    image_width:=504 image_height:=280 \
+    depth_scale:=1.0 \
+    playback_rate_hz:=20.0
+```
+
+In RViz: fixed frame `world`, add a `PointCloud2` on
+`/voxel_mapping/occupancy_grid_occupied`.
+
+### Args (`playback_exploration.launch`)
+
+| Arg | Default | Effect |
+|---|---|---|
+| `poses_json` | (required) | Path to JSON list of `{image, pose:{x,y,z,yaw}}` |
+| `frames_dir` | (required) | Folder containing depth `.npy` files |
+| `depth_suffix` | `.npy` | Replaces extension of the JSON `image` field to find depth |
+| `depth_scale` | `1.0` | Multiplier → metres (use `0.001` if `.npy` is in mm) |
+| `depth_max` | `0.0` | Drop returns past this many metres (`0` = no clip) |
+| `start_index` | `0` | First frame index to play |
+| `stride` | `1` | Play every Nth frame (`2` halves the load) |
+| `loop` | `false` | Loop forever after the last frame |
+| `playback_rate_hz` | `10.0` | Frame publish rate |
+| `startup_delay_sec` | `3.0` | Wait this long after launch before publishing |
+| `fx`, `fy`, `cx`, `cy` | placeholders for 504×280 | Pinhole intrinsics. For rectified depth, use the projection matrix `P` (not `K`) |
+| `image_width`, `image_height` | `504`, `280` | Must match the `.npy` shape |
+| `min_depth`, `max_depth` | `0.1`, `5.0` | FALCON voxel-mapper depth gate |
+| `cam_offset_x/y/z` | `0.0` | Body→camera lever-arm; rotation is FLU→RDF (fixed) |
+| `map_name` | `office` | FALCON map config to load (`<name>.yaml`) |
+| `run_name` | `playback` | Subfolder under `output_dir` for the run recorder |
+| `output_dir` | `/home/falcon/runs` | Where `voxels.npy` / `coverage.csv` / trajectories land |
+
+### Cropped or downsampled intrinsics
+
+If your calibration image and your depth-inference image are different
+sizes, `fx`/`fy` stay the same (the lens didn't change). Only the
+principal point shifts:
+
+```
+new_cx = old_cx − pixels_removed_from_left
+new_cy = old_cy − pixels_removed_from_top
+```
+
+For rectified depth, take `fx`/`fy`/`cx`/`cy` from the projection matrix
+`P` (not `K`) before applying the crop offsets.
+
+---
+
 ## Adding the Depth Camera to the Drone SDF
 
 The sjtu_drone needs a forward-facing depth camera. The current configuration uses:
