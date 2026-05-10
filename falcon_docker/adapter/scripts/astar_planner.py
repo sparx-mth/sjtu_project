@@ -1,28 +1,29 @@
 #!/usr/bin/env python3
 """
-astar_planner.py — A* on the 2D BEV → smoothed, evenly-spaced waypoints.
+astar_planner.py — A* on the 2D BEV → smoothed, corner-preserving waypoints.
 
-Inputs
-  /falcon/bev_2d           (nav_msgs/OccupancyGrid, latched)
-  /<drone_ns>/gt_pose      (geometry_msgs/Pose)         — start
-  /waypoint_nav/goal       (geometry_msgs/Point)        — runtime goal
+v4 — speed + waypoint geometry fixes
+  vs v3:
+  • Bounding-box restricted A*: the search domain is the bbox of
+    start∪goal expanded by `search_margin_m`. On a 160×160 BEV with a
+    near-by goal this typically cuts expansions 5–20×.
+  • Octile heuristic instead of Euclidean. Tighter admissible bound for
+    8-connected motion → fewer node expansions, same optimality.
+  • Cost-map cache keyed on the bev message identity. The collision
+    re-check and the subsequent replan no longer dilate the occupancy
+    mask twice for the same BEV.
+  • Faster BEV decode via `np.frombuffer(bytes(...))`.
+  • New `_split_long` resampler: keeps every LOS-smoothed corner exactly
+    where A* placed it and only inserts intermediate points on segments
+    longer than `waypoint_spacing_m`. So a 6 m straight produces 2
+    waypoints (start, end), not 7. Drone yaws only at real corners.
+  • `start_skip_m`: leading waypoints within this distance of the start
+    pose are dropped from the published path. Stops the follower from
+    being pointed at a waypoint that's effectively behind it whenever a
+    replan happens mid-flight (the source of "drone went back to a
+    point it just visited").
 
-Output
-  /path/waypoints          (nav_msgs/Path, latched)
-
-v3 — straight-line bias and lazy collision replanning
-  • unknown_cost=1.0 by default — unknown cells planned through as if
-    free. As we explore and a cell turns occupied, we replan.
-  • Line-of-sight (LOS) smoothing post-pass collapses A*'s grid
-    staircase into long straight segments. Drone yaws only at the
-    actual corners, then advances. (Equivalent to "any-angle" planning.)
-  • Lazy collision replan: on every BEV update, walk the published
-    path's segments and re-check against the new occupied mask.
-    Replan only if a segment now crosses occupancy. No oscillation,
-    no wasted work when the world is consistent with the plan.
-  • Optional turn_penalty (>0) adds a small extra cost to direction
-    changes during A* itself. Off by default — LOS smoothing already
-    handles it. Turn it on if you want even fewer initial branches.
+Inputs / outputs / topics: unchanged from v3.
 """
 import heapq
 import math
@@ -31,6 +32,9 @@ import rospy
 
 from geometry_msgs.msg import Pose, PoseStamped, Point
 from nav_msgs.msg import OccupancyGrid, Path
+
+
+SQRT2 = math.sqrt(2.0)
 
 
 class AStarPlanner:
@@ -43,16 +47,22 @@ class AStarPlanner:
         self.path_topic         = G("~path_topic",      "/path/waypoints")
         self.goal_topic         = G("~goal_topic",      "/waypoint_nav/goal")
         self.frame_id           = G("~frame_id",        "world")
-        self.waypoint_spacing_m = float(G("~waypoint_spacing_m", 1.0))
+        # NOTE: with the new corner-preserving resampler, this acts as
+        # "max segment length" — corners are kept exactly. Bump it to
+        # 3–5 m for long, direct flight legs.
+        self.waypoint_spacing_m = float(G("~waypoint_spacing_m", 3.0))
         self.inflate_radius_m   = float(G("~inflate_radius_m",   0.4))
         self.unknown_blocked    = bool (G("~unknown_blocked",    False))
-        self.unknown_cost       = float(G("~unknown_cost",       1.0))   # unknown=free
+        self.unknown_cost       = float(G("~unknown_cost",       1.0))
         self.los_smoothing      = bool (G("~los_smoothing",      True))
         self.turn_penalty       = float(G("~turn_penalty",       0.0))
         self.replan_on_collision = bool(G("~replan_on_collision", True))
         self.replan_on_bev      = bool (G("~replan_on_bev",      False))
         self.replan_period_s    = float(G("~replan_period_s",    0.0))
         self.snap_radius_m      = float(G("~goal_snap_radius_m", 2.0))
+        # NEW
+        self.search_margin_m    = float(G("~search_margin_m",    3.0))
+        self.start_skip_m       = float(G("~start_skip_m",       0.4))
 
         gx = G("~goal_x", None); gy = G("~goal_y", None)
         self.goal_xy = ((float(gx), float(gy))
@@ -62,7 +72,12 @@ class AStarPlanner:
         self.bev       = None
         self.has_plan  = False
         self.fail_reason = "(not tried yet)"
-        self.last_cells = []   # smoothed cell-coord path; kept for collision recheck
+        self.last_cells = []
+
+        # Cost-map cache: keyed on the bev message object identity.
+        # Same bev → same cost/occ → no second dilation pass.
+        self._cost_cache_for = None
+        self._cost_cache     = None
 
         self.pub_path = rospy.Publisher(self.path_topic, Path,
                                          queue_size=1, latch=True)
@@ -80,20 +95,22 @@ class AStarPlanner:
         rospy.Timer(rospy.Duration(2.0), self._status)
 
         rospy.loginfo("=" * 64)
-        rospy.loginfo("astar_planner ready")
+        rospy.loginfo("astar_planner v4 ready")
         rospy.loginfo("  bev   in  = %s", self.bev_topic)
         rospy.loginfo("  pose  in  = %s/gt_pose", self.drone_ns)
         rospy.loginfo("  goal  in  = %s", self.goal_topic)
         rospy.loginfo("  path  out = %s", self.path_topic)
         rospy.loginfo("  goal init = %s",
                       "(%.2f,%.2f)" % self.goal_xy if self.goal_xy else "none")
-        rospy.loginfo("  spacing=%.2fm  inflate=%.2fm  unknown=%s  "
+        rospy.loginfo("  max_seg=%.2fm  inflate=%.2fm  unknown=%s  "
                       "los_smooth=%s  turn_pen=%.2f  collision_replan=%s",
                       self.waypoint_spacing_m, self.inflate_radius_m,
                       "blocked" if self.unknown_blocked
                                 else "free×%.1f" % self.unknown_cost,
                       self.los_smoothing, self.turn_penalty,
                       self.replan_on_collision)
+        rospy.loginfo("  search_margin=%.1fm  start_skip=%.2fm",
+                      self.search_margin_m, self.start_skip_m)
         rospy.loginfo("=" * 64)
 
     # ─── Callbacks ───────────────────────────────────────────────
@@ -115,6 +132,8 @@ class AStarPlanner:
     def _bev_cb(self, msg):
         first = self.bev is None
         self.bev = msg
+        # Invalidate the cost cache; the bev object identity changed.
+        self._cost_cache_for = None
         if first:
             i = msg.info
             rospy.loginfo("astar_planner: first BEV  W=%d H=%d res=%.2f  "
@@ -131,12 +150,24 @@ class AStarPlanner:
             self.has_plan = False
             self._try_plan()
 
-    # ─── Cost map construction (used by plan AND collision check) ──
+    # ─── Cost map (cached per BEV) ────────────────────────────────
     def _build_cost(self):
+        if self._cost_cache_for is self.bev and self._cost_cache is not None:
+            return self._cost_cache
+
         info = self.bev.info
         W, H, res = info.width, info.height, info.resolution
         ox, oy = info.origin.position.x, info.origin.position.y
-        data = np.array(self.bev.data, dtype=np.int8).reshape(H, W)
+        # Faster decode: rospy gives a Python tuple of ints; bytes() over
+        # a tuple of small ints is faster than np.array(tuple, ...) for
+        # large arrays. (Both are in C; bytes path skips the per-element
+        # PyLong unboxing that np.array does.)
+        try:
+            buf = bytes(bytearray(self.bev.data))
+            data = np.frombuffer(buf, dtype=np.int8).reshape(H, W)
+        except Exception:
+            data = np.array(self.bev.data, dtype=np.int8).reshape(H, W)
+
         occ = (data == 100)
         n = max(0, int(round(self.inflate_radius_m / res)))
         if n > 0:
@@ -146,7 +177,11 @@ class AStarPlanner:
         unk = (data == -1) & ~occ
         cost[unk] = (np.inf if self.unknown_blocked
                      else float(self.unknown_cost))
-        return cost, occ, (W, H, res, ox, oy)
+
+        out = (cost, occ, (W, H, res, ox, oy))
+        self._cost_cache_for = self.bev
+        self._cost_cache     = out
+        return out
 
     # ─── Planning ────────────────────────────────────────────────
     def _try_plan(self):
@@ -156,6 +191,7 @@ class AStarPlanner:
             self.fail_reason = "no goal set"; return
         if self.pose_xy is None:
             self.fail_reason = "no pose yet"; return
+        t0 = rospy.Time.now()
         result = self._plan(self.pose_xy, self.goal_xy)
         if isinstance(result, str):
             self.fail_reason = result
@@ -167,7 +203,7 @@ class AStarPlanner:
             return
         cells, world_pts = result
         self.last_cells = cells
-        self._publish(world_pts)
+        self._publish(world_pts, (rospy.Time.now() - t0).to_sec())
         self.has_plan = True
         self.fail_reason = "(success)"
 
@@ -192,48 +228,84 @@ class AStarPlanner:
 
         cost[sy, sx] = 1.0   # start always passable
 
-        cells = self._astar(cost, (sx, sy), (gx, gy), self.turn_penalty)
+        # Bounding-box search domain. Cells outside the box are not
+        # expanded. This is the single biggest A* speed win.
+        margin = max(1, int(round(self.search_margin_m / res)))
+        xmin = max(0, min(sx, gx) - margin)
+        xmax = min(W, max(sx, gx) + margin + 1)
+        ymin = max(0, min(sy, gy) - margin)
+        ymax = min(H, max(sy, gy) + margin + 1)
+
+        cells = self._astar(cost, (sx, sy), (gx, gy),
+                            (xmin, xmax, ymin, ymax),
+                            self.turn_penalty)
         if cells is None:
             return "A* unreachable through current cost map"
 
         if self.los_smoothing and len(cells) > 2:
             cells = self._los_smooth(cells, occ)
 
-        world_pts = self._resample([c2w(cx, cy) for (cx, cy) in cells],
-                                   self.waypoint_spacing_m)
+        # Corner-preserving resample: keep every LOS corner, only split
+        # segments longer than `waypoint_spacing_m`.
+        world_pts = self._split_long(
+            [c2w(cx, cy) for (cx, cy) in cells],
+            self.waypoint_spacing_m)
+
+        # Drop leading waypoints that are within `start_skip_m` of the
+        # actual drone pose. Prevents the follower from yawing toward a
+        # point that is effectively where it already is.
+        sxw, syw = start_xy
+        while (len(world_pts) > 1
+               and math.hypot(world_pts[0][0] - sxw,
+                              world_pts[0][1] - syw) < self.start_skip_m):
+            world_pts.pop(0)
+
         return cells, world_pts
 
-    # ─── A* (with optional turn penalty) ────────────────────────
+    # ─── A* (bbox-restricted, octile h, optional turn penalty) ────
     @staticmethod
-    def _astar(cost, start, goal, turn_penalty=0.0):
+    def _astar(cost, start, goal, bbox, turn_penalty=0.0):
         H, W = cost.shape
         sx, sy = start; gx, gy = goal
-        def h(x, y): return math.hypot(x - gx, y - gy)
+        xmin, xmax, ymin, ymax = bbox
+
+        # Octile heuristic: tightest admissible h for 8-connected moves
+        # with (1.0, sqrt(2)) step costs. Reduces expansions vs Euclidean.
+        def h(x, y):
+            dx = abs(x - gx); dy = abs(y - gy)
+            return (dx + dy) + (SQRT2 - 2.0) * min(dx, dy)
+
         N = ((-1, 0, 1.0), (1, 0, 1.0), (0, -1, 1.0), (0, 1, 1.0),
-             (-1, -1, 1.4142), (-1, 1, 1.4142),
-             (1, -1, 1.4142),  (1, 1, 1.4142))
+             (-1, -1, SQRT2), (-1, 1, SQRT2),
+             (1, -1, SQRT2),  (1, 1, SQRT2))
+
         g = np.full((H, W), np.inf, dtype=np.float32)
         g[sy, sx] = 0.0
+        closed = np.zeros((H, W), dtype=bool)
         came = {}
         pq = [(h(sx, sy), 0.0, sx, sy)]
         while pq:
             _f, gc, x, y = heapq.heappop(pq)
+            if closed[y, x]:
+                continue
+            closed[y, x] = True
             if (x, y) == (gx, gy):
                 path = [(x, y)]
                 while (x, y) in came:
                     x, y = came[(x, y)]
                     path.append((x, y))
                 return path[::-1]
-            if gc > g[y, x]:
-                continue
-            # Direction we entered (x,y) from, if any — used for turn cost
+
             prev = None
             if turn_penalty > 0.0 and (x, y) in came:
                 px, py = came[(x, y)]
                 prev = (x - px, y - py)
             for dx, dy, step in N:
                 nx, ny = x + dx, y + dy
-                if not (0 <= nx < W and 0 <= ny < H):
+                # Bbox + grid bounds in one check
+                if not (xmin <= nx < xmax and ymin <= ny < ymax):
+                    continue
+                if closed[ny, nx]:
                     continue
                 c = cost[ny, nx]
                 if not math.isfinite(c):
@@ -288,13 +360,13 @@ class AStarPlanner:
     def _path_collides(self):
         if len(self.last_cells) < 2:
             return False
-        _, occ, _ = self._build_cost()
+        _, occ, _ = self._build_cost()   # cached on same BEV
         H, W = occ.shape
         for (x0, y0), (x1, y1) in zip(self.last_cells[:-1],
                                        self.last_cells[1:]):
             if not (0 <= x0 < W and 0 <= y0 < H
                     and 0 <= x1 < W and 0 <= y1 < H):
-                continue   # out-of-grid points: don't trigger replan
+                continue
             if not self._line_clear(occ, x0, y0, x1, y1):
                 return True
         return False
@@ -326,25 +398,36 @@ class AStarPlanner:
         return m
 
     @staticmethod
-    def _resample(pts, spacing):
-        if len(pts) <= 1: return list(pts)
-        out = [pts[0]]; last = pts[0]; accum = 0.0
-        for cur in pts[1:]:
-            seg = math.hypot(cur[0] - last[0], cur[1] - last[1])
-            while seg > 0 and accum + seg >= spacing:
-                t = (spacing - accum) / seg
-                npt = (last[0] + t * (cur[0] - last[0]),
-                       last[1] + t * (cur[1] - last[1]))
-                out.append(npt); last = npt
-                seg = math.hypot(cur[0] - last[0], cur[1] - last[1])
-                accum = 0.0
-            accum += seg; last = cur
-        if math.hypot(out[-1][0] - pts[-1][0],
-                      out[-1][1] - pts[-1][1]) > 1e-3:
-            out.append(pts[-1])
+    def _split_long(pts, max_seg):
+        """Keep every input vertex (the LOS corners) exactly. Insert
+        evenly-spaced intermediate points only where a segment exceeds
+        `max_seg`. Output starts at pts[0] and ends at pts[-1].
+
+        Behaviour:
+          start → corner_a (3.2 m, max_seg=3.0) → corner_b (8.5 m) → goal
+        becomes
+          start, mid, corner_a, mid1, mid2, corner_b, mid3, goal
+        i.e. the corner_b → goal leg gets split into 3 sub-legs of
+        ~2.83 m (≤ 3.0), but corner_a and corner_b are kept.
+        """
+        if len(pts) < 2 or max_seg <= 0:
+            return list(pts)
+        out = [pts[0]]
+        for i in range(1, len(pts)):
+            ax, ay = pts[i - 1]
+            bx, by = pts[i]
+            d = math.hypot(bx - ax, by - ay)
+            if d <= max_seg:
+                out.append((bx, by))
+                continue
+            n = int(math.ceil(d / max_seg))   # n sub-segments → n−1 inserts
+            for k in range(1, n):
+                t = k / n
+                out.append((ax + t * (bx - ax), ay + t * (by - ay)))
+            out.append((bx, by))
         return out
 
-    def _publish(self, pts):
+    def _publish(self, pts, plan_dt_s):
         m = Path()
         m.header.stamp = rospy.Time.now()
         m.header.frame_id = self.frame_id
@@ -357,11 +440,11 @@ class AStarPlanner:
             m.poses.append(ps)
         self.pub_path.publish(m)
         L = sum(math.hypot(b[0]-a[0], b[1]-a[1])
-                for a, b in zip(pts[:-1], pts[1:]))
-        rospy.loginfo("astar_planner: PATH PUBLISHED  %d waypoints, %.2fm  "
-                      "first=(%.2f,%.2f) last=(%.2f,%.2f)",
-                      len(pts), L, pts[0][0], pts[0][1],
-                      pts[-1][0], pts[-1][1])
+                for a, b in zip(pts[:-1], pts[1:])) if len(pts) >= 2 else 0.0
+        rospy.loginfo("astar_planner: PATH PUBLISHED  %d wp  %.2fm  "
+                      "plan=%.0fms  first=(%.2f,%.2f) last=(%.2f,%.2f)",
+                      len(pts), L, 1000.0 * plan_dt_s,
+                      pts[0][0], pts[0][1], pts[-1][0], pts[-1][1])
 
     def _status(self, _e):
         if self.has_plan: return

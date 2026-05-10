@@ -46,7 +46,7 @@
   <arg name="goal_y" default="0.0" />
 
   <!-- Speeds & radii -->
-  <arg name="vel_x"                  default="0.4" />
+  <arg name="vel_x"                  default="0.3" />
   <arg name="yaw_rate"               default="0.7" />
   <arg name="pos_acquisition_radius" default="0.35" />
   <arg name="yaw_acquisition_radius" default="0.10" />
