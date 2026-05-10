@@ -2,35 +2,31 @@
 # ============================================================
 # falcon_docker/run_hospital.sh — FALCON + external Gazebo drone
 #
-# v15: adds respawn_drone.py + docker.sock mount so batch_runner.py
-#      can teleport the drone to a random valid pose before each run.
-#      Without this, a crashed run leaves the drone in a wall and the
-#      next attempt can't recover.
+# v16: adds mounts for the new waypoint-nav scripts so that
+#      `roslaunch falcon_adapter gazebo_waypoint_nav.launch ...`
+#      can find them without rebuilding the image.
+#        - sensor_gate.py
+#        - astar_planner.py
+#        - waypoint_follower.py
+#        - voxel_reset_watcher.py
+#      The launch file itself is also mounted.
 #
-# v14: adds completion_watcher.py + batch_runner.py mounts so you
-#      can run a batch of N successful experiments back-to-back:
-#
-#        ./run_hospital.sh hospital                      # interactive
-#        # then inside the container:
-#        python3 /catkin_ws/src/falcon_adapter/scripts/batch_runner.py hospital 10 300
-#
-# v13 (preserved): NVIDIA_DRIVER_CAPABILITIES=all so Gazebo/RViz get
-# real GPU OpenGL (otherwise toolkit only mounts compute libs and
-# Gazebo silently falls back to llvmpipe). --shm-size=2g for
-# Gazebo / DDS shared memory.
+#      IMPORTANT: every mounted .py file must be `chmod +x` ON THE
+#      HOST before running this. Otherwise roslaunch reports
+#      "Cannot locate node of type [foo.py]" — which is the
+#      "permission set to executable" half of the error message.
+#      One-liner from this directory:
+#          chmod +x adapter/scripts/{sensor_gate,astar_planner,
+#                  waypoint_follower,voxel_reset_watcher,
+#                  falcon_adapter,falcon_playback,cmd_to_vel,
+#                  bev_publisher,exploration_monitor,run_recorder,
+#                  completion_watcher,batch_runner,respawn_drone}.py
 # ============================================================
 
 IMAGE="falcon-ros:noetic"
 CONTAINER="falcon"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# -----------------------------
-# Environment name (defaults to hospital). Selects which <env>.yaml to mount
-# into FALCON's exploration_manager config dir.
-# Usage: ./run_hospital.sh [env_name] [extra docker CMD ...]
-#   ./run_hospital.sh                 -> mounts hospital.yaml
-#   ./run_hospital.sh playground      -> mounts playground.yaml
-# -----------------------------
 ENV_NAME="${1:-hospital}"
 if [[ $# -ge 1 ]]; then shift; fi
 
@@ -41,6 +37,10 @@ if [[ ! -f "${SCRIPT_DIR}/${ENV_NAME}.yaml" ]]; then
   exit 1
 fi
 echo "[INFO] FALCON env: ${ENV_NAME}  (config: ${SCRIPT_DIR}/${ENV_NAME}.yaml)"
+
+# Auto-chmod +x on host so we don't lose 10 min wondering why nodes
+# aren't found. Harmless if they were already executable.
+chmod +x "${SCRIPT_DIR}"/adapter/scripts/*.py 2>/dev/null || true
 
 xhost +local:docker 2>/dev/null || true
 
@@ -62,8 +62,14 @@ docker run -it --rm \
     --volume "${SCRIPT_DIR}/adapter/scripts/completion_watcher.py:/catkin_ws/src/falcon_adapter/scripts/completion_watcher.py" \
     --volume "${SCRIPT_DIR}/adapter/scripts/batch_runner.py:/catkin_ws/src/falcon_adapter/scripts/batch_runner.py" \
     --volume "${SCRIPT_DIR}/adapter/scripts/respawn_drone.py:/catkin_ws/src/falcon_adapter/scripts/respawn_drone.py" \
+    --volume "${SCRIPT_DIR}/adapter/scripts/sensor_gate.py:/catkin_ws/src/falcon_adapter/scripts/sensor_gate.py" \
+    --volume "${SCRIPT_DIR}/adapter/scripts/astar_planner.py:/catkin_ws/src/falcon_adapter/scripts/astar_planner.py" \
+    --volume "${SCRIPT_DIR}/adapter/scripts/waypoint_follower.py:/catkin_ws/src/falcon_adapter/scripts/waypoint_follower.py" \
+    --volume "${SCRIPT_DIR}/adapter/scripts/voxel_reset_watcher.py:/catkin_ws/src/falcon_adapter/scripts/voxel_reset_watcher.py" \
+    --volume "${SCRIPT_DIR}/adapter/scripts/bev_click_goal.py:/catkin_ws/src/falcon_adapter/scripts/bev_click_goal.py" \
     --volume /var/run/docker.sock:/var/run/docker.sock \
     --volume "${SCRIPT_DIR}/adapter/launch/gazebo_exploration.launch:/catkin_ws/src/falcon_adapter/launch/gazebo_exploration.launch" \
+    --volume "${SCRIPT_DIR}/adapter/launch/gazebo_waypoint_nav.launch:/catkin_ws/src/falcon_adapter/launch/gazebo_waypoint_nav.launch" \
     --volume "${SCRIPT_DIR}/${ENV_NAME}.yaml:/catkin_ws/src/FALCON/falcon_planner/exploration_manager/config/map/${ENV_NAME}.yaml" \
     --volume "${SCRIPT_DIR}/runs:/home/falcon/runs" \
     --network host \

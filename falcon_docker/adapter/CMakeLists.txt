@@ -8,6 +8,10 @@ catkin_install_python(PROGRAMS
   scripts/falcon_playback.py
   scripts/cmd_to_vel.py
   scripts/bev_publisher.py
+  scripts/sensor_gate.py
+  scripts/astar_planner.py
+  scripts/waypoint_follower.py
+  scripts/voxel_reset_watcher.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
