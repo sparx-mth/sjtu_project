@@ -1,60 +1,24 @@
-# ============================================================
-# ros_bridge_docker/bridge_real.yaml — bridge for a real drone
-# whose sensor data lives on ROS2.
-#
-# ONLY USE THIS IF your real drone publishes its data on ROS2.
-# If the real drone is on ROS1 directly (e.g. MAVROS Noetic +
-# RealSense ROS1 driver), you don't need a bridge at all — skip
-# this file and just don't run ros1_bridge for real flight.
-#
-# Loaded onto the ROS1 parameter server by entrypoint.sh via
-# `rosparam load`, then consumed by `ros2 run ros1_bridge
-# parameter_bridge`. Switch which yaml entrypoint.sh loads via
-# the BRIDGE_CONFIG env var (or rebuild the loader to read it).
-#
-# QoS rules of thumb:
-#   - Sensor data (Image, CameraInfo, PointCloud, LaserScan):
-#       reliability: best_effort, durability: volatile
-#     The Intel RealSense ROS2 driver, the Azure Kinect ROS2
-#     driver, and the ZED ROS2 driver all publish image/depth
-#     as best_effort by default — same as Gazebo. So the depth
-#     entries below are byte-identical to bridge.yaml.
-#   - Pose / Odometry:
-#       reliability: reliable, durability: volatile
-#     MAVROS for ROS2 publishes /mavros/local_position/pose as
-#     reliable+volatile — same as the Gazebo /gt_pose entry.
-# ============================================================
-
 topics:
 
-  # ── REAL-DRONE DEPTH (ROS2 → ROS1 falcon_adapter) ─────────────
-  # Defaults assume Intel RealSense D4xx with the ROS2 driver.
-  # Change the topic name for other cameras (see real_drone.launch
-  # for ZED / Azure Kinect names).
-  - topic: /camera/depth/image_rect_raw
+  - topic: /xtend/depth_m
     type: sensor_msgs/msg/Image
-    queue_size: 2
+    queue_size: 5
     qos:
       history: keep_last
-      depth: 2
-      reliability: best_effort
+      depth: 5
+      reliability: reliable
       durability: volatile
 
-  - topic: /camera/depth/camera_info
+  - topic: /xtend/camera_info
     type: sensor_msgs/msg/CameraInfo
-    queue_size: 2
+    queue_size: 5
     qos:
       history: keep_last
-      depth: 2
-      reliability: best_effort
+      depth: 5
+      reliability: reliable
       durability: volatile
 
-  # ── REAL-DRONE POSE (ROS2 → ROS1 pose_adapter) ────────────────
-  # MAVROS for ROS2: reliable + volatile.
-  # If your VIO / SLAM / mocap publishes Odometry instead, change
-  # the type to nav_msgs/msg/Odometry and update real_pose_type
-  # in real_drone.launch to "odometry".
-  - topic: /mavros/local_position/pose
+  - topic: /flow_depth/pose_est
     type: geometry_msgs/msg/PoseStamped
     queue_size: 10
     qos:
@@ -62,34 +26,3 @@ topics:
       depth: 10
       reliability: reliable
       durability: volatile
-
-  # ── COMMANDS (ROS1 waypoint_follower → ROS2 autopilot) ────────
-  # Only include the topics your autopilot actually consumes.
-  # MAVROS-ROS2 expects setpoint_velocity on a different topic
-  # than sjtu_drone, so this section is intentionally minimal —
-  # add the right entries for your stack.
-  - topic: /simple_drone/cmd_vel
-    type: geometry_msgs/msg/Twist
-    queue_size: 10
-    qos:
-      history: keep_last
-      depth: 10
-      reliability: reliable
-      durability: volatile
-
-# ─────────────────────────────────────────────────────────────
-# NOTES ON WHAT'S *NOT* HERE AND WHY
-#
-# /tf, /tf_static  — intentionally omitted, same reasoning as
-#   bridge.yaml (falcon_adapter publishes its own frames).
-#
-# /clock           — intentionally omitted (FALCON runs on wall
-#   clock).
-#
-# /takeoff, /land, /posctrl, /state — sjtu_drone-only topics
-#   that don't exist on a real drone with MAVROS. Don't bridge
-#   them. waypoint_follower's /takeoff path will publish into
-#   the void on real hardware, which is harmless — the drone
-#   takes off via the autopilot's own arming/takeoff sequence,
-#   not via an Empty msg.
-# ─────────────────────────────────────────────────────────────
