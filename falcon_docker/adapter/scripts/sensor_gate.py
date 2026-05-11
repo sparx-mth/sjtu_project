@@ -2,11 +2,28 @@
 """
 sensor_gate.py — Pose+depth pass-through that can be FROZEN.
 
-Sits between Gazebo (or the ros1_bridge) and falcon_adapter.
+Sits between Gazebo (or the ros1_bridge, or a real drone) and
+falcon_adapter.
 
-   /<in_ns>/gt_pose                       ──┐
-   /<in_ns>/front_depth/depth/image_raw   ──┤   →  /<out_ns>/...
-   /<in_ns>/front_depth/depth/camera_info ──┘
+   <pose topic>         ──┐
+   <depth topic>        ──┤   →  /<out_ns>/gt_pose
+   <camera_info topic>  ──┘                    /<out_ns>/front_depth/depth/image_raw
+                                               /<out_ns>/front_depth/depth/camera_info
+
+By default the input topics are derived from `~in_ns` using the
+sjtu_drone-style suffixes (/gt_pose, /front_depth/depth/image_raw,
+/front_depth/depth/camera_info).
+
+For a real drone whose topic names don't match that convention,
+override them explicitly with these private params (NEW):
+  ~pose_topic         (str)   default <in_ns>/gt_pose
+  ~depth_topic        (str)   default <in_ns>/front_depth/depth/image_raw
+  ~camera_info_topic  (str)   default <in_ns>/front_depth/depth/camera_info
+
+The pose input MUST be geometry_msgs/Pose. If your real drone
+publishes PoseStamped or Odometry, run pose_adapter.py upstream
+of this node — that keeps every other consumer in the stack
+unchanged.
 
 Default mode: pass-through (each callback republishes immediately).
 
@@ -40,12 +57,22 @@ class SensorGate:
         self.out_ns    = G("~out_ns",  "/gated_drone")
         self.replay_hz = float(G("~replay_hz", 30.0))
 
+        # Topic resolution: explicit private param wins, otherwise
+        # fall back to the sjtu_drone-style ns/suffix default.
+        self.in_pose_t    = G("~pose_topic",
+                              self.in_ns + "/gt_pose")
+        self.in_depth_t   = G("~depth_topic",
+                              self.in_ns + "/front_depth/depth/image_raw")
+        self.in_caminfo_t = G("~camera_info_topic",
+                              self.in_ns + "/front_depth/depth/camera_info")
+
         self.frozen        = False
         self.last_pose     = None
         self.last_depth    = None
         self.last_caminfo  = None
 
-        # Publishers — gated namespace
+        # Publishers — gated namespace (suffixes stay constant so
+        # falcon_adapter sees the same paths as before)
         self.pub_pose    = rospy.Publisher(
             self.out_ns + "/gt_pose", Pose, queue_size=1)
         self.pub_depth   = rospy.Publisher(
@@ -55,20 +82,25 @@ class SensorGate:
             self.out_ns + "/front_depth/depth/camera_info",
             CameraInfo, queue_size=2)
 
-        # Subscribers — live drone namespace
-        rospy.Subscriber(self.in_ns + "/gt_pose", Pose,
+        # Subscribers — live drone topics (resolved above)
+        rospy.Subscriber(self.in_pose_t,    Pose,
                          self._pose_cb,    queue_size=10)
-        rospy.Subscriber(self.in_ns + "/front_depth/depth/image_raw",
-                         Image, self._depth_cb,   queue_size=2)
-        rospy.Subscriber(self.in_ns + "/front_depth/depth/camera_info",
-                         CameraInfo, self._caminfo_cb, queue_size=2)
+        rospy.Subscriber(self.in_depth_t,   Image,
+                         self._depth_cb,   queue_size=2)
+        rospy.Subscriber(self.in_caminfo_t, CameraInfo,
+                         self._caminfo_cb, queue_size=2)
         rospy.Subscriber("/sensor_gate/freeze", Bool,
                          self._freeze_cb, queue_size=1)
 
         rospy.Timer(rospy.Duration(1.0 / self.replay_hz), self._replay)
 
-        rospy.loginfo("sensor_gate ready  in=%s  out=%s  replay=%.0fHz",
+        rospy.loginfo("=" * 64)
+        rospy.loginfo("sensor_gate ready  in_ns=%s  out_ns=%s  replay=%.0fHz",
                       self.in_ns, self.out_ns, self.replay_hz)
+        rospy.loginfo("  in pose        = %s", self.in_pose_t)
+        rospy.loginfo("  in depth       = %s", self.in_depth_t)
+        rospy.loginfo("  in camera_info = %s", self.in_caminfo_t)
+        rospy.loginfo("=" * 64)
 
     # ── Subscribers ──────────────────────────────────────────────
     def _freeze_cb(self, msg):

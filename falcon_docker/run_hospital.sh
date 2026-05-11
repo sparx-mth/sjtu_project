@@ -2,25 +2,12 @@
 # ============================================================
 # falcon_docker/run_hospital.sh — FALCON + external Gazebo drone
 #
-# v16: adds mounts for the new waypoint-nav scripts so that
-#      `roslaunch falcon_adapter gazebo_waypoint_nav.launch ...`
-#      can find them without rebuilding the image.
-#        - sensor_gate.py
-#        - astar_planner.py
-#        - waypoint_follower.py
-#        - voxel_reset_watcher.py
-#      The launch file itself is also mounted.
-#
-#      IMPORTANT: every mounted .py file must be `chmod +x` ON THE
-#      HOST before running this. Otherwise roslaunch reports
-#      "Cannot locate node of type [foo.py]" — which is the
-#      "permission set to executable" half of the error message.
-#      One-liner from this directory:
-#          chmod +x adapter/scripts/{sensor_gate,astar_planner,
-#                  waypoint_follower,voxel_reset_watcher,
-#                  falcon_adapter,falcon_playback,cmd_to_vel,
-#                  bev_publisher,exploration_monitor,run_recorder,
-#                  completion_watcher,batch_runner,respawn_drone}.py
+# v17: adds mounts for the real-drone path:
+#        - pose_adapter.py
+#        - real_drone.launch
+#      so `roslaunch falcon_adapter real_drone.launch ...` works
+#      from inside the container without rebuilding the image.
+#      All v16 mounts retained.
 # ============================================================
 
 IMAGE="falcon-ros:noetic"
@@ -67,9 +54,11 @@ docker run -it --rm \
     --volume "${SCRIPT_DIR}/adapter/scripts/waypoint_follower.py:/catkin_ws/src/falcon_adapter/scripts/waypoint_follower.py" \
     --volume "${SCRIPT_DIR}/adapter/scripts/voxel_reset_watcher.py:/catkin_ws/src/falcon_adapter/scripts/voxel_reset_watcher.py" \
     --volume "${SCRIPT_DIR}/adapter/scripts/bev_click_goal.py:/catkin_ws/src/falcon_adapter/scripts/bev_click_goal.py" \
+    --volume "${SCRIPT_DIR}/adapter/scripts/pose_adapter.py:/catkin_ws/src/falcon_adapter/scripts/pose_adapter.py" \
     --volume /var/run/docker.sock:/var/run/docker.sock \
     --volume "${SCRIPT_DIR}/adapter/launch/gazebo_exploration.launch:/catkin_ws/src/falcon_adapter/launch/gazebo_exploration.launch" \
     --volume "${SCRIPT_DIR}/adapter/launch/gazebo_waypoint_nav.launch:/catkin_ws/src/falcon_adapter/launch/gazebo_waypoint_nav.launch" \
+    --volume "${SCRIPT_DIR}/adapter/launch/real_drone.launch:/catkin_ws/src/falcon_adapter/launch/real_drone.launch" \
     --volume "${SCRIPT_DIR}/${ENV_NAME}.yaml:/catkin_ws/src/FALCON/falcon_planner/exploration_manager/config/map/${ENV_NAME}.yaml" \
     --volume "${SCRIPT_DIR}/runs:/home/falcon/runs" \
     --network host \

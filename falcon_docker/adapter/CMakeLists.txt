@@ -12,6 +12,7 @@ catkin_install_python(PROGRAMS
   scripts/astar_planner.py
   scripts/waypoint_follower.py
   scripts/voxel_reset_watcher.py
+  scripts/pose_adapter.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

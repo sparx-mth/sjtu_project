@@ -1,0 +1,119 @@
+<launch>
+  <!--
+    real_drone.launch — wrapper that points the same nav stack at a
+    real drone instead of Gazebo.
+
+    Architecture (only one new node vs. the Gazebo path):
+
+       <real pose topic, e.g. PoseStamped>
+                  │
+                  ▼
+            pose_adapter   (this launch)
+                  │   bare Pose
+                  ▼
+           /<drone_ns>/gt_pose
+                  │
+                  └──► everything downstream is identical to
+                        the Gazebo run — sensor_gate / falcon_adapter /
+                        astar_planner / waypoint_follower / bev_click_goal
+                        all see the same topic name and message type
+                        they always saw.
+
+    Defaults assume:
+      * MAVROS for localization (PoseStamped on /mavros/local_position/pose)
+      * Intel RealSense D435/D455 for depth
+    Override the args below if your hardware differs.
+
+    Run example:
+      roslaunch falcon_adapter real_drone.launch \
+          map_name:=real_drone \
+          real_pose_topic:=/mavros/local_position/pose \
+          real_pose_type:=pose_stamped \
+          real_depth_topic:=/camera/depth/image_rect_raw \
+          real_camera_info_topic:=/camera/depth/camera_info
+  -->
+
+  <!-- ── Forwarded to the included nav launch ─────────────────── -->
+  <arg name="map_name" default="office" />
+  <arg name="drone_ns" default="" />
+  <arg name="gated_ns" default="/gated_drone" />
+
+  <!-- ── Real-drone localization ──────────────────────────────────
+       Common defaults per source (uncomment the one that matches):
+
+         MAVROS PoseStamped (PX4/ArduPilot, default here):
+           real_pose_topic:=/mavros/local_position/pose   real_pose_type:=pose_stamped
+
+         MAVROS Odometry:
+           real_pose_topic:=/mavros/local_position/odom   real_pose_type:=odometry
+
+         VINS-Fusion / general VIO:
+           real_pose_topic:=/vins_estimator/odometry      real_pose_type:=odometry
+
+         ORB-SLAM3:
+           real_pose_topic:=/orb_slam3/camera_pose        real_pose_type:=pose_stamped
+
+         Vicon / OptiTrack via VRPN (replace <obj> with object name):
+           real_pose_topic:=/vrpn_client_node/<obj>/pose  real_pose_type:=pose_stamped
+       ─────────────────────────────────────────────────────────── -->
+  <arg name="real_pose_topic" default="/flow_depth/pose_est" />
+  <arg name="real_pose_type"  default="pose_stamped" />
+
+  <!-- ── Real-drone depth ────────────────────────────────────────
+         Intel RealSense D4xx (default):
+           /camera/depth/image_rect_raw
+           /camera/depth/camera_info
+
+         Azure Kinect:
+           /depth/image_raw
+           /depth/camera_info
+
+         ZED 2:
+           /zed2/zed_node/depth/depth_registered
+           /zed2/zed_node/depth/camera_info
+       ─────────────────────────────────────────────────────────── -->
+  <arg name="real_depth_topic"
+       default="/xtend/depth_m" />
+  <arg name="real_camera_info_topic"
+       default="/xtend/camera_info" />
+
+  <!-- ── Optional flight-tuning overrides (omit to use Gazebo defaults) -->
+  <arg name="vel_x"     default="0.3" />
+  <arg name="cruise_z"  default="1.0" />
+  <arg name="goal_x"    default="4.0" />
+  <arg name="goal_y"    default="0.0" />
+
+  <!-- ══════════════════════════════════════════════════════════════
+       Pose adapter — converts the real-drone localization message
+       into the bare geometry_msgs/Pose every consumer expects on
+       /<drone_ns>/gt_pose.
+       ══════════════════════════════════════════════════════════════ -->
+  <node pkg="falcon_adapter" type="pose_adapter.py"
+        name="pose_adapter" output="screen">
+    <param name="in_topic"  value="$(arg real_pose_topic)" />
+    <param name="in_type"   value="$(arg real_pose_type)" />
+    <param name="out_topic" value="$(arg drone_ns)/gt_pose" />
+  </node>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       The actual nav stack — same launch as Gazebo, just with the
+       real-drone depth topic names passed in. Pose stays at
+       /<drone_ns>/gt_pose because pose_adapter republishes there.
+       ══════════════════════════════════════════════════════════════ -->
+  <include file="$(find falcon_adapter)/launch/gazebo_waypoint_nav.launch">
+    <arg name="map_name"           value="$(arg map_name)" />
+    <arg name="drone_ns"           value="$(arg drone_ns)" />
+    <arg name="gated_ns"           value="$(arg gated_ns)" />
+
+    <!-- pose_topic stays the default ($(arg drone_ns)/gt_pose) so
+         sensor_gate picks up what pose_adapter publishes. -->
+    <arg name="depth_topic"        value="$(arg real_depth_topic)" />
+    <arg name="camera_info_topic"  value="$(arg real_camera_info_topic)" />
+
+    <arg name="vel_x"              value="$(arg vel_x)" />
+    <arg name="cruise_z"           value="$(arg cruise_z)" />
+    <arg name="goal_x"             value="$(arg goal_x)" />
+    <arg name="goal_y"             value="$(arg goal_y)" />
+  </include>
+
+</launch>

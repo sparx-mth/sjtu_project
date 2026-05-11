@@ -1,32 +1,33 @@
 <launch>
   <!--
-    gazebo_waypoint_nav.launch  (v3 — full FALCON init)
+    gazebo_waypoint_nav.launch  (v4 — topic-overridable for real drone)
     ════════════════════════════════════════════════════════════════════
-    Same purpose as v2 (run FALCON's voxel mapping + BEV, but bypass its
-    planner with our own A* + YAW/X waypoint follower), now with the
-    *complete* FALCON parameter setup that exploration_node requires.
+    v4 vs v3:
+      - Added `pose_topic`, `depth_topic`, `camera_info_topic` args.
+        Defaults preserve the v3 Gazebo behavior exactly (suffixes
+        derived from drone_ns), so existing `roslaunch ... map_name:=X`
+        invocations still work unchanged.
+      - sensor_gate now receives those topic names via private params.
+        For real-drone use, override these from a wrapper launch
+        (see real_drone.launch).
 
-    v3 fixes the v2 abort:
-        Check failed: pp_.max_vel_ > 0 && pp_.max_acc_ > 0 ...
-    by loading the same FALCON YAML configs and /uav_model/* params
-    that the original gazebo_exploration.launch loaded.
-
-    Wiring (unchanged from v2):
-        Gazebo /<drone_ns>/* → sensor_gate → /<gated_ns>/* → falcon_adapter
-                                              │                      │
-                                  (frozen during YAW)                 ▼
-                                                            exploration_node
-                                                            ─→ /voxel_mapping/...
-                                                            ─→ bev_publisher
-                                                            ─→ /falcon/bev_2d
-                                                                     │
-                       /<drone_ns>/gt_pose, goal ─→ astar_planner
-                                                  ─→ /path/waypoints
-                                                          │
-                                                          ▼
-                                                  waypoint_follower
-                                                  ─→ /<drone_ns>/cmd_vel
-                                                  ─→ /sensor_gate/freeze
+    Wiring (unchanged from v3):
+        <pose>     ─┐
+        <depth>    ─┼─→ sensor_gate ─→ /<gated_ns>/* ─→ falcon_adapter
+        <cam_info> ─┘                                          │
+                          (frozen during YAW)                  ▼
+                                                       exploration_node
+                                                       ─→ /voxel_mapping/...
+                                                       ─→ bev_publisher
+                                                       ─→ /falcon/bev_2d
+                                                                │
+                  /<drone_ns>/gt_pose, goal ─→ astar_planner
+                                             ─→ /path/waypoints
+                                                     │
+                                                     ▼
+                                             waypoint_follower
+                                             ─→ /<drone_ns>/cmd_vel
+                                             ─→ /sensor_gate/freeze
 
     NOT started here: cmd_to_vel (waypoint_follower owns cmd_vel).
     NOT started here: traj_server (we don't track FALCON's spline).
@@ -41,6 +42,17 @@
   <arg name="drone_ns" default="/simple_drone" />
   <arg name="gated_ns" default="/gated_drone" />
 
+  <!-- NEW v4: input topic overrides.
+       Defaults reproduce the v3 sjtu_drone topic layout, so leaving
+       these unset gives identical Gazebo behaviour. Override them
+       from a real-drone wrapper launch (see real_drone.launch). -->
+  <arg name="pose_topic"
+       default="$(arg drone_ns)/gt_pose" />
+  <arg name="depth_topic"
+       default="$(arg drone_ns)/front_depth/depth/image_raw" />
+  <arg name="camera_info_topic"
+       default="$(arg drone_ns)/front_depth/depth/camera_info" />
+
   <!-- Goal -->
   <arg name="goal_x" default="4.0" />
   <arg name="goal_y" default="0.0" />
@@ -50,6 +62,7 @@
   <arg name="yaw_rate"               default="0.7" />
   <arg name="pos_acquisition_radius" default="0.35" />
   <arg name="yaw_acquisition_radius" default="0.10" />
+  <arg name="yaw_lead_pct"           default="10.0" />
 
   <!-- A* / path -->
   <arg name="waypoint_spacing_m"    default="1.0" />
@@ -109,8 +122,6 @@
 
   <!-- ══════════════════════════════════════════════════════════════
        LOAD FALCON CONFIG (same set the original launch loads).
-       This is what was missing in v2 — without these, FastPlannerManager
-       has max_vel=-1 and aborts.
        ══════════════════════════════════════════════════════════════ -->
   <rosparam command="load" file="$(find exploration_manager)/config/robot/uav_model_simulator.yaml"/>
   <rosparam command="load" file="$(find exploration_manager)/config/map/$(arg map_name).yaml"/>
@@ -122,7 +133,7 @@
   <rosparam command="load" file="$(find exploration_utils)/config/perception_utils.yaml"/>
   <rosparam command="load" file="$(find exploration_manager)/config/exploration_manager.yaml"/>
 
-  <!-- Camera intrinsics (must match the depth camera used by Gazebo) -->
+  <!-- Camera intrinsics (must match the depth camera being used) -->
   <param name="/uav_model/sensing_parameters/camera_intrinsics/fx" value="320.0" />
   <param name="/uav_model/sensing_parameters/camera_intrinsics/fy" value="320.0" />
   <param name="/uav_model/sensing_parameters/camera_intrinsics/cx" value="320.0" />
@@ -170,11 +181,16 @@
        NODES
        ══════════════════════════════════════════════════════════════ -->
 
+  <!-- NEW v4: pose, depth, camera_info pulled from explicit args.
+       Default values reproduce v3 Gazebo behaviour. -->
   <node pkg="falcon_adapter" type="sensor_gate.py"
         name="sensor_gate" output="screen">
-    <param name="in_ns"     value="$(arg drone_ns)" />
-    <param name="out_ns"    value="$(arg gated_ns)" />
-    <param name="replay_hz" value="30.0" />
+    <param name="in_ns"             value="$(arg drone_ns)" />
+    <param name="out_ns"            value="$(arg gated_ns)" />
+    <param name="pose_topic"        value="$(arg pose_topic)" />
+    <param name="depth_topic"       value="$(arg depth_topic)" />
+    <param name="camera_info_topic" value="$(arg camera_info_topic)" />
+    <param name="replay_hz"         value="30.0" />
   </node>
 
   <node pkg="falcon_adapter" type="falcon_adapter.py"
@@ -240,6 +256,7 @@
     <param name="yaw_rate"               value="$(arg yaw_rate)" />
     <param name="pos_acquisition_radius" value="$(arg pos_acquisition_radius)" />
     <param name="yaw_acquisition_radius" value="$(arg yaw_acquisition_radius)" />
+    <param name="yaw_lead_pct"           value="$(arg yaw_lead_pct)" />
     <param name="auto_takeoff"           value="$(arg auto_takeoff)" />
     <param name="cruise_z"               value="$(arg cruise_z)" />
     <param name="use_posctrl"            value="$(arg use_posctrl)" />

@@ -92,7 +92,7 @@ class WaypointFollower:
         # Read live every YAW_ALIGN entry from /waypoint_follower/yaw_lead_pct
         # so you can `rosparam set /waypoint_follower/yaw_lead_pct 12`
         # mid-flight without restarting the node.
-        self.yaw_lead_pct = float(G("~yaw_lead_pct", 8.0))
+        self.yaw_lead_pct = float(G("~yaw_lead_pct", 10.0))
         # Per-yaw-alignment snapshot. Captured on entry to YAW_ALIGN
         # so the lead-offset is fixed at "X% of the *initial* sweep,"
         # not "X% of whatever's left this tick." Without the snapshot,
