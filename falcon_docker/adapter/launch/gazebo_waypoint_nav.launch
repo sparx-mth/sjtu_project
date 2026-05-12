@@ -66,7 +66,7 @@
 
   <!-- A* / path -->
   <arg name="waypoint_spacing_m"    default="1.0" />
-  <arg name="inflate_radius_m"      default="0.4" />
+  <arg name="inflate_radius_m"      default="0.01" />
   <arg name="unknown_blocked"       default="false" />
   <arg name="unknown_cost"          default="1.0" />     <!-- unknown=free -->
   <arg name="los_smoothing"         default="true" />    <!-- collapse staircase -->
@@ -92,7 +92,7 @@
   <arg name="bev_z_min"       default="0.30" />
   <arg name="bev_z_max"       default="1.80" />
   <arg name="bev_publish_hz"  default="2.0" />
-  <arg name="bev_occ_dilate"  default="1" />
+  <arg name="bev_occ_dilate"  default="0" />
 
   <!-- ══════════════════════════════════════════════════════════════
        FALCON SPEED / SAFETY / FRONTIER ARGS

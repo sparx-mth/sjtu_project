@@ -13,6 +13,11 @@ Runs the FALCON exploration stack on a real drone. Pose + depth in → velocity 
 │   ├── run_bridge.sh         ← starts the bridge
 │   └── entrypoint.sh
 │
+├── data_publisher_docker/    ← ROS2 publisher (recording only)
+│   ├── Dockerfile
+│   ├── data_publisher.py
+│   └── run_publisher.sh      ← replays recorded pose + depth on ROS2
+│
 └── falcon_docker/            ← FALCON ROS1 stack container
     ├── run_hospital.sh       ← starts the falcon container (any map)
     ├── office.yaml           ← map config for your environment
@@ -20,7 +25,9 @@ Runs the FALCON exploration stack on a real drone. Pose + depth in → velocity 
     └── adapter/              ← scripts + launch files mounted into the container
 ```
 
-Two directories, two responsibilities. The bridge container hosts `roscore` and tunnels ROS2 → ROS1. The falcon container runs the actual stack.
+Three directories, three responsibilities. The bridge container hosts `roscore` and tunnels ROS2 → ROS1. The data publisher container is a stand-in for a real drone (skip it in production). The falcon container runs the actual stack.
+
+**Everything on `ROS_DOMAIN_ID=5` with `RMW_IMPLEMENTATION=rmw_fastrtps_cpp`** — both already baked into `run_bridge.sh` and `run_publisher.sh`.
 
 ---
 
@@ -59,31 +66,88 @@ Verify it's up — these should appear in `rostopic list`:
 /xtend/depth_m
 ```
 
+> Topics only appear on the ROS1 side once a ROS1 subscriber asks for them (`dynamic_bridge` is lazy). If `rostopic list` looks empty before FALCON is up, that's normal — start FALCON and they'll show up.
+
 ---
 
-## 2. Launch FALCON
+## 2. Data Publisher — **RECORDED DATA ONLY**
 
-From `falcon_docker/`:
+> **⚠️ Run this only when replaying a recording. Skip entirely with a real drone — the real drone publishes the same topics natively.**
+
+For development/testing, `run_publisher.sh` replays a recorded run on the same ROS2 topics the real drone would use, so the rest of the stack can't tell the difference.
+
+```bash
+cd data_publisher_docker
+DATA_DIR=~/Desktop ./run_publisher.sh
+```
+
+`DATA_DIR` should point to the folder containing the `xtend_rectified_depth_take_*/` directory and the matching `estimated_trajectory_*.json`. Defaults to `~/Desktop` if unset. Edit the paths in `data_publisher.py` if your filenames differ.
+
+**Verify** from inside the bridge container that the topics are discoverable:
+
+```bash
+docker exec -it ros1_bridge bash -c \
+  "source /opt/ros/foxy/setup.bash && ros2 topic list"
+```
+
+Should now show `/flow_depth/pose_est` and `/xtend/depth_m`.
+
+---
+
+## 3. Open RViz
+
+First, start the FALCON container — it stays alive in the background and provides the workspace for RViz, the 2D map, and the FALCON launch below:
 
 ```bash
 cd falcon_docker
 ./run_hospital.sh office
 ```
 
-The first arg is the map name; the script loads `<name>.yaml` from the same directory. It drops you into a bash shell inside the `falcon` container. Then:
+The first arg is the map name; the script loads `<name>.yaml` from the same directory. It drops you into a bash shell inside the `falcon` container — **leave this terminal open**. We'll come back to it in step 5.
+
+Now in a **new** host terminal:
 
 ```bash
+docker exec -it falcon bash
+source /catkin_ws/devel/setup.bash
+roslaunch exploration_manager rviz.launch
+```
+
+This loads a pre-configured RViz with the BEV map, planned path, and odometry already wired up.
+
+---
+
+## 4. Open the 2D Map (BEV click-to-goal)
+
+In another **new** host terminal:
+
+```bash
+docker exec -it falcon bash
+source /catkin_ws/devel/setup.bash
+rosrun falcon_adapter bev_click_goal.py
+```
+
+A 2D map window opens. **Left-click** anywhere to publish a goal — A* replans and the drone flies the new path. The red arrow marks the drone's live pose.
+
+---
+
+## 5. Launch FALCON
+
+Go back to the terminal from step 3 (the one running `./run_hospital.sh`):
+
+```bash
+docker exec -it falcon bash
 source /catkin_ws/devel/setup.bash
 roslaunch falcon_adapter real_drone.launch map_name:=office
 ```
 
-> The script is named `run_hospital.sh` for historical reasons but accepts any env. As long as `office.yaml` sits next to it, `./run_hospital.sh office` will work.
+The state machine progresses `WAIT_POSE → TAKING_OFF → HOVER_SETTLE → WAIT_PATH`. RViz now shows the drone, the 2D map fills in, and a click in the BEV window sets a goal.
 
 ---
 
-## 3. Topics
+## 6. Topics
 
-**Inputs (provided by your drone, bridged from ROS2 if needed):**
+**Inputs (provided by your drone OR `run_publisher.sh`, bridged from ROS2):**
 
 | Topic | Type | Purpose |
 |---|---|---|
@@ -99,66 +163,33 @@ roslaunch falcon_adapter real_drone.launch map_name:=office
 
 ---
 
-## 4. Open RViz
-
-Open a new host terminal and shell into the falcon container:
-
-```bash
-docker exec -it falcon bash
-```
-
-Inside the container:
-
-```bash
-source /catkin_ws/devel/setup.bash
-roslaunch exploration_manager rviz.launch
-```
-
-This loads a pre-configured RViz with the BEV map, planned path, and odometry already wired up — no manual display setup needed.
-
----
-
-## 5. BEV click-to-goal
-
-Same pattern — open another host terminal:
-
-```bash
-docker exec -it falcon bash
-```
-
-Inside:
-
-```bash
-source /catkin_ws/devel/setup.bash
-rosrun falcon_adapter bev_click_goal.py
-```
-
-A 2D map window opens. **Left-click** anywhere to publish a goal — A* replans and the drone flies the new path.
-
----
-
 ## Cheat sheet
 
 ```bash
-# Terminal 1 — roscore + bridge (ROS2 drones only)
+# Terminal 1 — roscore + bridge (skip if drone publishes on ROS1)
 cd ros_bridge_docker/
 docker run -d --rm --net=host --name=roscore \
   --entrypoint bash ros1_bridge:noetic-foxy -c \
   "source /opt/ros/noetic/setup.bash && roscore"
 ./run_bridge.sh
 
-# Terminal 2 — FALCON
+# Terminal 2 — RECORDED DATA ONLY (skip if using a real drone)
+cd data_publisher_docker/
+DATA_DIR=~/Desktop ./run_publisher.sh
+
+# Terminal 3 — start the falcon container (leave open, used again at the end)
 cd falcon_docker/
 ./run_hospital.sh office
-# (inside container)
-source /catkin_ws/devel/setup.bash
-roslaunch falcon_adapter real_drone.launch map_name:=office
 
-# Terminal 3 — RViz
+# Terminal 4 — RViz
 docker exec -it falcon bash -c \
   "source /catkin_ws/devel/setup.bash && roslaunch exploration_manager rviz.launch"
 
-# Terminal 4 — BEV click-to-goal
+# Terminal 5 — 2D map (BEV click-to-goal)
 docker exec -it falcon bash -c \
-  "source /catkin_ws/devel/setup.bash && rosrun falcon_adapter bev_click_goal.py"
+  "source /catkin_ws/devel/setup.bash && rosrun falcon_adapter bev_click_goal.py _drone_ns:=''"
+
+# Terminal 3 (again) — launch FALCON
+source /catkin_ws/devel/setup.bash
+roslaunch falcon_adapter real_drone.launch map_name:=office
 ```

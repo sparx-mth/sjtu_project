@@ -79,6 +79,30 @@ class BevPublisher:
                            self.xmin, self.xmax, self.ymin, self.ymax)
             raise RuntimeError("bad BEV bbox")
 
+        # Optional virtual back-wall. Cells with world x < behind_wall_x are
+        # forced to OCC each publish, overriding anything FALCON saw there.
+        # Set per-map in the yaml as `map_config.behind_wall_x`. None = disabled.
+        bw = rospy.get_param("/map_config/behind_wall_x", None)
+        self.behind_wall_x = None if bw is None else float(bw)
+
+        # Optional manual walls. Each entry is an axis-aligned horizontal wall:
+        #   { y: <center_y>, x_min: <a>, x_max: <b>, thickness: <t> }
+        # Cells inside the rectangle [x_min..x_max] × [y-t/2 .. y+t/2] are
+        # forced to OCC. Set per-map in the yaml as `map_config.walls`.
+        self.walls = []
+        for w in (rospy.get_param("/map_config/walls", []) or []):
+            try:
+                y_c = float(w['y'])
+                t   = float(w.get('thickness', 0.10))
+                self.walls.append({
+                    'x_min': float(w['x_min']),
+                    'x_max': float(w['x_max']),
+                    'y_min': y_c - 0.5 * t,
+                    'y_max': y_c + 0.5 * t,
+                })
+            except (KeyError, TypeError, ValueError) as e:
+                rospy.logwarn("bev_publisher: ignoring malformed wall %r: %s", w, e)
+
         self.W = int(round((self.xmax - self.xmin) / self.res))
         self.H = int(round((self.ymax - self.ymin) / self.res))
         self.grid = np.full((self.H, self.W), UNK, dtype=np.int8)
@@ -107,6 +131,16 @@ class BevPublisher:
                       self.ymin, self.ymax, src_ymin, src_ymax)
         rospy.loginfo("  z-slab=[%.2f, %.2f]m   occ_dilate=%d   pub@%.1fHz (latched)",
                       self.z_min, self.z_max, self.occ_dilate, self.publish_hz)
+        if self.behind_wall_x is not None:
+            rospy.loginfo("  behind_wall_x=%.2f m  (cells with world x < this are forced OCC)",
+                          self.behind_wall_x)
+        else:
+            rospy.loginfo("  behind_wall_x: disabled")
+        if self.walls:
+            rospy.loginfo("  manual walls: %d", len(self.walls))
+            for i, w in enumerate(self.walls):
+                rospy.loginfo("    [%d] x=[%.2f, %.2f]  y=[%.2f, %.2f]",
+                              i, w['x_min'], w['x_max'], w['y_min'], w['y_max'])
         rospy.loginfo("  out=%s",  self.out_topic)
         rospy.loginfo("  in occ =%s",  self.occ_topic)
         rospy.loginfo("  in free=%s",  self.free_topic)
@@ -161,6 +195,25 @@ class BevPublisher:
         self.grid.fill(UNK)
         self._write(self._free_xy, FREE)
         self._write(self._occ_xy,  OCC)
+
+        # Virtual back-wall: force cells with world x < behind_wall_x to OCC.
+        # Overrides anything FALCON saw in that region, so the planner treats
+        # it as a hard wall regardless of voxel-map state.
+        if self.behind_wall_x is not None:
+            cx_max = int((self.behind_wall_x - self.xmin) / self.res)
+            if cx_max > 0:
+                cx_max = min(cx_max, self.W)
+                self.grid[:, :cx_max] = OCC
+
+        # Manual axis-aligned walls (per-map). Same rationale as above.
+        for w in self.walls:
+            cx0 = max(0,      int(np.floor((w['x_min'] - self.xmin) / self.res)))
+            cx1 = min(self.W, int(np.ceil ((w['x_max'] - self.xmin) / self.res)))
+            cy0 = max(0,      int(np.floor((w['y_min'] - self.ymin) / self.res)))
+            cy1 = min(self.H, int(np.ceil ((w['y_max'] - self.ymin) / self.res)))
+            if cx1 > cx0 and cy1 > cy0:
+                self.grid[cy0:cy1, cx0:cx1] = OCC
+
         if self.occ_dilate > 0:
             occ_mask = (self.grid == OCC)
             dilated  = _dilate4(occ_mask, self.occ_dilate)
