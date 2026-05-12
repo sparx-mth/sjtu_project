@@ -102,6 +102,7 @@ RUN /bin/bash -c "\
     catkin_make \
         -DCMAKE_BUILD_TYPE=Release \
         -DOpen3D_DIR=${OPEN3D_INSTALL_PREFIX}/lib/cmake/Open3D \
+        -j4 \
     "
 
 # ── 8b. Patch FALCON SOP timeout (1s → 10s) and rebuild ──────

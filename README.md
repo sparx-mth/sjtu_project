@@ -216,7 +216,7 @@ docker build -t ros1_bridge:noetic-foxy .
 
 # 2. FALCON image (~30-60 min, Open3D compiles from source)
 cd ../falcon_docker
-docker build --build-arg CUDA_ARCH=120 -t falcon-ros:noetic .
+docker build -t falcon-ros:noetic .
 ```
 
 > **Already built both images?** No rebuild needed.

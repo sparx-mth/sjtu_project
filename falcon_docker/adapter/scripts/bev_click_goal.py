@@ -49,7 +49,7 @@ class BEVClickGoal:
         rospy.init_node("bev_click_goal", disable_signals=True)
         G = rospy.get_param
 
-        self.drone_ns   = G("~drone_ns",   "/simple_drone")
+        self.drone_ns   = G("~drone_ns",   "")
         self.bev_topic  = G("~bev_topic",  "/falcon/bev_2d")
         self.path_topic = G("~path_topic", "/path/waypoints")
         self.goal_topic = G("~goal_topic", "/waypoint_nav/goal")

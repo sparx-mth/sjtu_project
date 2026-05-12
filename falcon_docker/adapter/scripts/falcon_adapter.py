@@ -6,7 +6,6 @@ Bridges drone topics to FALCON topics. That's it.
 
   Drone gt_pose      -> /odom_world  +  /map_ros/pose  +  TF
   Drone depth        -> /map_ros/depth
-  Drone camera_info  -> /map_ros/depth/camera_info
 
 You fly the drone manually. FALCON builds the map and plans
 exploration from the pose + depth it receives.
@@ -87,7 +86,7 @@ import numpy as np
 
 from geometry_msgs.msg import Pose, PoseStamped
 from nav_msgs.msg import Odometry
-from sensor_msgs.msg import CameraInfo, Image
+from sensor_msgs.msg import Image
 
 
 def _yaw_from_R(R):
@@ -220,14 +219,11 @@ class FalconAdapter:
         self.odom_pub     = rospy.Publisher("/odom_world", Odometry, queue_size=10)
         self.pose_pub     = rospy.Publisher("/map_ros/pose", PoseStamped, queue_size=10)
         self.depth_pub    = rospy.Publisher("/map_ros/depth", Image, queue_size=2)
-        self.cam_info_pub = rospy.Publisher("/map_ros/depth/camera_info", CameraInfo, queue_size=2)
 
         # Subscribers (from drone)
         rospy.Subscriber(self.drone_ns + "/gt_pose", Pose, self.gt_pose_cb)
         rospy.Subscriber(self.drone_ns + "/front_depth/depth/image_raw",
                          Image, self.depth_cb)
-        rospy.Subscriber(self.drone_ns + "/front_depth/depth/camera_info",
-                         CameraInfo, self.cam_info_cb)
 
         rospy.loginfo("falcon_adapter ready  drone=%s  pose_noise=%s",
                       self.drone_ns, self._summarize_noise())
@@ -416,7 +412,7 @@ class FalconAdapter:
         return self._T_to_pose(T_pub)
 
     # ──────────────────────────────────────────────────────────
-    # Depth + camera_info
+    # Depth
     # ──────────────────────────────────────────────────────────
     def depth_cb(self, msg):
         now = rospy.Time.now()
@@ -431,11 +427,6 @@ class FalconAdapter:
         if self.noise_depth_std > 0 or self.noise_depth_proportional > 0:
             msg = self._add_depth_noise(msg)
         self.depth_pub.publish(msg)
-
-    def cam_info_cb(self, msg):
-        msg.header.stamp    = rospy.Time.now()
-        msg.header.frame_id = self.cam_frame
-        self.cam_info_pub.publish(msg)
 
     # ──────────────────────────────────────────────────────────
     # Helpers

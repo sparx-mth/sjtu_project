@@ -76,7 +76,7 @@
   <arg name="replan_period_s"       default="0.0" />
 
   <!-- Takeoff & cruise -->
-  <arg name="auto_takeoff"      default="true" />
+  <arg name="auto_takeoff"      default="false" />
   <arg name="cruise_z"          default="1.0" />
   <arg name="freeze_during_yaw" default="true" />
   <arg name="maintain_altitude" default="true" />
@@ -134,12 +134,12 @@
   <rosparam command="load" file="$(find exploration_manager)/config/exploration_manager.yaml"/>
 
   <!-- Camera intrinsics (must match the depth camera being used) -->
-  <param name="/uav_model/sensing_parameters/camera_intrinsics/fx" value="320.0" />
-  <param name="/uav_model/sensing_parameters/camera_intrinsics/fy" value="320.0" />
-  <param name="/uav_model/sensing_parameters/camera_intrinsics/cx" value="320.0" />
-  <param name="/uav_model/sensing_parameters/camera_intrinsics/cy" value="240.0" />
-  <param name="/uav_model/sensing_parameters/image_width"  value="640" />
-  <param name="/uav_model/sensing_parameters/image_height" value="480" />
+  <param name="/uav_model/sensing_parameters/camera_intrinsics/fx" value="361.52" />
+  <param name="/uav_model/sensing_parameters/camera_intrinsics/fy" value="410.76" />
+  <param name="/uav_model/sensing_parameters/camera_intrinsics/cx" value="229.34" />
+  <param name="/uav_model/sensing_parameters/camera_intrinsics/cy" value="116.76" />
+  <param name="/uav_model/sensing_parameters/image_width"  value="504" />
+  <param name="/uav_model/sensing_parameters/image_height" value="280" />
   <param name="/uav_model/sensing_parameters/min_depth" value="0.1" />
   <param name="/uav_model/sensing_parameters/max_depth" value="5.0" />
 
