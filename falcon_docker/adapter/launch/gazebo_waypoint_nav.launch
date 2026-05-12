@@ -83,6 +83,14 @@
   <arg name="use_posctrl"       default="true" />
   <arg name="ctrl_rate_hz"      default="20.0" />
 
+  <!-- Forward-only mode: skip YAW_ALIGN entirely. Set to "true" to
+       fly straight without rotating (useful for corridor testing). -->
+  <arg name="forward_only"      default="true" />
+
+  <!-- cmd_vel JSON Lines log. {ts} expands to YYYYMMDD_HHMMSS at
+       startup. Empty string disables logging. -->
+  <arg name="cmd_log_path"      default="/home/nadavc/Desktop/cmd_log_{ts}.jsonl" />
+
   <!-- BEV -->
   <arg name="bev_resolution"  default="0.15" />
   <arg name="bev_xmin"        default="-12.0" />
@@ -263,6 +271,8 @@
     <param name="freeze_during_yaw"      value="$(arg freeze_during_yaw)" />
     <param name="maintain_altitude"      value="$(arg maintain_altitude)" />
     <param name="ctrl_rate_hz"           value="$(arg ctrl_rate_hz)" />
+    <param name="forward_only"           value="$(arg forward_only)" />
+    <param name="cmd_log_path"           value="$(arg cmd_log_path)" />
   </node>
 
   <node pkg="falcon_adapter" type="voxel_reset_watcher.py"

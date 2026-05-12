@@ -27,6 +27,9 @@ State machine (unchanged from v7):
     YAW_ALIGN → ADVANCE → (BRAKE → YAW_ALIGN → ADVANCE)* → DONE
 """
 import math
+import json
+import os
+import datetime
 import rospy
 import tf.transformations as tft
 
@@ -128,6 +131,31 @@ class WaypointFollower:
         self.ctrl_rate_hz      = float(G("~ctrl_rate_hz",      50.0))
         self.status_hz         = float(G("~status_hz",         1.0))
 
+        # Forward-only mode: skip YAW_ALIGN entirely (treat all transitions
+        # to YAW_ALIGN as transitions to ADVANCE). Useful when the drone is
+        # already pointed in the right direction and you just want it to
+        # fly forward — e.g. straight down a corridor.
+        self.forward_only = bool(G("~forward_only", False))
+
+        # Optional cmd_vel logger. Every published Twist is appended to the
+        # file as one JSON object per line (JSON Lines format). Empty path
+        # disables logging. `{ts}` in the path expands to a YYYYMMDD_HHMMSS
+        # timestamp at startup, so each run gets a unique file.
+        log_path = G("~cmd_log_path", "/home/falcon/runs/cmd_log_{ts}.jsonl")
+        if log_path and "{ts}" in log_path:
+            ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            log_path = log_path.replace("{ts}", ts)
+        self.log_path = log_path
+        self._log_file = None
+        if log_path:
+            try:
+                os.makedirs(os.path.dirname(log_path) or ".", exist_ok=True)
+                self._log_file = open(log_path, "w")
+            except Exception as e:
+                rospy.logwarn("waypoint_follower: failed to open log %s: %s",
+                              log_path, e)
+                self._log_file = None
+
         # State
         self.state         = S.WAIT_POSE
         self.t_state       = rospy.Time.now()
@@ -187,6 +215,9 @@ class WaypointFollower:
                       self.vx_brake_thresh, self.brake_timeout_s)
         rospy.loginfo("  PUBLISHED Twist invariants:  vy≡0  vz≡0  "
                       "(vx=0 OR wz=0)")
+        rospy.loginfo("  forward_only=%s   cmd_log=%s",
+                      self.forward_only,
+                      self.log_path if self._log_file else "disabled")
         rospy.loginfo("=" * 64)
 
     # ─── Callbacks ───────────────────────────────────────────────
@@ -271,6 +302,9 @@ class WaypointFollower:
 
     # ─── Helpers ─────────────────────────────────────────────────
     def _enter(self, new):
+        # Forward-only mode: never enter YAW_ALIGN; jump straight to ADVANCE.
+        if new == S.YAW_ALIGN and self.forward_only:
+            new = S.ADVANCE
         if new != self.state:
             rospy.loginfo("waypoint_follower: %s → %s", self.state, new)
             self.state   = new
@@ -369,6 +403,22 @@ class WaypointFollower:
         self.last_vx = vx
         self.last_wz = wz
         # last_vy and last_vz are not updated — they stay at 0 forever.
+
+        # Log the published Twist to the JSON Lines file, if enabled.
+        # One line per Twist; fields mirror the geometry_msgs/Twist
+        # structure so the file can be replayed as-is.
+        if self._log_file is not None:
+            entry = {
+                "t":       rospy.Time.now().to_sec(),
+                "linear":  {"x": float(vx),  "y": 0.0, "z": 0.0},
+                "angular": {"x": 0.0, "y": 0.0, "z": float(wz)},
+            }
+            try:
+                self._log_file.write(json.dumps(entry) + "\n")
+                self._log_file.flush()
+            except Exception as e:
+                rospy.logwarn_throttle(10.0,
+                    "waypoint_follower: log write failed: %s", e)
 
     def _publish_zero(self):
         self._publish_twist(0.0, 0.0)
@@ -614,6 +664,11 @@ class WaypointFollower:
                 rospy.sleep(0.02)
         except Exception:
             pass
+        if self._log_file is not None:
+            try:
+                self._log_file.close()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
