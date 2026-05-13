@@ -14,23 +14,27 @@
 #       map_render
 #
 #   WITH_SIM=0 (Jetson / real-drone-only):
-#     Above plus everything simulator-side AND rviz_plugins.
-#     The Jetson base image (ros:noetic-perception) does NOT
-#     include rviz dev headers, so building rviz_plugins would
-#     fail with "rviz/visualization_manager.h: No such file".
-#     We don't launch RViz on Jetson anyway. Seed list:
+#     Above plus everything simulator-side, rviz_plugins, and
+#     multi_map_server:
 #       mesh_render               (needs Open3D — skipped)
 #       so3_quadrotor_simulator   (Gazebo replacement, unused)
 #       so3_control               (controller for above)
 #       so3_disturbance_generator
 #       poscmd_2_odom
 #       waypoint_generator        (sim helper)
-#       rviz_plugins              (RViz visual plugin, unused)
+#       rviz_plugins              (RViz visual plugin, unused;
+#                                  ros:noetic-perception has no
+#                                  rviz dev headers anyway)
+#       multi_map_server          (only consumed by rviz_plugins;
+#                                  has a CMake-3.27+ incompatible
+#                                  add_dependencies bug upstream.
+#                                  Nothing else in the active set
+#                                  uses it.)
 #
 #     uav_simulator/utils/{quadrotor_msgs, odom_visualization,
-#     uav_utils, multi_map_server, pose_utils, cmake_utils}
-#     are KEPT — they're build-time deps of the planner or
-#     runtime nodes referenced in our launches.
+#     uav_utils, pose_utils, cmake_utils} stay active — they are
+#     build-time deps of the planner or runtime nodes referenced
+#     in our launches.
 #
 # Usage:
 #   ./ignore_cuda_pkgs.sh /catkin_ws/src
@@ -50,7 +54,7 @@ SEED_DIRS=(
 # WITH_SIM=0 extends the seed with everything we don't need
 # off the real-drone code path.
 if [ "${WITH_SIM}" = "0" ]; then
-    echo "==> WITH_SIM=0  Extending seed list with simulator-side packages + rviz_plugins."
+    echo "==> WITH_SIM=0  Extending seed list with sim packages + rviz_plugins + multi_map_server."
     SEED_DIRS+=(
         "${WS_SRC}/FALCON/uav_simulator/camera_sensing/mesh_render"
         "${WS_SRC}/FALCON/uav_simulator/so3_quadrotor_simulator"
@@ -59,6 +63,7 @@ if [ "${WITH_SIM}" = "0" ]; then
         "${WS_SRC}/FALCON/uav_simulator/poscmd_2_odom"
         "${WS_SRC}/FALCON/uav_simulator/utils/waypoint_generator"
         "${WS_SRC}/FALCON/uav_simulator/utils/rviz_plugins"
+        "${WS_SRC}/FALCON/uav_simulator/utils/multi_map_server"
     )
 else
     echo "==> WITH_SIM=1  Only CUDA packages will be seeded."

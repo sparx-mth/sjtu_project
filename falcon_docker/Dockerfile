@@ -2,40 +2,18 @@
 # FALCON Docker Image  (ROS1 Noetic + Adapter)
 #
 # Base image is selected via BASE_IMAGE build-arg:
+#   x86_64 (WITH_SIM=1, default):  osrf/ros:noetic-desktop-full
+#   Jetson AGX (WITH_SIM=0):       ros:noetic-perception  (multiarch arm64)
 #
-#   x86_64 (WITH_SIM=1, default):
-#     BASE_IMAGE=osrf/ros:noetic-desktop-full   amd64-only.
-#     Brings RViz + Gazebo + all perception ROS packages.
-#
-#   Jetson AGX (WITH_SIM=0):
-#     BASE_IMAGE=ros:noetic-perception          multiarch (arm64).
-#     Brings cv_bridge, pcl_ros, pcl_conversions, laser_geometry,
-#     image_transport — everything our active package set needs.
-#     No RViz, no Gazebo. We CATKIN_IGNORE rviz_plugins to match.
-#
-#   (Why not osrf/ros:noetic-desktop-full on Jetson?
-#    OSRF's desktop-full has no arm64 manifest. Pulling it on a
-#    Jetson silently downloads the amd64 image and you get
-#    "exec /bin/sh: exec format error" on the first RUN step.)
-#
-# ── WITH_SIM build-arg ──────────────────────────────────────
-#   WITH_SIM=1 (default): build Open3D + mesh_render + sim packages.
-#   WITH_SIM=0 (Jetson): skip Open3D entirely; CATKIN_IGNORE the
-#                        simulator-side packages and rviz_plugins.
-#
-# ── GPU at runtime ──────────────────────────────────────────
-#   No CUDA toolkit in image. On x86 -> --gpus all; on Jetson ->
-#   --runtime nvidia. run_hospital.sh auto-detects.
+# WITH_SIM=1: builds Open3D + mesh_render + sim packages.
+# WITH_SIM=0: skips Open3D; CATKIN_IGNORE simulator packages
+#             AND rviz_plugins AND multi_map_server.
 # ============================================================
 ARG BASE_IMAGE=osrf/ros:noetic-desktop-full
 FROM ${BASE_IMAGE}
 
-# Re-declare ARGs after FROM — ARGs declared before FROM are only
-# visible to FROM itself.
 ARG WITH_SIM=1
 ARG MAX_JOBS=4
-# MAX_JOBS caps parallel compile. AGX Orin (12c/32GB): 4-6 is safe.
-# AGX Xavier (8c/32GB): 4. x86 with plenty of RAM: 8.
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=UTC  LANG=C.UTF-8  LC_ALL=C.UTF-8
@@ -57,21 +35,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN rosdep update
 
-# ── 2. FALCON-required apt deps ───────────────────────────────
-# C++ libs:
-#   libgoogle-glog-dev — exploration_manager, fast_planner, voxel_mapping
-#   libarmadillo-dev   — multi_map_server, odom_visualization, pose_utils, quadrotor_msgs
-#   libeigen3-dev      — 10 active packages
-#   libboost-dev       — header-only boost (bind, functional/hash)
-#
-# ROS packages (always installed; if the base image already has them,
-# apt is idempotent and exits 0 in ~1 s):
-#   cv_bridge, pcl_conversions, pcl_ros, laser_geometry,
-#   image_transport, tf2_eigen, tf2_geometry_msgs
-# These are present in osrf/ros:noetic-desktop-full but NOT in
-# ros:noetic-perception's parent ros-base — installing them here
-# means the same Dockerfile works regardless of which BASE_IMAGE
-# was passed.
+# ── 2. FALCON-required apt deps + perception ROS pkgs ─────────
+# ros-noetic-* packages are present in osrf/ros:noetic-desktop-full
+# but NOT in ros:noetic-perception's parent ros-base. Installing them
+# explicitly means the same Dockerfile works regardless of BASE_IMAGE.
+# Already-installed packages are no-ops in apt.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libgoogle-glog-dev \
         libarmadillo-dev \
@@ -132,12 +100,31 @@ RUN if [ "$WITH_SIM" = "1" ]; then \
         echo "==> WITH_SIM=0  Skipping Open3D" ; \
     fi
 
-# ── 6. Clone FALCON + (conditionally) patch mesh_render yaml ──
+# ── 6. Clone FALCON ───────────────────────────────────────────
 RUN mkdir -p /catkin_ws/src
 WORKDIR /catkin_ws/src
 RUN git clone --branch ros1-noetic \
         https://github.com/HKUST-Aerial-Robotics/FALCON.git
 
+# ── 6a. Patch FALCON CMakeLists.txt for new CMake (3.27+) ─────
+# Two upstream issues to fix:
+#
+# (1) multi_map_server/CMakeLists.txt:63 references a target named
+#     `multi_map_server_messages_cpp` that doesn't exist. The correct
+#     catkin-generated name is `multi_map_server_generate_messages_cpp`.
+#     Older CMake (≤ 3.26) silently allowed add_dependencies() to
+#     reference nonexistent targets; CMake 3.27+ errors out. We sed-fix
+#     to the standard catkin target name. Harmless if FALCON ever fixes
+#     this upstream (sed becomes a no-op).
+#
+#     On Jetson (WITH_SIM=0) multi_map_server is also CATKIN_IGNORE'd
+#     (nothing in the active package set depends on it), so this patch
+#     is belt-and-suspenders there.
+RUN sed -i \
+      's|multi_map_server_messages_cpp|multi_map_server_generate_messages_cpp|g' \
+      /catkin_ws/src/FALCON/uav_simulator/utils/multi_map_server/CMakeLists.txt
+
+# (2) Patch open3d_resource_path only when mesh_render will be built.
 RUN if [ "$WITH_SIM" = "1" ]; then \
         find /catkin_ws/src/FALCON -name "mesh_render.yaml" \
           | xargs --no-run-if-empty sed -i \
