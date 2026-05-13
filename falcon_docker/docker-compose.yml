@@ -1,13 +1,37 @@
 # falcon_docker/docker-compose.yml
+#
+# Two profiles:
+#
+#   falcon-hospital      — original x86_64 + Gazebo path. Uses the
+#                          new-style `deploy.resources.reservations`
+#                          GPU reservation (needs nvidia-container-
+#                          toolkit + Compose ≥ 1.28).
+#
+#   falcon-jetson        — Jetson AGX (Orin / Xavier). Builds with
+#                          WITH_SIM=0 so Open3D and the sim-side
+#                          packages are dropped. Uses
+#                          `runtime: nvidia` + NVIDIA_VISIBLE_DEVICES
+#                          which works on every JetPack from 4.x up.
+#                          Requires the older v2 Compose schema for
+#                          `runtime:` support — `docker-compose`
+#                          (the Python tool) works; `docker compose`
+#                          (v2 plugin) also accepts it.
+#
+# The Dockerfile is the SAME for both — only the WITH_SIM build-arg
+# differs. The image tag changes so you don't accidentally use a
+# Jetson image on x86 or vice-versa.
+
 services:
 
-  # ── Hospital / external Gazebo (GPU-enabled for FALCON) ────
+  # ── x86_64 + Gazebo (Hospital world) ──────────────────────
   falcon-hospital:
     build:
       context: .
       dockerfile: Dockerfile
       args:
-        CUDA_ARCH: "120"   # RTX 5070=120, 40xx=89, 30xx=86
+        WITH_SIM: "1"
+        # MAX_JOBS optional; default 4 is safe everywhere.
+        MAX_JOBS: "8"
     image: falcon-ros:noetic
     container_name: falcon
     deploy:
@@ -28,13 +52,42 @@ services:
     tty: true
     command: bash
 
-  # ── Octa-maze / built-in simulator (GPU required) ──────────
+  # ── Jetson AGX (Orin / Xavier) — real-drone only ───────────
+  # Build:  docker compose build falcon-jetson
+  # Run:    docker compose run --rm falcon-jetson
+  falcon-jetson:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        WITH_SIM: "0"
+        # AGX Orin (12c/32G): 6 is fine. AGX Xavier (8c/32G): 4.
+        # Drop to 2 if you see oom-kill in dmesg during build.
+        MAX_JOBS: "4"
+    image: falcon-ros:jetson
+    container_name: falcon
+    runtime: nvidia
+    environment:
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - NVIDIA_VISIBLE_DEVICES=all
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    network_mode: host
+    stdin_open: true
+    tty: true
+    command: bash
+
+  # ── (Original) Octa-maze profile, x86_64 only ──────────────
+  # Kept for completeness; identical to falcon-hospital.
   falcon-octa-maze:
     build:
       context: .
       dockerfile: Dockerfile
       args:
-        CUDA_ARCH: "120"
+        WITH_SIM: "1"
+        MAX_JOBS: "8"
     image: falcon-ros:noetic
     container_name: falcon-gpu
     deploy:

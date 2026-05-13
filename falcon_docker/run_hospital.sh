@@ -1,19 +1,66 @@
 #!/bin/bash
 # ============================================================
 # falcon_docker/run_hospital.sh — FALCON + external Gazebo drone
+#                                  OR real-drone on Jetson
 #
-# v17: adds mounts for the real-drone path:
-#        - pose_adapter.py
-#        - real_drone.launch
-#      so `roslaunch falcon_adapter real_drone.launch ...` works
-#      from inside the container without rebuilding the image.
-#      All v16 mounts retained.
+# v18:
+#   - Auto-detects arch and uses the right NVIDIA flag:
+#       x86_64  → --gpus all  (nvidia-container-toolkit)
+#       aarch64 → --runtime nvidia + NVIDIA_VISIBLE_DEVICES=all
+#                 (works on JetPack 4.x and 5.x+ alike)
+#   - Falls back to no-GPU if neither is available, with a warning.
+#   - Picks image tag based on arch (falcon-ros:noetic vs
+#     falcon-ros:jetson) so you don't accidentally launch the
+#     x86 image on Jetson.
+#   - All other behaviour preserved from v17.
 # ============================================================
 
-IMAGE="falcon-ros:noetic"
 CONTAINER="falcon"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+ARCH=$(uname -m)
+if [ "${ARCH}" = "aarch64" ]; then
+  IMAGE="${IMAGE:-falcon-ros:jetson}"
+else
+  IMAGE="${IMAGE:-falcon-ros:noetic}"
+fi
+echo "[INFO] Arch: ${ARCH}   Image: ${IMAGE}"
+
+# ── GPU flag selection ────────────────────────────────────────
+# On Jetson, --gpus all only works on JetPack 5.x+ with
+# nvidia-container-toolkit installed. The legacy --runtime nvidia
+# is universally supported on Jetson (and is what the L4T docs
+# recommend). On x86 we keep --gpus all.
+GPU_ARGS=""
+if [ "${ARCH}" = "aarch64" ]; then
+  # Verify the nvidia runtime is actually registered with docker.
+  if docker info 2>/dev/null | grep -q "Runtimes:.*nvidia"; then
+    GPU_ARGS="--runtime nvidia \
+              --env NVIDIA_VISIBLE_DEVICES=all \
+              --env NVIDIA_DRIVER_CAPABILITIES=all"
+    echo "[INFO] GPU: --runtime nvidia (Jetson)"
+  else
+    echo "[WARN] nvidia runtime not registered with docker.        "
+    echo "[WARN] Edit /etc/docker/daemon.json so it contains:      "
+    echo "[WARN]   { \"runtimes\": { \"nvidia\": {                 "
+    echo "[WARN]       \"path\": \"nvidia-container-runtime\",     "
+    echo "[WARN]       \"runtimeArgs\": [] } } }                   "
+    echo "[WARN] then 'sudo systemctl restart docker'. Running    "
+    echo "[WARN] CPU-only for now (RViz/Gazebo will be very slow)."
+  fi
+else
+  # x86_64: prefer modern --gpus all; warn if missing.
+  if docker info 2>/dev/null | grep -q "Runtimes:.*nvidia"; then
+    GPU_ARGS="--gpus all \
+              --env NVIDIA_DRIVER_CAPABILITIES=all \
+              --env NVIDIA_VISIBLE_DEVICES=all"
+    echo "[INFO] GPU: --gpus all"
+  else
+    echo "[WARN] No nvidia runtime detected; running CPU-only."
+  fi
+fi
+
+# ── Map config ────────────────────────────────────────────────
 ENV_NAME="${1:-hospital}"
 if [[ $# -ge 1 ]]; then shift; fi
 
@@ -31,34 +78,57 @@ chmod +x "${SCRIPT_DIR}"/adapter/scripts/*.py 2>/dev/null || true
 
 xhost +local:docker 2>/dev/null || true
 
+# ── Volume mounts ─────────────────────────────────────────────
+# Mount each adapter script that exists on the host. The original
+# v17 list hardcodes 16 mounts — if a file doesn't exist on the
+# host (e.g. you trimmed batch_runner.py because you don't run
+# batches on Jetson) docker would create an empty directory at
+# the target path and the rosrun would fail mysteriously. Loop
+# instead so missing files are silently skipped with a single log
+# line at startup.
+SCRIPTS_HOST="${SCRIPT_DIR}/adapter/scripts"
+SCRIPTS_TARGET="/catkin_ws/src/falcon_adapter/scripts"
+SCRIPT_MOUNTS=()
+for f in falcon_adapter.py cmd_to_vel.py bev_publisher.py \
+         exploration_monitor.py run_recorder.py completion_watcher.py \
+         batch_runner.py respawn_drone.py sensor_gate.py astar_planner.py \
+         waypoint_follower.py voxel_reset_watcher.py bev_click_goal.py \
+         pose_adapter.py ; do
+  if [ -f "${SCRIPTS_HOST}/${f}" ]; then
+    SCRIPT_MOUNTS+=( --volume "${SCRIPTS_HOST}/${f}:${SCRIPTS_TARGET}/${f}" )
+  else
+    echo "[INFO] Skipping missing script: ${f}"
+  fi
+done
+
+LAUNCH_HOST="${SCRIPT_DIR}/adapter/launch"
+LAUNCH_TARGET="/catkin_ws/src/falcon_adapter/launch"
+LAUNCH_MOUNTS=()
+for f in gazebo_exploration.launch gazebo_waypoint_nav.launch real_drone.launch ; do
+  if [ -f "${LAUNCH_HOST}/${f}" ]; then
+    LAUNCH_MOUNTS+=( --volume "${LAUNCH_HOST}/${f}:${LAUNCH_TARGET}/${f}" )
+  fi
+done
+
+# docker.sock is only needed when respawn_drone.py is in play
+# (sim-only). On Jetson it's harmless to mount but pointless.
+DOCKER_SOCK_MOUNT=()
+if [ "${ARCH}" != "aarch64" ] && [ -S /var/run/docker.sock ]; then
+  DOCKER_SOCK_MOUNT=( --volume /var/run/docker.sock:/var/run/docker.sock )
+fi
+
+# ── Run ───────────────────────────────────────────────────────
 docker run -it --rm \
     --name "${CONTAINER}" \
-    --gpus all \
+    ${GPU_ARGS} \
     --env DISPLAY="${DISPLAY}" \
     --env QT_X11_NO_MITSHM=1 \
-    --env NVIDIA_DRIVER_CAPABILITIES=all \
-    --env NVIDIA_VISIBLE_DEVICES=all \
     --shm-size=2g \
     --ulimit nofile=65536:65536 \
     --volume /tmp/.X11-unix:/tmp/.X11-unix:rw \
-    --volume "${SCRIPT_DIR}/adapter/scripts/falcon_adapter.py:/catkin_ws/src/falcon_adapter/scripts/falcon_adapter.py" \
-    --volume "${SCRIPT_DIR}/adapter/scripts/cmd_to_vel.py:/catkin_ws/src/falcon_adapter/scripts/cmd_to_vel.py" \
-    --volume "${SCRIPT_DIR}/adapter/scripts/bev_publisher.py:/catkin_ws/src/falcon_adapter/scripts/bev_publisher.py" \
-    --volume "${SCRIPT_DIR}/adapter/scripts/exploration_monitor.py:/catkin_ws/src/falcon_adapter/scripts/exploration_monitor.py" \
-    --volume "${SCRIPT_DIR}/adapter/scripts/run_recorder.py:/catkin_ws/src/falcon_adapter/scripts/run_recorder.py" \
-    --volume "${SCRIPT_DIR}/adapter/scripts/completion_watcher.py:/catkin_ws/src/falcon_adapter/scripts/completion_watcher.py" \
-    --volume "${SCRIPT_DIR}/adapter/scripts/batch_runner.py:/catkin_ws/src/falcon_adapter/scripts/batch_runner.py" \
-    --volume "${SCRIPT_DIR}/adapter/scripts/respawn_drone.py:/catkin_ws/src/falcon_adapter/scripts/respawn_drone.py" \
-    --volume "${SCRIPT_DIR}/adapter/scripts/sensor_gate.py:/catkin_ws/src/falcon_adapter/scripts/sensor_gate.py" \
-    --volume "${SCRIPT_DIR}/adapter/scripts/astar_planner.py:/catkin_ws/src/falcon_adapter/scripts/astar_planner.py" \
-    --volume "${SCRIPT_DIR}/adapter/scripts/waypoint_follower.py:/catkin_ws/src/falcon_adapter/scripts/waypoint_follower.py" \
-    --volume "${SCRIPT_DIR}/adapter/scripts/voxel_reset_watcher.py:/catkin_ws/src/falcon_adapter/scripts/voxel_reset_watcher.py" \
-    --volume "${SCRIPT_DIR}/adapter/scripts/bev_click_goal.py:/catkin_ws/src/falcon_adapter/scripts/bev_click_goal.py" \
-    --volume "${SCRIPT_DIR}/adapter/scripts/pose_adapter.py:/catkin_ws/src/falcon_adapter/scripts/pose_adapter.py" \
-    --volume /var/run/docker.sock:/var/run/docker.sock \
-    --volume "${SCRIPT_DIR}/adapter/launch/gazebo_exploration.launch:/catkin_ws/src/falcon_adapter/launch/gazebo_exploration.launch" \
-    --volume "${SCRIPT_DIR}/adapter/launch/gazebo_waypoint_nav.launch:/catkin_ws/src/falcon_adapter/launch/gazebo_waypoint_nav.launch" \
-    --volume "${SCRIPT_DIR}/adapter/launch/real_drone.launch:/catkin_ws/src/falcon_adapter/launch/real_drone.launch" \
+    "${SCRIPT_MOUNTS[@]}" \
+    "${LAUNCH_MOUNTS[@]}" \
+    "${DOCKER_SOCK_MOUNT[@]}" \
     --volume "${SCRIPT_DIR}/${ENV_NAME}.yaml:/catkin_ws/src/FALCON/falcon_planner/exploration_manager/config/map/${ENV_NAME}.yaml" \
     --volume "${SCRIPT_DIR}/runs:/home/falcon/runs" \
     --network host \
