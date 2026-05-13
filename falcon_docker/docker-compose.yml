@@ -1,25 +1,14 @@
 # falcon_docker/docker-compose.yml
 #
-# Two profiles:
+# Three profiles:
 #
-#   falcon-hospital      — original x86_64 + Gazebo path. Uses the
-#                          new-style `deploy.resources.reservations`
-#                          GPU reservation (needs nvidia-container-
-#                          toolkit + Compose ≥ 1.28).
+#   falcon-hospital   — x86_64 + Gazebo. BASE_IMAGE=osrf/ros:noetic-desktop-full.
+#   falcon-jetson     — Jetson AGX. BASE_IMAGE=ros:noetic-perception (multiarch).
+#   falcon-octa-maze  — x86_64. Same as hospital.
 #
-#   falcon-jetson        — Jetson AGX (Orin / Xavier). Builds with
-#                          WITH_SIM=0 so Open3D and the sim-side
-#                          packages are dropped. Uses
-#                          `runtime: nvidia` + NVIDIA_VISIBLE_DEVICES
-#                          which works on every JetPack from 4.x up.
-#                          Requires the older v2 Compose schema for
-#                          `runtime:` support — `docker-compose`
-#                          (the Python tool) works; `docker compose`
-#                          (v2 plugin) also accepts it.
-#
-# The Dockerfile is the SAME for both — only the WITH_SIM build-arg
-# differs. The image tag changes so you don't accidentally use a
-# Jetson image on x86 or vice-versa.
+# The Dockerfile is the SAME for all three — only the BASE_IMAGE and
+# WITH_SIM build-args differ. Image tag also differs so a Jetson image
+# can't be confused with an x86 one on a shared registry.
 
 services:
 
@@ -29,6 +18,7 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
+        BASE_IMAGE: "osrf/ros:noetic-desktop-full"
         WITH_SIM: "1"
         # MAX_JOBS optional; default 4 is safe everywhere.
         MAX_JOBS: "8"
@@ -55,11 +45,16 @@ services:
   # ── Jetson AGX (Orin / Xavier) — real-drone only ───────────
   # Build:  docker compose build falcon-jetson
   # Run:    docker compose run --rm falcon-jetson
+  #
+  # BASE_IMAGE=ros:noetic-perception has the arm64 manifest and
+  # the perception ROS packages we need. osrf/ros:noetic-desktop-full
+  # is amd64-only — using it on Jetson gives "exec format error".
   falcon-jetson:
     build:
       context: .
       dockerfile: Dockerfile
       args:
+        BASE_IMAGE: "ros:noetic-perception"
         WITH_SIM: "0"
         # AGX Orin (12c/32G): 6 is fine. AGX Xavier (8c/32G): 4.
         # Drop to 2 if you see oom-kill in dmesg during build.
@@ -80,12 +75,12 @@ services:
     command: bash
 
   # ── (Original) Octa-maze profile, x86_64 only ──────────────
-  # Kept for completeness; identical to falcon-hospital.
   falcon-octa-maze:
     build:
       context: .
       dockerfile: Dockerfile
       args:
+        BASE_IMAGE: "osrf/ros:noetic-desktop-full"
         WITH_SIM: "1"
         MAX_JOBS: "8"
     image: falcon-ros:noetic

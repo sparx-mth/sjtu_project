@@ -2,11 +2,9 @@
 # ============================================================
 # ignore_cuda_pkgs.sh
 #
-# Seeds CATKIN_IGNORE on packages we know we don't want built,
-# then cascades CATKIN_IGNORE to any package whose package.xml
-# declares a dependency on something already ignored. This
-# eliminates whack-a-mole catkin_make failures on transitive
-# dependents.
+# Seeds CATKIN_IGNORE on packages we don't want built, then
+# cascades CATKIN_IGNORE to any package whose package.xml lists
+# a dep on something already ignored.
 #
 # SEED LIST is environment-dependent:
 #
@@ -16,20 +14,23 @@
 #       map_render
 #
 #   WITH_SIM=0 (Jetson / real-drone-only):
-#     Above plus everything simulator-side. The runtime path
-#     never touches these:
-#       mesh_render               (needs Open3D — skipped entirely)
+#     Above plus everything simulator-side AND rviz_plugins.
+#     The Jetson base image (ros:noetic-perception) does NOT
+#     include rviz dev headers, so building rviz_plugins would
+#     fail with "rviz/visualization_manager.h: No such file".
+#     We don't launch RViz on Jetson anyway. Seed list:
+#       mesh_render               (needs Open3D — skipped)
 #       so3_quadrotor_simulator   (Gazebo replacement, unused)
-#       so3_control               (controller for above, unused)
-#       so3_disturbance_generator (sim disturbance source, unused)
-#       poscmd_2_odom             (sim pose-cmd → odom, unused)
-#       waypoint_generator        (uses -march=native; works on
-#                                  arm64 too but it's a sim helper
-#                                  with no runtime role — skip)
+#       so3_control               (controller for above)
+#       so3_disturbance_generator
+#       poscmd_2_odom
+#       waypoint_generator        (sim helper)
+#       rviz_plugins              (RViz visual plugin, unused)
+#
 #     uav_simulator/utils/{quadrotor_msgs, odom_visualization,
-#     uav_utils, multi_map_server, pose_utils, cmake_utils,
-#     rviz_plugins} are KEPT — they're build-time deps of the
-#     planner and/or runtime nodes referenced in our launches.
+#     uav_utils, multi_map_server, pose_utils, cmake_utils}
+#     are KEPT — they're build-time deps of the planner or
+#     runtime nodes referenced in our launches.
 #
 # Usage:
 #   ./ignore_cuda_pkgs.sh /catkin_ws/src
@@ -49,7 +50,7 @@ SEED_DIRS=(
 # WITH_SIM=0 extends the seed with everything we don't need
 # off the real-drone code path.
 if [ "${WITH_SIM}" = "0" ]; then
-    echo "==> WITH_SIM=0  Extending seed list with simulator-side packages."
+    echo "==> WITH_SIM=0  Extending seed list with simulator-side packages + rviz_plugins."
     SEED_DIRS+=(
         "${WS_SRC}/FALCON/uav_simulator/camera_sensing/mesh_render"
         "${WS_SRC}/FALCON/uav_simulator/so3_quadrotor_simulator"
@@ -57,6 +58,7 @@ if [ "${WITH_SIM}" = "0" ]; then
         "${WS_SRC}/FALCON/uav_simulator/so3_disturbance_generator"
         "${WS_SRC}/FALCON/uav_simulator/poscmd_2_odom"
         "${WS_SRC}/FALCON/uav_simulator/utils/waypoint_generator"
+        "${WS_SRC}/FALCON/uav_simulator/utils/rviz_plugins"
     )
 else
     echo "==> WITH_SIM=1  Only CUDA packages will be seeded."
