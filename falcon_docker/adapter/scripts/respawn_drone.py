@@ -57,10 +57,10 @@ import time
 # Add new envs here as you bring them online.
 VALID_REGIONS = {
     "playground":      dict(x=(-9.0,  9.0), y=(-9.0,  9.0), z=1.0),
-    "small_house":     dict(x=(-7.0,  7.0), y=(-7.0,  7.0), z=1.0),
+    "small_house":     dict(x=(-5.0,  5.0), y=(-5.0,  5.0), z=1.5),
     "hospital":        dict(x=(-15.0, 15.0), y=(-15.0, 15.0), z=1.0),
     "bookstore":       dict(x=(-5.0,  5.0), y=(-3.0,  3.0), z=1.0),
-    "small_warehouse": dict(x=(-7.0,  7.0), y=(-5.0,  5.0), z=1.0),
+    "small_warehouse": dict(x=(-5.0,  5.0), y=(-4.0,  4.0), z=1.0),
 }
 
 
