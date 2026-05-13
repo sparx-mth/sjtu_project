@@ -6,7 +6,9 @@ topics:
     qos:
       history: keep_last
       depth: 5
-      reliability: reliable
+      # best_effort matches the drone's publisher. With reliable here,
+      # no data flows (this was the bug).
+      reliability: best_effort
       durability: volatile
 
   - topic: /xtend/camera_info
@@ -15,7 +17,10 @@ topics:
     qos:
       history: keep_last
       depth: 5
-      reliability: reliable
+      # camera_info often goes out at the same rate as the image and
+      # uses the same QoS profile on most drivers. If you find out the
+      # drone publishes it reliable, flip this back.
+      reliability: best_effort
       durability: volatile
 
   - topic: /flow_depth/pose_est
@@ -24,5 +29,8 @@ topics:
     qos:
       history: keep_last
       depth: 10
-      reliability: reliable
+      # Per your QoSProfile snippet: best_effort. If pose is published
+      # reliable on the drone, change this to reliable and the depth
+      # to a higher number (50) for catch-up after stalls.
+      reliability: best_effort
       durability: volatile
