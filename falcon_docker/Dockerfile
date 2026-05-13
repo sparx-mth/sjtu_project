@@ -36,29 +36,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN rosdep update
 
 # ── 2. FALCON-required apt deps + perception/geometry ROS pkgs ─────
-# All of the ros-noetic-* below ship inside osrf/ros:noetic-desktop-full
-# already, but NOT in ros:noetic-perception (which is built on ros-base
-# and only adds the perception variant on top). Installing them
-# explicitly means the same Dockerfile works on either BASE_IMAGE.
-# Already-installed packages are no-ops in apt.
+# C++ libs:
+#   libgoogle-glog-dev — exploration_manager, fast_planner, voxel_mapping
+#   libdw-dev          — voxel_mapping/CMakeLists.txt:50 has a literal
+#                         `-ldw` linker flag. -ldw resolves libdw from
+#                         elfutils, used by the vendored backward-cpp
+#                         stack-trace lib (falcon_planner/exploration_utils/
+#                         include/backward/backward.hpp). Without it,
+#                         voxel_mapping fails to link.
+#   libdwarf-dev       — companion debug-info lib; was in FALCON's
+#                         original install list. Small (~2 MB).
+#   libarmadillo-dev   — multi_map_server, odom_visualization, pose_utils
+#   libeigen3-dev      — 10 active packages
+#   libboost-dev       — header-only boost (bind, functional/hash)
 #
-# Why each one:
-#   cv_bridge          — exploration_manager, voxel_mapping
-#   pcl_conversions    — exploration_manager, fast_planner, voxel_mapping
-#   pcl_ros            — transitive for pcl-conversions
-#   laser_geometry     — declared as a dep in multi_map_server / chained
-#   image_transport    — camera sensing path on the planner side
-#   tf2_eigen          — exploration_utils catkin component
-#   tf2_geometry_msgs  — same
-#   tf_conversions     — exploration_utils #include <tf_conversions/tf_eigen.h>
-#                         (in geometry-suite; NOT in ros-base, must be
-#                         installed explicitly when starting from
-#                         ros:noetic-perception)
-#   eigen_conversions  — exploration_utils CMakeLists.txt:9 declares it
-#                         as a catkin REQUIRED component. Same story
-#                         as tf_conversions.
+# ROS packages (always installed; idempotent if base image has them):
+#   cv_bridge, pcl_conversions, pcl_ros, laser_geometry, image_transport,
+#   tf2_eigen, tf2_geometry_msgs, tf_conversions, eigen_conversions
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libgoogle-glog-dev \
+        libdw-dev \
+        libdwarf-dev \
         libarmadillo-dev \
         libeigen3-dev \
         libboost-dev \
@@ -126,13 +124,6 @@ RUN git clone --branch ros1-noetic \
         https://github.com/HKUST-Aerial-Robotics/FALCON.git
 
 # ── 6a. Patch FALCON CMakeLists.txt for new CMake (3.27+) ─────
-# multi_map_server/CMakeLists.txt:63 references a target named
-# `multi_map_server_messages_cpp` that doesn't exist. The correct
-# catkin-generated name is `multi_map_server_generate_messages_cpp`.
-# Older CMake (≤ 3.26) silently allowed add_dependencies() to
-# reference nonexistent targets; CMake 3.27+ errors out.
-# Sed-fix to the standard catkin target name. Harmless on Jetson
-# (multi_map_server is CATKIN_IGNORE'd anyway).
 RUN sed -i \
       's|multi_map_server_messages_cpp|multi_map_server_generate_messages_cpp|g' \
       /catkin_ws/src/FALCON/uav_simulator/utils/multi_map_server/CMakeLists.txt
