@@ -1,0 +1,105 @@
+# ============================================================
+# bridge_sim.yaml — ros1_bridge parameter_bridge topics for SIM
+#
+# Sim-only counterpart to bridge.yaml (which stays as-is for the
+# real drone). Loaded by run_bridge_sim.sh — never by the real
+# drone path. If you find yourself editing one of these to make
+# something work, ask whether the change really belongs in the
+# OTHER mode's file instead of being copied between them.
+#
+# QoS rules of thumb (Foxy):
+#   • Sensor data (Image, CameraInfo): best_effort + volatile.
+#     Gazebo's sjtu_drone camera plugin publishes with
+#     SensorDataQoS; a *reliable* subscriber will not receive
+#     these messages (this is the silent-stall bug we hit
+#     before). Keep best_effort here unless you've checked
+#     the publisher side.
+#   • Commands and small pose msgs: reliable + volatile.
+# ============================================================
+
+topics:
+
+  # ── Sensor data: sjtu_drone → FALCON ────────────────────────
+  - topic: /simple_drone/front_depth/depth/image_raw
+    type: sensor_msgs/msg/Image
+    queue_size: 2
+    qos:
+      history: keep_last
+      depth: 2
+      reliability: best_effort
+      durability: volatile
+
+  - topic: /simple_drone/front_depth/depth/camera_info
+    type: sensor_msgs/msg/CameraInfo
+    queue_size: 2
+    qos:
+      history: keep_last
+      depth: 2
+      reliability: best_effort
+      durability: volatile
+
+  - topic: /simple_drone/gt_pose
+    type: geometry_msgs/msg/Pose
+    queue_size: 10
+    qos:
+      history: keep_last
+      depth: 10
+      reliability: reliable
+      durability: volatile
+
+  # ── Control: FALCON → sjtu_drone ────────────────────────────
+  # cmd_to_vel publishes on /simple_drone/{cmd_vel, takeoff,
+  # land, posctrl} (drone_ns default); the bridge carries them
+  # to the Gazebo plugin which subscribes on the same names.
+  - topic: /simple_drone/cmd_vel
+    type: geometry_msgs/msg/Twist
+    queue_size: 1
+    qos:
+      history: keep_last
+      depth: 1
+      reliability: reliable
+      durability: volatile
+
+  - topic: /simple_drone/takeoff
+    type: std_msgs/msg/Empty
+    queue_size: 1
+    qos:
+      history: keep_last
+      depth: 1
+      reliability: reliable
+      durability: volatile
+
+  - topic: /simple_drone/land
+    type: std_msgs/msg/Empty
+    queue_size: 1
+    qos:
+      history: keep_last
+      depth: 1
+      reliability: reliable
+      durability: volatile
+
+  - topic: /simple_drone/posctrl
+    type: std_msgs/msg/Bool
+    queue_size: 1
+    qos:
+      history: keep_last
+      depth: 1
+      reliability: reliable
+      durability: volatile
+
+# ────────────────────────────────────────────────────────────
+# NOTES ON WHAT'S NOT HERE AND WHY
+#
+# /tf, /tf_static  — intentionally omitted. falcon_adapter
+#   publishes world→body→camera itself with wall-clock stamps.
+#   Bridging the sim's /tf would inject sim-time-stamped frames
+#   into the ROS1 graph (1.77e9-second delay on base_footprint),
+#   confusing FALCON.
+#
+# /clock  — omitted. FALCON runs on wall clock; bridging /clock
+#   risks flipping use_sim_time on any auto-subscriber.
+#
+# /simple_drone/{odom, imu, front_color}  — not needed by FALCON.
+#   Skipping them keeps bandwidth for depth, which is the
+#   bottleneck topic.
+# ────────────────────────────────────────────────────────────

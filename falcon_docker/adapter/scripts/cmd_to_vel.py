@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-cmd_to_vel.py  (v12 — predictive reference sampling)
+cmd_to_vel.py  (v13 — auto-land on shutdown and on exploration complete)
 
 What FALCON actually publishes on /planning/pos_cmd
 ───────────────────────────────────────────────────
@@ -13,6 +13,21 @@ A quadrotor_msgs/PositionCommand sampled from a non-uniform B-spline:
 traj_server runs at 100 Hz; this controller runs at 50 Hz; ROS network
 latency is ~5–15 ms. So the cached pos_cmd is typically 15–35 ms stale
 by the time we act on it, and on a curve we're missing the acc term.
+
+Change vs v12 — auto-land
+─────────────────────────
+The drone now publishes /<drone_ns>/land in two places:
+  (a) replan_cb when /planning/replan == 2 (exploration done).
+      Previously this just transitioned to DONE and held a hover.
+  (b) on_shutdown handler. Covers every exit path — Ctrl-C of a
+      manual roslaunch, batch_runner.py's SIGINT, an exception
+      anywhere in the stack that propagates to rospy.shutdown.
+
+Both publish via the existing latched self.land_pub, so a late
+subscriber (the bridge connecting after we publish) still receives
+the message. Idempotent — sjtu_drone's land state machine ignores
+subsequent /land while already descending, and most real-drone
+firmwares behave the same.
 
 Change vs v11
 ─────────────
@@ -145,6 +160,13 @@ class CmdToVel:
         self.ctrl_rate_hz      = rospy.get_param("~ctrl_rate_hz", 50.0)
         self.odom_gate_rate_hz = rospy.get_param("~odom_gate_rate_hz", 30.0)
 
+        # ── Auto-land (v13) ─────────────────────────────────────────
+        # Defaults to True so every exit path lands. Set to False if
+        # you have a separate landing supervisor or want the drone to
+        # hold its last hover for inspection.
+        self.land_on_shutdown = rospy.get_param("~land_on_shutdown", True)
+        self.land_on_explore_done = rospy.get_param("~land_on_explore_done", True)
+
         self.state = S.TAKING_OFF if self.auto_takeoff else S.WAIT_ODOM
         self.state_entered = rospy.Time.now()
         self.cur_odom = None
@@ -158,6 +180,11 @@ class CmdToVel:
         self.drone_state = None
         self.scan_yaw_target = None
         self.last_vx = self.last_vy = self.last_vz = self.last_wz = 0.0
+
+        # Track whether we already issued /land this run so we don't
+        # spam it. sjtu_drone tolerates repeats, but extra publishes
+        # are noise in the logs and on the bridge.
+        self.landed = False
 
         # Publishers / subscribers
         self.cmd_vel_pub    = rospy.Publisher(self.drone_ns + "/cmd_vel", Twist, queue_size=1)
@@ -174,10 +201,12 @@ class CmdToVel:
 
         rospy.loginfo(
             "cmd_to_vel ready  drone=%s  ctrl=%.0fHz  vel_sat=(%.2f,%.2f)  "
-            "yaw_rate_sat=%.2f  mapping_scan=%s  lookahead=%.0fms",
+            "yaw_rate_sat=%.2f  mapping_scan=%s  lookahead=%.0fms  "
+            "land_on_shutdown=%s  land_on_explore_done=%s",
             self.drone_ns, self.ctrl_rate_hz, self.vel_xy_sat, self.vel_z_sat,
             self.yaw_rate_sat, self.mapping_scan_enabled,
-            1000.0 * self.ctrl_lookahead)
+            1000.0 * self.ctrl_lookahead,
+            self.land_on_shutdown, self.land_on_explore_done)
 
         rospy.Timer(rospy.Duration(1.0 / self.ctrl_rate_hz), self.ctrl_loop)
         rospy.Timer(rospy.Duration(1.0 / self.odom_gate_rate_hz), self.odom_gate_loop)
@@ -247,7 +276,12 @@ class CmdToVel:
 
     def replan_cb(self, msg):
         if msg.data == 2 and self.state in (S.ACTIVE, S.HOVERING):
-            rospy.loginfo("cmd_to_vel: exploration finished → DONE (hover)")
+            if self.land_on_explore_done:
+                rospy.loginfo(
+                    "cmd_to_vel: exploration finished → landing → DONE")
+                self._publish_land("exploration finished")
+            else:
+                rospy.loginfo("cmd_to_vel: exploration finished → DONE (hover)")
             self._enter(S.DONE)
 
     def drone_state_cb(self, msg):
@@ -263,6 +297,24 @@ class CmdToVel:
 
     def _t_in_state(self):
         return (rospy.Time.now() - self.state_entered).to_sec()
+
+    def _publish_land(self, reason):
+        """
+        Publish to <drone_ns>/land exactly once per run lifecycle.
+        sjtu_drone's plugin (and most real-drone firmwares) treat a
+        single Empty as 'start descent'; the publisher is latched so
+        any late subscriber on the bridge still catches it.
+        """
+        if self.landed:
+            return
+        try:
+            self.land_pub.publish(Empty())
+            self.landed = True
+            rospy.loginfo("cmd_to_vel: published /land (reason=%s)", reason)
+        except Exception as e:
+            # Don't propagate — landing is best-effort; we still need
+            # to finish whatever shutdown/transition is in progress.
+            rospy.logwarn("cmd_to_vel: land publish failed: %s", e)
 
     def status_print(self, _):
         if self.state == S.WAIT_ODOM:
@@ -365,6 +417,11 @@ class CmdToVel:
                 self._enter(S.ACTIVE)
 
         elif self.state == S.DONE:
+            # DONE keeps publishing zero velocity. If /land was already
+            # issued, the drone's own landing state machine will be
+            # overriding cmd_vel — these zeros are harmless. If the
+            # operator disabled land_on_explore_done, the zeros hold
+            # a hover at the position where DONE was entered.
             self._publish_zero_vel()
 
         if self.drone_state == 0 and self.state not in (S.WAIT_ODOM, S.DONE):
@@ -373,6 +430,7 @@ class CmdToVel:
             self.takeoff_count = 0
             self.takeoff_pose = None
             self.first_real_traj = False
+            self.landed = False     # next run will need its own land()
             self._enter(S.WAIT_ODOM)
 
     # ─────────────────── Mapping scan ─────────────────────────────────────
@@ -522,6 +580,14 @@ class CmdToVel:
         return p
 
     def on_shutdown(self):
+        # Order matters here. Publish /land FIRST while the ROS master
+        # is still routing messages — this is our last chance to tell
+        # the drone to descend. THEN drain cmd_vel with zeros so we
+        # don't leave a stale velocity command lingering on the bridge.
+        # The drone's land state machine ignores cmd_vel during descent,
+        # so the zeros are harmless overlap.
+        if self.land_on_shutdown:
+            self._publish_land("shutdown")
         try:
             for _ in range(3):
                 self._publish_zero_vel()
