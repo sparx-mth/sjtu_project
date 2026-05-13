@@ -42,11 +42,13 @@ docker run -it --rm \
     -e ROS_HOSTNAME="localhost" \
     -e ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-5}" \
     -e RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}" \
+    -e FASTRTPS_DEFAULT_PROFILES_FILE="/fastdds_no_shm.xml" \
     -e LOGFILE="/tmp/bridge.log" \
     -e BRIDGE_YAML="/bridge.yaml" \
     -v "${SCRIPT_DIR}/entrypoint.sh:/entrypoint.sh:ro" \
     -v "${SCRIPT_DIR}/bridge.yaml:/bridge.yaml:ro" \
     -v "${LOGFILE_HOST}:/tmp/bridge.log:rw" \
+    -v "${SCRIPT_DIR}/fastdds_no_shm.xml:/fastdds_no_shm.xml:ro" \
     -v /dev/shm:/dev/shm \
     --entrypoint /entrypoint.sh \
     "${IMAGE}"
