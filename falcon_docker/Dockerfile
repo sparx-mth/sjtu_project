@@ -35,11 +35,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN rosdep update
 
-# ── 2. FALCON-required apt deps + perception ROS pkgs ─────────
-# ros-noetic-* packages are present in osrf/ros:noetic-desktop-full
-# but NOT in ros:noetic-perception's parent ros-base. Installing them
-# explicitly means the same Dockerfile works regardless of BASE_IMAGE.
+# ── 2. FALCON-required apt deps + perception/geometry ROS pkgs ─────
+# All of the ros-noetic-* below ship inside osrf/ros:noetic-desktop-full
+# already, but NOT in ros:noetic-perception (which is built on ros-base
+# and only adds the perception variant on top). Installing them
+# explicitly means the same Dockerfile works on either BASE_IMAGE.
 # Already-installed packages are no-ops in apt.
+#
+# Why each one:
+#   cv_bridge          — exploration_manager, voxel_mapping
+#   pcl_conversions    — exploration_manager, fast_planner, voxel_mapping
+#   pcl_ros            — transitive for pcl-conversions
+#   laser_geometry     — declared as a dep in multi_map_server / chained
+#   image_transport    — camera sensing path on the planner side
+#   tf2_eigen          — exploration_utils catkin component
+#   tf2_geometry_msgs  — same
+#   tf_conversions     — exploration_utils #include <tf_conversions/tf_eigen.h>
+#                         (in geometry-suite; NOT in ros-base, must be
+#                         installed explicitly when starting from
+#                         ros:noetic-perception)
+#   eigen_conversions  — exploration_utils CMakeLists.txt:9 declares it
+#                         as a catkin REQUIRED component. Same story
+#                         as tf_conversions.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libgoogle-glog-dev \
         libarmadillo-dev \
@@ -52,6 +69,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ros-noetic-image-transport \
         ros-noetic-tf2-eigen \
         ros-noetic-tf2-geometry-msgs \
+        ros-noetic-tf-conversions \
+        ros-noetic-eigen-conversions \
     && rm -rf /var/lib/apt/lists/*
 
 # ── 2b. Open3D-only apt deps (WITH_SIM=1 only) ────────────────
@@ -107,24 +126,18 @@ RUN git clone --branch ros1-noetic \
         https://github.com/HKUST-Aerial-Robotics/FALCON.git
 
 # ── 6a. Patch FALCON CMakeLists.txt for new CMake (3.27+) ─────
-# Two upstream issues to fix:
-#
-# (1) multi_map_server/CMakeLists.txt:63 references a target named
-#     `multi_map_server_messages_cpp` that doesn't exist. The correct
-#     catkin-generated name is `multi_map_server_generate_messages_cpp`.
-#     Older CMake (≤ 3.26) silently allowed add_dependencies() to
-#     reference nonexistent targets; CMake 3.27+ errors out. We sed-fix
-#     to the standard catkin target name. Harmless if FALCON ever fixes
-#     this upstream (sed becomes a no-op).
-#
-#     On Jetson (WITH_SIM=0) multi_map_server is also CATKIN_IGNORE'd
-#     (nothing in the active package set depends on it), so this patch
-#     is belt-and-suspenders there.
+# multi_map_server/CMakeLists.txt:63 references a target named
+# `multi_map_server_messages_cpp` that doesn't exist. The correct
+# catkin-generated name is `multi_map_server_generate_messages_cpp`.
+# Older CMake (≤ 3.26) silently allowed add_dependencies() to
+# reference nonexistent targets; CMake 3.27+ errors out.
+# Sed-fix to the standard catkin target name. Harmless on Jetson
+# (multi_map_server is CATKIN_IGNORE'd anyway).
 RUN sed -i \
       's|multi_map_server_messages_cpp|multi_map_server_generate_messages_cpp|g' \
       /catkin_ws/src/FALCON/uav_simulator/utils/multi_map_server/CMakeLists.txt
 
-# (2) Patch open3d_resource_path only when mesh_render will be built.
+# Patch open3d_resource_path only when mesh_render will be built.
 RUN if [ "$WITH_SIM" = "1" ]; then \
         find /catkin_ws/src/FALCON -name "mesh_render.yaml" \
           | xargs --no-run-if-empty sed -i \
