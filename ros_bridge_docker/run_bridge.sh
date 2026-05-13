@@ -36,6 +36,7 @@ echo "================================================"
 
 docker run -it --rm \
     --net=host \
+    --ipc=host \
     --name="${CONTAINER}" \
     -e ROS_MASTER_URI="http://localhost:11311" \
     -e ROS_HOSTNAME="localhost" \
@@ -46,5 +47,6 @@ docker run -it --rm \
     -v "${SCRIPT_DIR}/entrypoint.sh:/entrypoint.sh:ro" \
     -v "${SCRIPT_DIR}/bridge.yaml:/bridge.yaml:ro" \
     -v "${LOGFILE_HOST}:/tmp/bridge.log:rw" \
+    -v /dev/shm:/dev/shm \
     --entrypoint /entrypoint.sh \
     "${IMAGE}"
