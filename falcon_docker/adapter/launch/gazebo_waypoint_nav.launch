@@ -157,10 +157,10 @@
        longer bridged. Edit here for a new camera. -->
   <param name="/uav_model/sensing_parameters/camera_intrinsics/fx" value="460.90" />
   <param name="/uav_model/sensing_parameters/camera_intrinsics/fy" value="461.98" />
-  <param name="/uav_model/sensing_parameters/camera_intrinsics/cx" value="237.80" />
-  <param name="/uav_model/sensing_parameters/camera_intrinsics/cy" value="58.61" />
-  <param name="/uav_model/sensing_parameters/image_width"  value="720" />
-  <param name="/uav_model/sensing_parameters/image_height" value="420" />
+  <param name="/uav_model/sensing_parameters/camera_intrinsics/cx" value="345.80" />
+  <param name="/uav_model/sensing_parameters/camera_intrinsics/cy" value="128.61" />
+  <param name="/uav_model/sensing_parameters/image_width"  value="504" />
+  <param name="/uav_model/sensing_parameters/image_height" value="392" />
   <param name="/uav_model/sensing_parameters/min_depth" value="0.1" />
   <param name="/uav_model/sensing_parameters/max_depth" value="10.0" />
 
