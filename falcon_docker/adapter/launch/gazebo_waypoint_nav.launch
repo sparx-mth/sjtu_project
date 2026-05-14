@@ -1,7 +1,13 @@
 <launch>
   <!--
-    gazebo_waypoint_nav.launch  (v4 — topic-overridable for real drone)
+    gazebo_waypoint_nav.launch  (v5 — camera_info bridging defaults OFF)
     ════════════════════════════════════════════════════════════════════
+    v5 vs v4:
+      - Added `bridge_camera_info` arg (default false). sensor_gate
+        will neither subscribe to camera_info nor republish it. FALCON
+        reads camera intrinsics from rosparam below, so the topic was
+        redundant. Set to true to restore the v4 behaviour.
+
     v4 vs v3:
       - Added `pose_topic`, `depth_topic`, `camera_info_topic` args.
         Defaults preserve the v3 Gazebo behavior exactly (suffixes
@@ -42,7 +48,7 @@
   <arg name="drone_ns" default="/simple_drone" />
   <arg name="gated_ns" default="/gated_drone" />
 
-  <!-- NEW v4: input topic overrides.
+  <!-- v4: input topic overrides.
        Defaults reproduce the v3 sjtu_drone topic layout, so leaving
        these unset gives identical Gazebo behaviour. Override them
        from a real-drone wrapper launch (see real_drone.launch). -->
@@ -52,6 +58,11 @@
        default="$(arg drone_ns)/front_depth/depth/image_raw" />
   <arg name="camera_info_topic"
        default="$(arg drone_ns)/front_depth/depth/camera_info" />
+
+  <!-- v5: when false, sensor_gate ignores camera_info entirely.
+       Intrinsics come from rosparam (see the static params below).
+       Set true to restore v4 pass-through bridging. -->
+  <arg name="bridge_camera_info" default="false" />
 
   <!-- Goal -->
   <arg name="goal_x" default="4.0" />
@@ -141,15 +152,17 @@
   <rosparam command="load" file="$(find exploration_utils)/config/perception_utils.yaml"/>
   <rosparam command="load" file="$(find exploration_manager)/config/exploration_manager.yaml"/>
 
-  <!-- Camera intrinsics (must match the depth camera being used) -->
-  <param name="/uav_model/sensing_parameters/camera_intrinsics/fx" value="361.52" />
-  <param name="/uav_model/sensing_parameters/camera_intrinsics/fy" value="410.76" />
-  <param name="/uav_model/sensing_parameters/camera_intrinsics/cx" value="229.34" />
-  <param name="/uav_model/sensing_parameters/camera_intrinsics/cy" value="116.76" />
-  <param name="/uav_model/sensing_parameters/image_width"  value="504" />
-  <param name="/uav_model/sensing_parameters/image_height" value="280" />
+  <!-- Camera intrinsics (must match the depth camera being used).
+       These are the authoritative source now that camera_info is no
+       longer bridged. Edit here for a new camera. -->
+  <param name="/uav_model/sensing_parameters/camera_intrinsics/fx" value="460.90" />
+  <param name="/uav_model/sensing_parameters/camera_intrinsics/fy" value="461.98" />
+  <param name="/uav_model/sensing_parameters/camera_intrinsics/cx" value="237.80" />
+  <param name="/uav_model/sensing_parameters/camera_intrinsics/cy" value="58.61" />
+  <param name="/uav_model/sensing_parameters/image_width"  value="720" />
+  <param name="/uav_model/sensing_parameters/image_height" value="420" />
   <param name="/uav_model/sensing_parameters/min_depth" value="0.1" />
-  <param name="/uav_model/sensing_parameters/max_depth" value="5.0" />
+  <param name="/uav_model/sensing_parameters/max_depth" value="10.0" />
 
   <!-- Transformer -->
   <param name="/transformer/pose_topic_type"     value="pose" />
@@ -189,16 +202,18 @@
        NODES
        ══════════════════════════════════════════════════════════════ -->
 
-  <!-- NEW v4: pose, depth, camera_info pulled from explicit args.
-       Default values reproduce v3 Gazebo behaviour. -->
+  <!-- v5: bridge_camera_info forwarded to sensor_gate.
+       v4: pose, depth, camera_info pulled from explicit args.
+       Default values reproduce v3 Gazebo behaviour (modulo v5 default). -->
   <node pkg="falcon_adapter" type="sensor_gate.py"
         name="sensor_gate" output="screen">
-    <param name="in_ns"             value="$(arg drone_ns)" />
-    <param name="out_ns"            value="$(arg gated_ns)" />
-    <param name="pose_topic"        value="$(arg pose_topic)" />
-    <param name="depth_topic"       value="$(arg depth_topic)" />
-    <param name="camera_info_topic" value="$(arg camera_info_topic)" />
-    <param name="replay_hz"         value="30.0" />
+    <param name="in_ns"              value="$(arg drone_ns)" />
+    <param name="out_ns"             value="$(arg gated_ns)" />
+    <param name="pose_topic"         value="$(arg pose_topic)" />
+    <param name="depth_topic"        value="$(arg depth_topic)" />
+    <param name="camera_info_topic"  value="$(arg camera_info_topic)" />
+    <param name="bridge_camera_info" value="$(arg bridge_camera_info)" />
+    <param name="replay_hz"          value="30.0" />
   </node>
 
   <node pkg="falcon_adapter" type="falcon_adapter.py"

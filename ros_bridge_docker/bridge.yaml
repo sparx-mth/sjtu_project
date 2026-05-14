@@ -11,17 +11,14 @@ topics:
       reliability: best_effort
       durability: volatile
 
-  - topic: /xtend/camera_info
-    type: sensor_msgs/msg/CameraInfo
-    queue_size: 5
-    qos:
-      history: keep_last
-      depth: 5
-      # camera_info often goes out at the same rate as the image and
-      # uses the same QoS profile on most drivers. If you find out the
-      # drone publishes it reliable, flip this back.
-      reliability: best_effort
-      durability: volatile
+  # camera_info intentionally NOT bridged. Intrinsics are static and
+  # already loaded into rosparam on the ROS1 side via
+  #   /uav_model/sensing_parameters/camera_intrinsics/{fx,fy,cx,cy}
+  #   /uav_model/sensing_parameters/{image_width,image_height,min_depth,max_depth}
+  # FALCON's exploration_node reads intrinsics from rosparam, not from
+  # the topic, so there's no reason to drag /xtend/camera_info across.
+  # If you ever need it back, re-add the entry here AND set
+  # bridge_camera_info:=true on the ROS1 sensor_gate.
 
   - topic: /flow_depth/pose_est
     type: geometry_msgs/msg/PoseStamped
@@ -32,5 +29,18 @@ topics:
       # Per your QoSProfile snippet: best_effort. If pose is published
       # reliable on the drone, change this to reliable and the depth
       # to a higher number (50) for catch-up after stalls.
+      reliability: best_effort
+      durability: volatile
+
+  - topic: /cmd_vel
+    type: geometry_msgs/msg/Twist
+    queue_size: 10
+    qos:
+      history: keep_last
+      depth: 10
+      # Control commands are almost always reliable on the drone side.
+      # If you set best_effort here while the ROS2 subscriber is reliable,
+      # QoS won't match and nothing will flow (same kind of bug as the
+      # depth_m note above, just in the opposite direction).
       reliability: best_effort
       durability: volatile
