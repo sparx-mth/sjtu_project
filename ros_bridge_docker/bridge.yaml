@@ -38,9 +38,8 @@ topics:
     qos:
       history: keep_last
       depth: 10
-      # Control commands are almost always reliable on the drone side.
-      # If you set best_effort here while the ROS2 subscriber is reliable,
-      # QoS won't match and nothing will flow (same kind of bug as the
-      # depth_m note above, just in the opposite direction).
-      reliability: best_effort
+      # Control commands — reliable on the drone side. Scripts that
+      # subscribe to /cmd_vel (like xtend_twist_to_cmd_nav.py) expect
+      # reliable; best_effort here would cause a QoS mismatch.
+      reliability: reliable
       durability: volatile
