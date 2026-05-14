@@ -56,9 +56,9 @@
 
   <!-- Speeds & radii -->
   <arg name="vel_x"                  default="0.3" />
-  <arg name="yaw_rate"               default="0.7" />
+  <arg name="yaw_rate"               default="0.3" />
   <arg name="pos_acquisition_radius" default="0.35" />
-  <arg name="yaw_acquisition_radius" default="0.10" />
+  <arg name="yaw_acquisition_radius" default="0.50" />
   <arg name="yaw_lead_pct"           default="10.0" />
 
   <!-- A* / path -->
@@ -78,7 +78,7 @@
   <arg name="freeze_during_yaw" default="true" />
   <arg name="maintain_altitude" default="true" />
   <arg name="use_posctrl"       default="true" />
-  <arg name="ctrl_rate_hz"      default="20.0" />
+  <arg name="ctrl_rate_hz"      default="5.0" />
 
   <arg name="forward_only"      default="false" />
   <arg name="cmd_log_path"      default="/home/nadavc/Desktop/cmd_log_{ts}.jsonl" />
