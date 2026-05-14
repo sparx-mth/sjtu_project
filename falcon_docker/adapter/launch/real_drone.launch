@@ -19,18 +19,19 @@
                         all see the same topic name and message type
                         they always saw.
 
-    Defaults assume:
-      * MAVROS for localization (PoseStamped on /mavros/local_position/pose)
-      * Intel RealSense D435/D455 for depth
-    Override the args below if your hardware differs.
+    camera_info is intentionally NOT bridged for real-drone runs
+    (bridge_camera_info defaults to false in gazebo_waypoint_nav.launch).
+    Camera intrinsics are passed as args below and loaded into rosparam,
+    where FALCON's exploration_node reads them.
+
+    Defaults match the xtend drone:
+      pose : /flow_depth/pose_est (PoseStamped)
+      depth: /xtend/depth_m       (32FC1, 504x392)
+      K    : fx=430.18 fy=431.19 cx=238.75 cy=120.04
+             (from camera_matrix in camera_xtend_ros_calib_504_392_*.yaml)
 
     Run example:
-      roslaunch falcon_adapter real_drone.launch \
-          map_name:=real_drone \
-          real_pose_topic:=/mavros/local_position/pose \
-          real_pose_type:=pose_stamped \
-          real_depth_topic:=/camera/depth/image_rect_raw \
-          real_camera_info_topic:=/camera/depth/camera_info
+      roslaunch falcon_adapter real_drone.launch
   -->
 
   <!-- ── Forwarded to the included nav launch ─────────────────── -->
@@ -38,46 +39,29 @@
   <arg name="drone_ns" default="" />
   <arg name="gated_ns" default="/gated_drone" />
 
-  <!-- ── Real-drone localization ──────────────────────────────────
-       Common defaults per source (uncomment the one that matches):
-
-         MAVROS PoseStamped (PX4/ArduPilot, default here):
-           real_pose_topic:=/mavros/local_position/pose   real_pose_type:=pose_stamped
-
-         MAVROS Odometry:
-           real_pose_topic:=/mavros/local_position/odom   real_pose_type:=odometry
-
-         VINS-Fusion / general VIO:
-           real_pose_topic:=/vins_estimator/odometry      real_pose_type:=odometry
-
-         ORB-SLAM3:
-           real_pose_topic:=/orb_slam3/camera_pose        real_pose_type:=pose_stamped
-
-         Vicon / OptiTrack via VRPN (replace <obj> with object name):
-           real_pose_topic:=/vrpn_client_node/<obj>/pose  real_pose_type:=pose_stamped
-       ─────────────────────────────────────────────────────────── -->
+  <!-- ── Real-drone localization ──────────────────────────────── -->
   <arg name="real_pose_topic" default="/flow_depth/pose_est" />
   <arg name="real_pose_type"  default="pose_stamped" />
 
-  <!-- ── Real-drone depth ────────────────────────────────────────
-         Intel RealSense D4xx (default):
-           /camera/depth/image_rect_raw
-           /camera/depth/camera_info
+  <!-- ── Real-drone depth ──────────────────────────────────────── -->
+  <arg name="real_depth_topic" default="/xtend/depth_m" />
 
-         Azure Kinect:
-           /depth/image_raw
-           /depth/camera_info
+  <!-- ── Camera intrinsics (xtend K-matrix defaults for 504x392) ──
+       MUST match the actual depth stream. If image_width/image_height
+       don't match what the drone publishes, exploration_node silently
+       drops frames. Override on the command line for a different camera:
+         cam_fx:=... cam_fy:=... cam_cx:=... cam_cy:=...
+         cam_width:=... cam_height:=... -->
+  <arg name="cam_fx"        default="430.18" />
+  <arg name="cam_fy"        default="431.19" />
+  <arg name="cam_cx"        default="238.75" />
+  <arg name="cam_cy"        default="120.04" />
+  <arg name="cam_width"     default="504" />
+  <arg name="cam_height"    default="392" />
+  <arg name="cam_min_depth" default="0.1" />
+  <arg name="cam_max_depth" default="10.0" />
 
-         ZED 2:
-           /zed2/zed_node/depth/depth_registered
-           /zed2/zed_node/depth/camera_info
-       ─────────────────────────────────────────────────────────── -->
-  <arg name="real_depth_topic"
-       default="/xtend/depth_m" />
-  <arg name="real_camera_info_topic"
-       default="/xtend/camera_info" />
-
-  <!-- ── Optional flight-tuning overrides (omit to use Gazebo defaults) -->
+  <!-- ── Optional flight-tuning overrides ────────────────────────-->
   <arg name="vel_x"     default="0.3" />
   <arg name="cruise_z"  default="1.0" />
   <arg name="goal_x"    default="4.0" />
@@ -97,23 +81,28 @@
 
   <!-- ══════════════════════════════════════════════════════════════
        The actual nav stack — same launch as Gazebo, just with the
-       real-drone depth topic names passed in. Pose stays at
-       /<drone_ns>/gt_pose because pose_adapter republishes there.
+       real-drone depth topic and camera intrinsics passed in.
        ══════════════════════════════════════════════════════════════ -->
   <include file="$(find falcon_adapter)/launch/gazebo_waypoint_nav.launch">
-    <arg name="map_name"           value="$(arg map_name)" />
-    <arg name="drone_ns"           value="$(arg drone_ns)" />
-    <arg name="gated_ns"           value="$(arg gated_ns)" />
+    <arg name="map_name"      value="$(arg map_name)" />
+    <arg name="drone_ns"      value="$(arg drone_ns)" />
+    <arg name="gated_ns"      value="$(arg gated_ns)" />
 
-    <!-- pose_topic stays the default ($(arg drone_ns)/gt_pose) so
-         sensor_gate picks up what pose_adapter publishes. -->
-    <arg name="depth_topic"        value="$(arg real_depth_topic)" />
-    <arg name="camera_info_topic"  value="$(arg real_camera_info_topic)" />
+    <arg name="depth_topic"   value="$(arg real_depth_topic)" />
 
-    <arg name="vel_x"              value="$(arg vel_x)" />
-    <arg name="cruise_z"           value="$(arg cruise_z)" />
-    <arg name="goal_x"             value="$(arg goal_x)" />
-    <arg name="goal_y"             value="$(arg goal_y)" />
+    <arg name="cam_fx"        value="$(arg cam_fx)" />
+    <arg name="cam_fy"        value="$(arg cam_fy)" />
+    <arg name="cam_cx"        value="$(arg cam_cx)" />
+    <arg name="cam_cy"        value="$(arg cam_cy)" />
+    <arg name="cam_width"     value="$(arg cam_width)" />
+    <arg name="cam_height"    value="$(arg cam_height)" />
+    <arg name="cam_min_depth" value="$(arg cam_min_depth)" />
+    <arg name="cam_max_depth" value="$(arg cam_max_depth)" />
+
+    <arg name="vel_x"         value="$(arg vel_x)" />
+    <arg name="cruise_z"      value="$(arg cruise_z)" />
+    <arg name="goal_x"        value="$(arg goal_x)" />
+    <arg name="goal_y"        value="$(arg goal_y)" />
   </include>
 
 </launch>

@@ -1,7 +1,13 @@
 <launch>
   <!--
-    gazebo_waypoint_nav.launch  (v5 — camera_info bridging defaults OFF)
+    gazebo_waypoint_nav.launch  (v7 — camera intrinsics as args)
     ════════════════════════════════════════════════════════════════════
+    v7 vs v5:
+      - Camera intrinsics are now <arg>s (cam_fx, cam_fy, cam_cx, cam_cy,
+        cam_width, cam_height, cam_min_depth, cam_max_depth). Defaults
+        are the xtend drone K-matrix values for the 504x392 stream.
+        Override from real_drone.launch or the command line per camera.
+
     v5 vs v4:
       - Added `bridge_camera_info` arg (default false). sensor_gate
         will neither subscribe to camera_info nor republish it. FALCON
@@ -10,35 +16,7 @@
 
     v4 vs v3:
       - Added `pose_topic`, `depth_topic`, `camera_info_topic` args.
-        Defaults preserve the v3 Gazebo behavior exactly (suffixes
-        derived from drone_ns), so existing `roslaunch ... map_name:=X`
-        invocations still work unchanged.
-      - sensor_gate now receives those topic names via private params.
-        For real-drone use, override these from a wrapper launch
-        (see real_drone.launch).
-
-    Wiring (unchanged from v3):
-        <pose>     ─┐
-        <depth>    ─┼─→ sensor_gate ─→ /<gated_ns>/* ─→ falcon_adapter
-        <cam_info> ─┘                                          │
-                          (frozen during YAW)                  ▼
-                                                       exploration_node
-                                                       ─→ /voxel_mapping/...
-                                                       ─→ bev_publisher
-                                                       ─→ /falcon/bev_2d
-                                                                │
-                  /<drone_ns>/gt_pose, goal ─→ astar_planner
-                                             ─→ /path/waypoints
-                                                     │
-                                                     ▼
-                                             waypoint_follower
-                                             ─→ /<drone_ns>/cmd_vel
-                                             ─→ /sensor_gate/freeze
-
-    NOT started here: cmd_to_vel (waypoint_follower owns cmd_vel).
-    NOT started here: traj_server (we don't track FALCON's spline).
-    exploration_node has respawn="false" so a planner crash does NOT
-    wipe the voxel buffer.
+      - sensor_gate receives those topic names via private params.
   -->
 
   <!-- ══════════════════════════════════════════════════════════════
@@ -48,10 +26,8 @@
   <arg name="drone_ns" default="/simple_drone" />
   <arg name="gated_ns" default="/gated_drone" />
 
-  <!-- v4: input topic overrides.
-       Defaults reproduce the v3 sjtu_drone topic layout, so leaving
-       these unset gives identical Gazebo behaviour. Override them
-       from a real-drone wrapper launch (see real_drone.launch). -->
+  <!-- v4: input topic overrides. Defaults preserve the v3 sjtu_drone
+       layout, so leaving these unset gives identical Gazebo behaviour. -->
   <arg name="pose_topic"
        default="$(arg drone_ns)/gt_pose" />
   <arg name="depth_topic"
@@ -59,10 +35,20 @@
   <arg name="camera_info_topic"
        default="$(arg drone_ns)/front_depth/depth/camera_info" />
 
-  <!-- v5: when false, sensor_gate ignores camera_info entirely.
-       Intrinsics come from rosparam (see the static params below).
-       Set true to restore v4 pass-through bridging. -->
+  <!-- v5: when false, sensor_gate ignores camera_info entirely. -->
   <arg name="bridge_camera_info" default="false" />
+
+  <!-- v7: camera intrinsics (override per camera). MUST match the actual
+       depth stream — if image_width/image_height don't match, frames are
+       silently dropped. Defaults: xtend K-matrix values for 504x392. -->
+  <arg name="cam_fx"        default="430.18" />
+  <arg name="cam_fy"        default="431.19" />
+  <arg name="cam_cx"        default="238.75" />
+  <arg name="cam_cy"        default="120.04" />
+  <arg name="cam_width"     default="504" />
+  <arg name="cam_height"    default="392" />
+  <arg name="cam_min_depth" default="0.1" />
+  <arg name="cam_max_depth" default="10.0" />
 
   <!-- Goal -->
   <arg name="goal_x" default="4.0" />
@@ -79,11 +65,11 @@
   <arg name="waypoint_spacing_m"    default="1.0" />
   <arg name="inflate_radius_m"      default="0.01" />
   <arg name="unknown_blocked"       default="false" />
-  <arg name="unknown_cost"          default="1.0" />     <!-- unknown=free -->
-  <arg name="los_smoothing"         default="true" />    <!-- collapse staircase -->
-  <arg name="turn_penalty"          default="0.0" />     <!-- extra A* cost per dir change -->
-  <arg name="replan_on_collision"   default="true" />    <!-- replan when path hits new occupancy -->
-  <arg name="replan_on_bev"         default="false" />   <!-- replan every BEV (rarely needed) -->
+  <arg name="unknown_cost"          default="1.0" />
+  <arg name="los_smoothing"         default="true" />
+  <arg name="turn_penalty"          default="0.0" />
+  <arg name="replan_on_collision"   default="true" />
+  <arg name="replan_on_bev"         default="false" />
   <arg name="replan_period_s"       default="0.0" />
 
   <!-- Takeoff & cruise -->
@@ -94,12 +80,7 @@
   <arg name="use_posctrl"       default="true" />
   <arg name="ctrl_rate_hz"      default="20.0" />
 
-  <!-- Forward-only mode: skip YAW_ALIGN entirely. Set to "true" to
-       fly straight without rotating (useful for corridor testing). -->
   <arg name="forward_only"      default="true" />
-
-  <!-- cmd_vel JSON Lines log. {ts} expands to YYYYMMDD_HHMMSS at
-       startup. Empty string disables logging. -->
   <arg name="cmd_log_path"      default="/home/nadavc/Desktop/cmd_log_{ts}.jsonl" />
 
   <!-- BEV -->
@@ -113,12 +94,7 @@
   <arg name="bev_publish_hz"  default="2.0" />
   <arg name="bev_occ_dilate"  default="0" />
 
-  <!-- ══════════════════════════════════════════════════════════════
-       FALCON SPEED / SAFETY / FRONTIER ARGS
-       Same defaults as the original gazebo_exploration.launch v17.
-       Even though we never USE FALCON's trajectory, exploration_node
-       reads these on init and aborts if any is missing or non-positive.
-       ══════════════════════════════════════════════════════════════ -->
+  <!-- FALCON speed / safety / frontier -->
   <arg name="max_vel"     default="0.25" />
   <arg name="max_acc"     default="0.25" />
   <arg name="max_yaw_vel" default="0.6" />
@@ -131,7 +107,6 @@
   <arg name="frontier_candidate_rmin"    default="1.0" />
   <arg name="frontier_candidate_rmax"    default="5.5" />
 
-  <!-- FSM patience (very long → FSM rarely tries to replan) -->
   <arg name="fsm_replan_thresh1"   default="2.0" />
   <arg name="fsm_replan_thresh2"   default="2.0" />
   <arg name="fsm_replan_thresh3"   default="2.0" />
@@ -140,7 +115,7 @@
   <arg name="fsm_thresh_no_replan" default="60.0" />
 
   <!-- ══════════════════════════════════════════════════════════════
-       LOAD FALCON CONFIG (same set the original launch loads).
+       LOAD FALCON CONFIG
        ══════════════════════════════════════════════════════════════ -->
   <rosparam command="load" file="$(find exploration_manager)/config/robot/uav_model_simulator.yaml"/>
   <rosparam command="load" file="$(find exploration_manager)/config/map/$(arg map_name).yaml"/>
@@ -152,39 +127,34 @@
   <rosparam command="load" file="$(find exploration_utils)/config/perception_utils.yaml"/>
   <rosparam command="load" file="$(find exploration_manager)/config/exploration_manager.yaml"/>
 
-  <!-- Camera intrinsics (must match the depth camera being used).
-       These are the authoritative source now that camera_info is no
-       longer bridged. Edit here for a new camera. -->
-  <param name="/uav_model/sensing_parameters/camera_intrinsics/fx" value="430.90" />
-  <param name="/uav_model/sensing_parameters/camera_intrinsics/fy" value="430.98" />
-  <param name="/uav_model/sensing_parameters/camera_intrinsics/cx" value="238.75" />
-  <param name="/uav_model/sensing_parameters/camera_intrinsics/cy" value="120.04" />
-  <param name="/uav_model/sensing_parameters/image_width"  value="504" />
-  <param name="/uav_model/sensing_parameters/image_height" value="392" />
-  <param name="/uav_model/sensing_parameters/min_depth" value="0.1" />
-  <param name="/uav_model/sensing_parameters/max_depth" value="5.0" />
+  <!-- v7: camera intrinsics come from the cam_* args -->
+  <param name="/uav_model/sensing_parameters/camera_intrinsics/fx" value="$(arg cam_fx)" />
+  <param name="/uav_model/sensing_parameters/camera_intrinsics/fy" value="$(arg cam_fy)" />
+  <param name="/uav_model/sensing_parameters/camera_intrinsics/cx" value="$(arg cam_cx)" />
+  <param name="/uav_model/sensing_parameters/camera_intrinsics/cy" value="$(arg cam_cy)" />
+  <param name="/uav_model/sensing_parameters/image_width"  value="$(arg cam_width)" />
+  <param name="/uav_model/sensing_parameters/image_height" value="$(arg cam_height)" />
+  <param name="/uav_model/sensing_parameters/min_depth" value="$(arg cam_min_depth)" />
+  <param name="/uav_model/sensing_parameters/max_depth" value="$(arg cam_max_depth)" />
 
   <!-- Transformer -->
   <param name="/transformer/pose_topic_type"     value="pose" />
   <param name="/transformer/timestamp_tolerance" value="0.05" />
 
-  <!-- Speed limits (THIS is what fixes the max_vel=-1 abort) -->
+  <!-- Speed limits -->
   <param name="/uav_model/dynamics_parameters/max_linear_velocity"     value="$(arg max_vel)" />
   <param name="/uav_model/dynamics_parameters/max_linear_acceleration" value="$(arg max_acc)" />
   <param name="/uav_model/dynamics_parameters/max_yaw_velocity"        value="$(arg max_yaw_vel)" />
   <param name="/uav_model/dynamics_parameters/max_yaw_acceleration"    value="$(arg max_yaw_acc)" />
 
-  <!-- Hard inflation in the voxel map (same flag the original used) -->
   <param name="/voxel_mapping/obstacles_inflation" value="$(arg obstacles_inflation)" />
   <param name="/bspline_opt/safe_distance"         value="$(arg safe_distance)" />
 
-  <!-- Frontier viewpoint clearances -->
   <param name="/frontier_finder/min_candidate_clearance"          value="$(arg frontier_min_clearance)" />
   <param name="/frontier_finder/min_candidate_occupied_clearance" value="$(arg frontier_min_occ_clearance)" />
   <param name="/frontier_finder/candidate_rmin"                   value="$(arg frontier_candidate_rmin)" />
   <param name="/frontier_finder/candidate_rmax"                   value="$(arg frontier_candidate_rmax)" />
 
-  <!-- FSM patience overrides (harmless if a name doesn't exist in your build) -->
   <param name="/fsm/replan_thresh1"   value="$(arg fsm_replan_thresh1)" />
   <param name="/fsm/replan_thresh2"   value="$(arg fsm_replan_thresh2)" />
   <param name="/fsm/replan_thresh3"   value="$(arg fsm_replan_thresh3)" />
@@ -192,8 +162,6 @@
   <param name="/fsm/thresh_replan"    value="$(arg fsm_thresh_replan)" />
   <param name="/fsm/thresh_no_replan" value="$(arg fsm_thresh_no_replan)" />
 
-  <!-- traj_server's startup ramp (we don't run traj_server but FALCON
-       reads these globals at init). Setting to 0 is the safe choice. -->
   <param name="/traj_server/init_dx" value="0.0" />
   <param name="/traj_server/init_dy" value="0.0" />
   <param name="/traj_server/init_dz" value="0.0" />
@@ -202,9 +170,6 @@
        NODES
        ══════════════════════════════════════════════════════════════ -->
 
-  <!-- v5: bridge_camera_info forwarded to sensor_gate.
-       v4: pose, depth, camera_info pulled from explicit args.
-       Default values reproduce v3 Gazebo behaviour (modulo v5 default). -->
   <node pkg="falcon_adapter" type="sensor_gate.py"
         name="sensor_gate" output="screen">
     <param name="in_ns"              value="$(arg drone_ns)" />
@@ -227,7 +192,6 @@
     <param name="depth_min_dt" value="0.04" />
   </node>
 
-  <!-- respawn="false": keeps voxel buffer alive even on a planner crash -->
   <node pkg="exploration_manager" name="exploration_node" type="exploration_node"
         output="screen" respawn="false">
     <remap from="/odom_world"                    to="/odom_world"/>
