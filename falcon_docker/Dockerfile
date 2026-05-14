@@ -53,6 +53,11 @@ RUN rosdep update
 # ROS packages (always installed; idempotent if base image has them):
 #   cv_bridge, pcl_conversions, pcl_ros, laser_geometry, image_transport,
 #   tf2_eigen, tf2_geometry_msgs, tf_conversions, eigen_conversions
+#
+# RViz + viz plugins (NEW): always installed so we can run RViz inside
+# the container on Jetson too (the perception base image doesn't have it;
+# the desktop-full base does — apt is idempotent so this is harmless
+# either way).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libgoogle-glog-dev \
         libdw-dev \
@@ -69,6 +74,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ros-noetic-tf2-geometry-msgs \
         ros-noetic-tf-conversions \
         ros-noetic-eigen-conversions \
+        ros-noetic-rviz \
+        ros-noetic-rviz-imu-plugin \
+        ros-noetic-visualization-tutorials \
     && rm -rf /var/lib/apt/lists/*
 
 # ── 2b. Open3D-only apt deps (WITH_SIM=1 only) ────────────────
@@ -135,6 +143,14 @@ RUN if [ "$WITH_SIM" = "1" ]; then \
             "s|open3d_resource_path:.*|open3d_resource_path: ${OPEN3D_SOURCE}/build/bin/resources|g" \
           || true ; \
     fi
+
+# ── 6a-bis. Patch FALCON exploration_utils/system_info.cpp ────
+# printSystemInfo() crashes the exploration_node on Jetson because
+# nvidia-smi --query-gpu fails (NVML error) and std::stol receives a
+# non-numeric string. Without this patch, exploration_node aborts at
+# startup with std::invalid_argument and no voxels are ever produced.
+COPY fix_falcon_system_info.sh /tmp/fix_falcon_system_info.sh
+RUN chmod +x /tmp/fix_falcon_system_info.sh && /tmp/fix_falcon_system_info.sh
 
 # ── 6b. Skip CUDA-only + (Jetson) simulator-side packages ─────
 COPY ignore_cuda_pkgs.sh /tmp/ignore_cuda_pkgs.sh
