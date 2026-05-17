@@ -131,6 +131,13 @@ class WaypointFollower:
         self.ctrl_rate_hz      = float(G("~ctrl_rate_hz",      50.0))
         self.status_hz         = float(G("~status_hz",         1.0))
 
+        # Startup hold: for the first `startup_hold_sec` seconds the
+        # node refuses to command any motion (vx and wz forced to 0),
+        # so the drone waits while the map warms up instead of cruising
+        # into an all-unknown world. 0 disables.
+        self.startup_hold_sec = float(G("~startup_hold_sec", 5.0))
+        self._node_start_t    = rospy.Time.now()
+
         # Forward-only mode: skip YAW_ALIGN entirely (treat all transitions
         # to YAW_ALIGN as transitions to ADVANCE). Useful when the drone is
         # already pointed in the right direction and you just want it to
@@ -234,23 +241,7 @@ class WaypointFollower:
         if not pts:
             rospy.logwarn("waypoint_follower: empty path"); return
 
-        # Trim already-passed leading waypoints so a mid-flight replan
-        # doesn't point the drone back at a point behind it. TWO guards
-        # were missing and caused "click does nothing":
-        #
-        #   1. Only trim when the drone is actually FLYING. When it is
-        #      stationary (just took off, or sitting in WAIT_PATH after
-        #      the warmup gate) "already passed" is meaningless — there
-        #      is no motion direction — and trimming would discard the
-        #      very waypoints we need to fly to a fresh clicked goal.
-        #   2. NEVER drop the final waypoint. The old code could trim
-        #      the whole path down to pts[-1:] and, if that point was
-        #      within pos_radius, YAW_ALIGN would immediately advance
-        #      past it → DONE → drone never moves. Keep at least the
-        #      last two points (or the single goal) so there is always
-        #      something to fly toward.
-        flying = abs(self.last_vx) > 0.05
-        if flying and self.cur_pose is not None and len(pts) >= 2:
+        if self.cur_pose is not None and len(pts) >= 2:
             cx = self.cur_pose.position.x
             cy = self.cur_pose.position.y
             best_i, best_d = 0, float('inf')
@@ -273,29 +264,17 @@ class WaypointFollower:
                 ex, ey = pts[drop]
                 if math.hypot(ex - cx, ey - cy) < self.pos_radius:
                     drop += 1
-            # Clamp: never trim past the second-to-last point, so the
-            # goal (and a heading toward it) always survive.
-            drop = min(drop, len(pts) - 1)
-            pts = pts[drop:]
+            if drop >= len(pts):
+                pts = pts[-1:]
+            else:
+                pts = pts[drop:]
 
         self.path_xy = pts
         self.wp_idx  = 0
         rospy.loginfo("waypoint_follower: NEW PATH  %d wp  "
                       "first=(%.2f,%.2f)  last=(%.2f,%.2f)",
                       len(pts), pts[0][0], pts[0][1], pts[-1][0], pts[-1][1])
-        # A new path must (re)drive the state machine in EVERY state
-        # that can legitimately receive one. The original list omitted
-        # WAIT_PATH, so the very first path after the map-warmup gate
-        # (state == WAIT_PATH at that moment) never called
-        # _entry_after_new_path(): the drone sat in WAIT_PATH and only
-        # the ctrl-loop's WAIT_PATH branch could move it — which, with
-        # an aggressively trimmed single-waypoint path, jumped straight
-        # to DONE without ever flying. Pre-flight states are harmless
-        # to include: _entry_after_new_path() only ever transitions to
-        # YAW_ALIGN/ADVANCE/BRAKE, and the ctrl loop still gates real
-        # motion behind takeoff/hover-settle completion.
-        if self.state in (S.WAIT_PATH, S.YAW_ALIGN, S.ADVANCE,
-                          S.BRAKE, S.DONE):
+        if self.state in (S.YAW_ALIGN, S.ADVANCE, S.BRAKE, S.DONE):
             # Refresh per-state snapshots BEFORE deciding state. If the
             # new path's first waypoint requires a totally different
             # rotation (e.g. old sweep was +34° and new is -147°), the
@@ -411,6 +390,16 @@ class WaypointFollower:
             rospy.logerr_throttle(1.0,
                 "waypoint_follower: INVARIANT VIOLATION  vx=%.3f wz=%.3f "
                 "in state %s — zeroing wz", vx, wz, self.state)
+            wz = 0.0
+
+        # Startup hold: swallow every motion command for the first
+        # `startup_hold_sec` seconds. The state machine keeps running;
+        # only the actuation is suppressed, so once the hold expires
+        # the node resumes normally with no extra state.
+        if (self.startup_hold_sec > 0.0
+                and (rospy.Time.now() - self._node_start_t).to_sec()
+                    < self.startup_hold_sec):
+            vx = 0.0
             wz = 0.0
 
         vx = saturate(vx, self.vel_xy_sat)

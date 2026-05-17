@@ -108,6 +108,7 @@ The first arg is the map name; the script loads `<name>.yaml` from the same dire
 Now in a **new** host terminal:
 
 ```bash
+export DISPLAY=:0
 docker exec -it falcon bash
 source /catkin_ws/devel/setup.bash
 roslaunch exploration_manager rviz.launch
