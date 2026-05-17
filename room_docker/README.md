@@ -125,6 +125,15 @@ viewed perpendicularly through a pinhole). We don't need an absolute
 distance to know we're "as close as we can get" — we just need a
 threshold on how much of the image the target is filling.
 
+### Platform invariant
+
+**Every published Twist must satisfy `(linear.x = 0) XOR (angular.z = 0)`**
+plus `linear.y = linear.z = 0`. The real drone's flight controller
+refuses commands that mix forward motion with yaw, so the orchestrator
+emits **either** pure-yaw **or** pure-forward, never both. (The
+ROS1-side `waypoint_follower.py` already documents and enforces the
+same invariant.)
+
 ### Visual control law
 
 Each `1 / visual_ctrl_hz` (default 15 Hz):
@@ -132,27 +141,33 @@ Each `1 / visual_ctrl_hz` (default 15 Hz):
 1. From `/perception/detections`, take the highest-confidence detection
    whose class name matches the target (exact or substring,
    case-insensitive). If none arrived within `visual_lost_hover_s`,
-   publish zero cmd and start counting toward `visual_giveup_s`.
+   publish a zero Twist and start counting toward `visual_giveup_s`.
 2. Compute
    ```
-   x_off    = (bbox_cx - rgb_W/2) / (rgb_W/2)        # normalised, [-1, +1]
-   area_frac = (bbox_w * bbox_h) / (rgb_W * rgb_H)   # proximity proxy
+   x_off     = (bbox_cx - rgb_W/2) / (rgb_W/2)       # normalised, [-1, +1]
+   area_frac = (bbox_w * bbox_h)   / (rgb_W * rgb_H) # proximity proxy
    ```
 3. If `area_frac >= visual_land_area_frac`, transition to `LAND`.
-4. Otherwise:
-   - `wz = -visual_kp_yaw * x_off`, saturated at `visual_max_yaw_rate`.
-     Sign: ROS body-frame `+angular.z` yaws CCW, which shifts the camera
-     content LEFTWARDS. So target right of centre means `wz < 0`.
-   - If `|x_off| > visual_yaw_deadband`, force `vx = 0` (yaw to centre
-     first — don't chase a far-off-axis target).
-   - Else linear ramp on bbox area:
+4. Otherwise pick a sub-mode with a Schmitt trigger on `|x_off|`:
+   - In `YAW` sub-mode, stay until `|x_off| < visual_yaw_deadband_exit`,
+     then switch to `ADVANCE`.
+   - In `ADVANCE` sub-mode, stay until `|x_off| > visual_yaw_deadband_enter`,
+     then switch back to `YAW`.
+   - On every sub-mode switch, publish one `(0, 0)` brake tick — gives
+     the platform PID a beat to settle the previous axis before the new
+     command starts.
+5. Emit the sub-mode's Twist:
+   - **`YAW`**: `(0, wz)` where `wz = -visual_kp_yaw * x_off`, saturated
+     at `visual_max_yaw_rate`. Sign: ROS body-frame `+angular.z` yaws
+     CCW, which shifts the camera content LEFTWARDS, so target right of
+     centre means `wz < 0`.
+   - **`ADVANCE`**: `(vx, 0)` with a linear ramp on bbox area:
      ```
      area_frac < slowdown_area_frac → vx = vx_max
      area_frac ≥ slowdown_area_frac
        → vx = vx_max * (land_area_frac - area_frac)
                        / (land_area_frac - slowdown_area_frac)
      ```
-5. Publish `(vx, wz)` to `/<drone_ns>/cmd_vel`.
 
 There's also a hard `visual_approach_timeout_s` (default 90 s): if the
 bbox never reaches `visual_land_area_frac` — small target, wide FOV,
@@ -250,7 +265,8 @@ And for the ROS1 → ROS2 direction:
 | `rgb_image_width` / `_height`| `640` / `360` | Bbox normalisation. sjtu_drone defaults; override for real cameras.     |
 | `visual_kp_yaw`              | `0.9`   | P-gain mapping normalised x-offset → yaw rate.                                |
 | `visual_max_yaw_rate`        | `0.6`   | rad/s saturation on the visual yaw output.                                    |
-| `visual_yaw_deadband`        | `0.20`  | If `|x_off| > deadband`, set `vx=0` (yaw to centre first).                    |
+| `visual_yaw_deadband_enter`  | `0.20`  | `\|x_off\|` at which we switch from `ADVANCE` back to `YAW`.                  |
+| `visual_yaw_deadband_exit`   | `0.08`  | `\|x_off\|` at which we switch from `YAW` to `ADVANCE`. Must be `< enter`.    |
 | `visual_vx_max`              | `0.20`  | Max forward velocity during approach (m/s).                                   |
 | `visual_slowdown_area_frac`  | `0.03`  | Bbox area / image area at which the linear vx ramp starts.                    |
 | `visual_land_area_frac`      | `0.12`  | Bbox area / image area that triggers the `LAND` transition.                   |

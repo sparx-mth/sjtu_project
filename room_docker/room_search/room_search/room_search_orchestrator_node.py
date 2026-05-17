@@ -20,16 +20,20 @@ State machine
                      - timeout after max_rotation_revs full revolutions
                        → GIVE_UP
   VISUAL_APPROACH    KEEP external_ctrl=True. Closed-loop on the RGB
-                     bounding box only — no depth, no localisation:
-                       * yaw to keep the target bbox centred horizontally
-                         in the image,
-                       * advance forward at a velocity that ramps down
-                         as the bbox grows (area fraction of the image
-                         as a 1/d² proxy for distance),
-                       * if no matching detection for visual_lost_hover_s,
-                         hold (and eventually GIVE_UP).
-                     Exits when bbox area fraction >= visual_land_area_frac
-                     (we're as close as the RGB-only proxy lets us be).
+                     bounding box only — no depth, no localisation.
+                     PLATFORM INVARIANT: every published Twist has
+                       linear.y = linear.z = 0   (no roll, no climb)
+                       (linear.x = 0)  XOR  (angular.z = 0)
+                     i.e. either pure-yaw OR pure-forward, never both.
+                     The loop alternates two sub-modes with hysteresis:
+                       * YAW:     publishing (0, wz)  until |x_off| drops
+                                  below visual_yaw_deadband_exit
+                       * ADVANCE: publishing (vx, 0)  until |x_off| rises
+                                  above visual_yaw_deadband_enter
+                     vx is ramped down with bbox area (1/d² proxy for
+                     distance). A single (0,0) brake tick is emitted on
+                     every mode switch.
+                     Exits when bbox area fraction >= visual_land_area_frac.
                      → LAND
   LAND               publish a short burst of /<drone_ns>/land (Empty).
                      The sjtu_drone landing controller owns the descent.
@@ -149,9 +153,14 @@ class RoomSearchOrchestrator(Node):
         # centre needs wz < 0 to recentre).
         P("visual_kp_yaw",          0.9)
         P("visual_max_yaw_rate",    0.6)   # rad/s saturation
-        # If |x_offset_normalised| exceeds this, force vx=0 (yaw to
-        # centre first; don't chase a far-off-axis target).
-        P("visual_yaw_deadband",    0.20)  # 0.20 ≈ ±10% off centre
+        # Hysteresis on the YAW ↔ ADVANCE switch. While in ADVANCE we
+        # stay until |x_off| > deadband_enter; once in YAW we stay until
+        # |x_off| < deadband_exit. exit < enter prevents flapping near
+        # the threshold, which would oscillate the underlying flight
+        # controller and (on a platform that only accepts one of the two
+        # commands at a time) introduce dead time on every flip.
+        P("visual_yaw_deadband_enter", 0.20)  # ~±10% off centre
+        P("visual_yaw_deadband_exit",  0.08)  # tighter exit
 
         # Bbox-area-fraction based forward velocity.
         # bbox_area_frac = (bbox_w * bbox_h) / (rgb_W * rgb_H). At
@@ -204,9 +213,16 @@ class RoomSearchOrchestrator(Node):
         self.rgb_W         = int(g("rgb_image_width"))
         self.rgb_H         = int(g("rgb_image_height"))
 
-        self.kp_yaw        = float(g("visual_kp_yaw"))
-        self.max_wz        = float(g("visual_max_yaw_rate"))
-        self.yaw_deadband  = float(g("visual_yaw_deadband"))
+        self.kp_yaw         = float(g("visual_kp_yaw"))
+        self.max_wz         = float(g("visual_max_yaw_rate"))
+        self.yaw_enter      = float(g("visual_yaw_deadband_enter"))
+        self.yaw_exit       = float(g("visual_yaw_deadband_exit"))
+        if self.yaw_exit > self.yaw_enter:
+            self.get_logger().warn(
+                f"visual_yaw_deadband_exit ({self.yaw_exit:.2f}) > "
+                f"visual_yaw_deadband_enter ({self.yaw_enter:.2f}); "
+                "swapping to maintain hysteresis")
+            self.yaw_enter, self.yaw_exit = self.yaw_exit, self.yaw_enter
         self.vx_max        = float(g("visual_vx_max"))
         self.area_slow     = float(g("visual_slowdown_area_frac"))
         self.area_land     = float(g("visual_land_area_frac"))
@@ -237,6 +253,10 @@ class RoomSearchOrchestrator(Node):
         self.last_det: Optional[Tuple[float, float, float, float, float]] = None
         self.last_det_t: float = 0.0
         self.last_visual_acquired_t: float = 0.0  # last time we had a det
+
+        # VISUAL_APPROACH sub-state. "YAW" = publishing (0, wz);
+        # "ADVANCE" = publishing (vx, 0). Set on entry to VISUAL_APPROACH.
+        self.visual_mode: str = "YAW"
 
         self._land_pubs_left = 0
         self._land_timer = None
@@ -313,9 +333,12 @@ class RoomSearchOrchestrator(Node):
             f"rot_rate={self.rot_rate:.2f}rad/s  max_revs={self.max_revs:.1f}")
         self.get_logger().info(
             f"  visual: vx_max={self.vx_max:.2f}m/s  kp_yaw={self.kp_yaw:.2f}  "
-            f"yaw_deadband={self.yaw_deadband:.2f}  "
+            f"yaw_deadband enter/exit={self.yaw_enter:.2f}/{self.yaw_exit:.2f}  "
             f"slowdown@area={self.area_slow:.3f}  "
             f"land@area={self.area_land:.3f}")
+        self.get_logger().info(
+            "  platform invariant: every Twist has vy=vz=0 AND "
+            "(vx=0 XOR wz=0)")
         self.get_logger().info("=" * 64)
 
     # ─── State helpers ──────────────────────────────────────────────
@@ -338,6 +361,10 @@ class RoomSearchOrchestrator(Node):
             # depth, no localisation involvement.
             self._set_external_ctrl(True)
             self.last_visual_acquired_t = _now_s(self)
+            # Start in YAW: we just stopped a rotation, so the bbox is
+            # probably off-axis. The first tick will re-evaluate and may
+            # immediately switch to ADVANCE if x_off is already small.
+            self.visual_mode = "YAW"
         elif new == S.LAND:
             self._set_external_ctrl(True)
             self._publish_cmd(0.0, 0.0)
@@ -368,6 +395,20 @@ class RoomSearchOrchestrator(Node):
             f"room_search: external_ctrl -> {want}")
 
     def _publish_cmd(self, vx: float, wz: float):
+        """Publish one Twist with the platform invariants enforced:
+            linear.y = linear.z = 0       (no lateral, no climb)
+            linear.x = 0  OR  angular.z = 0   (never both — real-drone
+                                               flight controller can't
+                                               accept yaw + forward in
+                                               the same command).
+        Any caller that asks for both gets a warning and wz is zeroed.
+        """
+        if abs(vx) > 1e-6 and abs(wz) > 1e-6:
+            self.get_logger().error(
+                f"INVARIANT VIOLATION  vx={vx:.3f}  wz={wz:.3f}  "
+                f"(state={self.state}); zeroing wz",
+                throttle_duration_sec=1.0)
+            wz = 0.0
         m = Twist()
         m.linear.x  = float(vx)
         m.linear.y  = 0.0
@@ -515,24 +556,47 @@ class RoomSearchOrchestrator(Node):
             self._enter(S.LAND)
             return
 
-        # Yaw: drive bbox centre toward image centre. Sign rationale:
-        # +angular.z yaws the body CCW, which shifts the camera content
-        # LEFTWARDS. Target right of centre (x_off > 0) → yaw RIGHT,
-        # i.e. wz < 0. Hence the minus.
-        wz = _saturate(-self.kp_yaw * x_off, self.max_wz)
+        # ── Sub-mode selection with hysteresis ──────────────────
+        # The real drone refuses vx+wz in the same Twist. We emit
+        # either pure-yaw OR pure-forward and switch between them
+        # using a Schmitt trigger on |x_off|:
+        #   in YAW:     stay until |x_off| < yaw_exit, then ADVANCE
+        #   in ADVANCE: stay until |x_off| > yaw_enter, then YAW
+        # On every mode switch we emit one (0, 0) brake tick before
+        # the new mode's command takes effect on the wire — gives the
+        # platform's PID a beat to settle the previous axis.
+        prev = self.visual_mode
+        ax = abs(x_off)
+        if prev == "YAW" and ax < self.yaw_exit:
+            self.visual_mode = "ADVANCE"
+        elif prev == "ADVANCE" and ax > self.yaw_enter:
+            self.visual_mode = "YAW"
 
-        # Forward: only when reasonably centred. Linear ramp on bbox area
-        # from vx_max (area < slowdown_start) to 0 (area = land).
-        if abs(x_off) > self.yaw_deadband:
-            vx = 0.0
-        elif area < self.area_slow:
+        if self.visual_mode != prev:
+            self.get_logger().info(
+                f"room_search: visual sub-mode {prev} -> "
+                f"{self.visual_mode}  (|x_off|={ax:.2f}, area={area:.3f})")
+            # Brake tick: pure zeros (satisfies the invariant trivially).
+            self._publish_cmd(0.0, 0.0)
+            return
+
+        if self.visual_mode == "YAW":
+            # Pure-yaw command. Sign rationale: +angular.z yaws the body
+            # CCW, which shifts the camera content LEFTWARDS. Target
+            # right of centre (x_off > 0) → yaw RIGHT, wz < 0. Hence the
+            # minus on kp_yaw.
+            wz = _saturate(-self.kp_yaw * x_off, self.max_wz)
+            self._publish_cmd(0.0, wz)
+            return
+
+        # ADVANCE: pure-forward command, ramped by bbox area.
+        if area < self.area_slow:
             vx = self.vx_max
         else:
             span = max(1e-6, self.area_land - self.area_slow)
             vx = self.vx_max * _clamp01(
                 (self.area_land - area) / span)
-
-        self._publish_cmd(vx, wz)
+        self._publish_cmd(vx, 0.0)
 
     # ─── Land burst ─────────────────────────────────────────────────
     def _land_tick(self):
@@ -620,6 +684,8 @@ class RoomSearchOrchestrator(Node):
             bits.append("det=None")
         if self.state == S.ROTATE_AND_SEARCH:
             bits.append(f"yaw_acc={self.rot_yaw_acc:.2f}rad")
+        if self.state == S.VISUAL_APPROACH:
+            bits.append(f"sub={self.visual_mode}")
         self.get_logger().info("room_search hb  " + "  ".join(bits))
 
 

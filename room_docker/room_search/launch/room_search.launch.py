@@ -75,10 +75,14 @@ def generate_launch_description():
         # Visual close-in (RGB bbox only — no depth).
         DeclareLaunchArgument('rgb_image_width',           default_value='640'),
         DeclareLaunchArgument('rgb_image_height',          default_value='360'),
-        DeclareLaunchArgument('visual_kp_yaw',             default_value='0.9'),
-        DeclareLaunchArgument('visual_max_yaw_rate',       default_value='0.6'),
-        DeclareLaunchArgument('visual_yaw_deadband',       default_value='0.20'),
-        DeclareLaunchArgument('visual_vx_max',             default_value='0.20'),
+        DeclareLaunchArgument('visual_kp_yaw',                default_value='0.9'),
+        DeclareLaunchArgument('visual_max_yaw_rate',          default_value='0.6'),
+        # Hysteresis on the YAW ↔ ADVANCE Schmitt trigger.
+        # Real drone can't do yaw + forward at once, so we alternate;
+        # exit < enter prevents flapping near the deadband.
+        DeclareLaunchArgument('visual_yaw_deadband_enter',    default_value='0.20'),
+        DeclareLaunchArgument('visual_yaw_deadband_exit',     default_value='0.08'),
+        DeclareLaunchArgument('visual_vx_max',                default_value='0.20'),
         # bbox_area / image_area at which the linear vx ramp starts.
         DeclareLaunchArgument('visual_slowdown_area_frac', default_value='0.03'),
         # bbox_area / image_area that triggers LAND.
@@ -169,7 +173,8 @@ def generate_launch_description():
             'rgb_image_height':          LaunchConfiguration('rgb_image_height'),
             'visual_kp_yaw':             LaunchConfiguration('visual_kp_yaw'),
             'visual_max_yaw_rate':       LaunchConfiguration('visual_max_yaw_rate'),
-            'visual_yaw_deadband':       LaunchConfiguration('visual_yaw_deadband'),
+            'visual_yaw_deadband_enter': LaunchConfiguration('visual_yaw_deadband_enter'),
+            'visual_yaw_deadband_exit':  LaunchConfiguration('visual_yaw_deadband_exit'),
             'visual_vx_max':             LaunchConfiguration('visual_vx_max'),
             'visual_slowdown_area_frac': LaunchConfiguration('visual_slowdown_area_frac'),
             'visual_land_area_frac':     LaunchConfiguration('visual_land_area_frac'),
