@@ -63,26 +63,29 @@ def generate_launch_description():
         DeclareLaunchArgument('pose_topic',        default_value='/odom_world'),
         DeclareLaunchArgument('pose_type',         default_value='odometry'),
 
-        # Visual inputs (depth is already bridged for perception_docker).
+        # Visual input (RGB-only — detector runs on the RGB topic; the
+        # orchestrator consumes its bboxes).
         DeclareLaunchArgument('detections_topic',  default_value='/perception/detections'),
-        DeclareLaunchArgument('depth_topic',       default_value='/map_ros/depth'),
 
         # Phase radii / timings.
         DeclareLaunchArgument('nav_arrival_radius_m',  default_value='0.50'),
         DeclareLaunchArgument('rotation_rate_rad_s',   default_value='0.5'),
         DeclareLaunchArgument('max_rotation_revs',     default_value='2.0'),
 
-        # Visual close-in (the new bits — read by room_search_orchestrator).
-        DeclareLaunchArgument('rgb_image_width',         default_value='640'),
-        DeclareLaunchArgument('rgb_image_height',        default_value='360'),
-        DeclareLaunchArgument('visual_kp_yaw',           default_value='0.9'),
-        DeclareLaunchArgument('visual_max_yaw_rate',     default_value='0.6'),
-        DeclareLaunchArgument('visual_yaw_deadband',     default_value='0.20'),
-        DeclareLaunchArgument('visual_vx_max',           default_value='0.20'),
-        DeclareLaunchArgument('visual_slowdown_start_m', default_value='1.50'),
-        DeclareLaunchArgument('visual_land_depth_m',     default_value='0.45'),
-        DeclareLaunchArgument('visual_lost_hover_s',     default_value='0.6'),
-        DeclareLaunchArgument('visual_giveup_s',         default_value='15.0'),
+        # Visual close-in (RGB bbox only — no depth).
+        DeclareLaunchArgument('rgb_image_width',           default_value='640'),
+        DeclareLaunchArgument('rgb_image_height',          default_value='360'),
+        DeclareLaunchArgument('visual_kp_yaw',             default_value='0.9'),
+        DeclareLaunchArgument('visual_max_yaw_rate',       default_value='0.6'),
+        DeclareLaunchArgument('visual_yaw_deadband',       default_value='0.20'),
+        DeclareLaunchArgument('visual_vx_max',             default_value='0.20'),
+        # bbox_area / image_area at which the linear vx ramp starts.
+        DeclareLaunchArgument('visual_slowdown_area_frac', default_value='0.03'),
+        # bbox_area / image_area that triggers LAND.
+        DeclareLaunchArgument('visual_land_area_frac',     default_value='0.12'),
+        DeclareLaunchArgument('visual_lost_hover_s',       default_value='0.6'),
+        DeclareLaunchArgument('visual_giveup_s',           default_value='15.0'),
+        DeclareLaunchArgument('visual_approach_timeout_s', default_value='90.0'),
 
         # YOLO knobs.
         DeclareLaunchArgument('yolo_model',     default_value='yolov8s-world.pt'),
@@ -158,21 +161,21 @@ def generate_launch_description():
             'drone_ns':              LaunchConfiguration('drone_ns'),
             'pose_topic':            LaunchConfiguration('pose_topic'),
             'pose_type':             LaunchConfiguration('pose_type'),
-            'detections_topic':      LaunchConfiguration('detections_topic'),
-            'depth_topic':           LaunchConfiguration('depth_topic'),
-            'nav_arrival_radius_m':  LaunchConfiguration('nav_arrival_radius_m'),
-            'rotation_rate_rad_s':   LaunchConfiguration('rotation_rate_rad_s'),
-            'max_rotation_revs':     LaunchConfiguration('max_rotation_revs'),
-            'rgb_image_width':       LaunchConfiguration('rgb_image_width'),
-            'rgb_image_height':      LaunchConfiguration('rgb_image_height'),
-            'visual_kp_yaw':         LaunchConfiguration('visual_kp_yaw'),
-            'visual_max_yaw_rate':   LaunchConfiguration('visual_max_yaw_rate'),
-            'visual_yaw_deadband':   LaunchConfiguration('visual_yaw_deadband'),
-            'visual_vx_max':         LaunchConfiguration('visual_vx_max'),
-            'visual_slowdown_start_m': LaunchConfiguration('visual_slowdown_start_m'),
-            'visual_land_depth_m':   LaunchConfiguration('visual_land_depth_m'),
-            'visual_lost_hover_s':   LaunchConfiguration('visual_lost_hover_s'),
-            'visual_giveup_s':       LaunchConfiguration('visual_giveup_s'),
+            'detections_topic':          LaunchConfiguration('detections_topic'),
+            'nav_arrival_radius_m':      LaunchConfiguration('nav_arrival_radius_m'),
+            'rotation_rate_rad_s':       LaunchConfiguration('rotation_rate_rad_s'),
+            'max_rotation_revs':         LaunchConfiguration('max_rotation_revs'),
+            'rgb_image_width':           LaunchConfiguration('rgb_image_width'),
+            'rgb_image_height':          LaunchConfiguration('rgb_image_height'),
+            'visual_kp_yaw':             LaunchConfiguration('visual_kp_yaw'),
+            'visual_max_yaw_rate':       LaunchConfiguration('visual_max_yaw_rate'),
+            'visual_yaw_deadband':       LaunchConfiguration('visual_yaw_deadband'),
+            'visual_vx_max':             LaunchConfiguration('visual_vx_max'),
+            'visual_slowdown_area_frac': LaunchConfiguration('visual_slowdown_area_frac'),
+            'visual_land_area_frac':     LaunchConfiguration('visual_land_area_frac'),
+            'visual_lost_hover_s':       LaunchConfiguration('visual_lost_hover_s'),
+            'visual_giveup_s':           LaunchConfiguration('visual_giveup_s'),
+            'visual_approach_timeout_s': LaunchConfiguration('visual_approach_timeout_s'),
         }],
     )
 

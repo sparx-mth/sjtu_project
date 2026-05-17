@@ -6,8 +6,14 @@ ROS2 Humble container for the **room_search** task:
    using the existing `falcon_docker` A* nav stack.
 2. Rotate in place while watching the YOLO detector for one given object
    (e.g. `keyboard`).
-3. When the object is detected, **close in on it using the depth image only**
-   — no world-frame XY, no A*, no localisation — and land on it.
+3. When the object is detected, **close in on it using only the RGB image
+   stream** — no depth, no world-frame XY, no A*, no localisation — and
+   land on it. The drone yaws to keep the bounding box centred and
+   advances forward at a velocity throttled by how much of the image the
+   bbox is filling (bbox area as a 1/d² proxy for proximity). LAND fires
+   when the bbox is "big enough" — at that point the drone is as close
+   as a monocular RGB-only controller can resolve, and the platform's
+   landing controller takes over the descent.
 
 The detection chain (`yolo_detector`, `object_mapper_node`,
 `target_watcher_node`) comes from `perception_docker/semantic_mapper`
@@ -86,10 +92,10 @@ cd room_docker
                              ▼
                 ┌─────────────────────────┐
                 │    VISUAL_APPROACH      │   external_ctrl STAYS True
-                │   (depth-image only —   │   closed loop on:
-                │    no localisation)     │     * bbox cx → yaw to centre
-                │                         │     * depth at bbox → forward vx
-                │                         │   exit when depth ≤ land_depth_m
+                │   (RGB bbox only —      │   closed loop on:
+                │    no depth, no XY)     │     * bbox cx       → yaw to centre
+                │                         │     * bbox area frac → forward vx
+                │                         │   exit when area_frac ≥ land_area_frac
                 │                         │   or visual_giveup_s of lost
                 └────────────┬────────────┘
                              ▼
@@ -109,39 +115,49 @@ approach reaches `visual_land_depth_m`, the sjtu_drone landing
 controller does the actual descent (in response to `/<ns>/land Empty`).
 The orchestrator only ever commands `(linear.x, angular.z)`.
 
-### Why depth-only after detection
+### Why RGB-only after detection
 
-World-frame XY for the target depends on the camera pose, the depth
-quality, and the projection — three independent sources of metric
-error, accumulated at the moment of detection. For "land *exactly* on
-the keyboard", a closed visual loop on the live image is more direct:
-the bbox centre IS the target, the depth at that pixel IS the
-distance, and the controller drives both errors to zero without ever
-materialising a world XY.
+Depth sensors fail in glare, on glass, on dark/low-texture surfaces,
+and at very close range — all common when "landing on" a desk object.
+The bbox itself is a clean, monotonic proxy for proximity: at distance
+`d` the bbox area fraction grows roughly as `1/d²` (a flat target
+viewed perpendicularly through a pinhole). We don't need an absolute
+distance to know we're "as close as we can get" — we just need a
+threshold on how much of the image the target is filling.
 
 ### Visual control law
 
 Each `1 / visual_ctrl_hz` (default 15 Hz):
 
-1. Take the highest-confidence detection whose class name matches the
-   target (substring, case-insensitive). If none arrived within
-   `visual_lost_hover_s`, publish zero cmd and start counting toward
-   `visual_giveup_s`.
-2. Project the RGB bbox centre into the depth image (proportional FOV
-   scaling — assumes the RGB and depth pair have similar FOV, true for
-   the sjtu_drone front camera) and sample a centred patch covering
-   `visual_depth_patch_pct` of the bbox. Robust depth = the
-   `visual_depth_percentile` percentile of in-range samples.
-3. If `depth ≤ visual_land_depth_m`, transition to `LAND`.
+1. From `/perception/detections`, take the highest-confidence detection
+   whose class name matches the target (exact or substring,
+   case-insensitive). If none arrived within `visual_lost_hover_s`,
+   publish zero cmd and start counting toward `visual_giveup_s`.
+2. Compute
+   ```
+   x_off    = (bbox_cx - rgb_W/2) / (rgb_W/2)        # normalised, [-1, +1]
+   area_frac = (bbox_w * bbox_h) / (rgb_W * rgb_H)   # proximity proxy
+   ```
+3. If `area_frac >= visual_land_area_frac`, transition to `LAND`.
 4. Otherwise:
-   - `x_off = (bbox_cx - rgb_W/2) / (rgb_W/2)` (normalised to `[-1, +1]`)
-   - `wz = -visual_kp_yaw * x_off`, saturated at `visual_max_yaw_rate`
-     (sign: ROS body-frame +z yaws CCW; with a forward-facing camera that
-      shifts content LEFTWARDS, so target right of centre means yaw right)
+   - `wz = -visual_kp_yaw * x_off`, saturated at `visual_max_yaw_rate`.
+     Sign: ROS body-frame `+angular.z` yaws CCW, which shifts the camera
+     content LEFTWARDS. So target right of centre means `wz < 0`.
    - If `|x_off| > visual_yaw_deadband`, force `vx = 0` (yaw to centre
-     first, then advance — avoids losing a far-off-axis target).
-   - Else `vx = visual_vx_max * clamp((depth - land) / (slowdown - land), 0, 1)`.
+     first — don't chase a far-off-axis target).
+   - Else linear ramp on bbox area:
+     ```
+     area_frac < slowdown_area_frac → vx = vx_max
+     area_frac ≥ slowdown_area_frac
+       → vx = vx_max * (land_area_frac - area_frac)
+                       / (land_area_frac - slowdown_area_frac)
+     ```
 5. Publish `(vx, wz)` to `/<drone_ns>/cmd_vel`.
+
+There's also a hard `visual_approach_timeout_s` (default 90 s): if the
+bbox never reaches `visual_land_area_frac` — small target, wide FOV,
+weird lighting — the orchestrator lands wherever it is at that point
+rather than hovering forever.
 
 ---
 
@@ -154,12 +170,14 @@ Each `1 / visual_ctrl_hz` (default 15 Hz):
 | `/odom_world`          | `nav_msgs/Odometry`               | `falcon_adapter` (ROS1) → bridge       |
 | `/target_seen`         | `std_msgs/Bool`                   | `target_watcher_node` (ROS2 native)    |
 | `/target_seen/info`    | `std_msgs/String` (JSON)          | `target_watcher_node` (ROS2 native)    |
-| `/perception/detections` | `vision_msgs/Detection2DArray`  | `yolo_detector` (ROS2 native)          |
-| `/map_ros/depth`       | `sensor_msgs/Image` (32FC1)       | `falcon_adapter` (ROS1) → bridge       |
+| `/perception/detections` | `vision_msgs/Detection2DArray`  | `yolo_detector` (ROS2 native, runs on the RGB camera topic) |
 
-The pose source is configurable via `pose_topic` / `pose_type`. Defaults
-to `/odom_world` (Odometry). If your bridge doesn't carry that, set e.g.
-`pose_topic:=/simple_drone/gt_pose pose_type:=pose`.
+The visual close-in does NOT subscribe to depth. The only ROS1→ROS2
+input it needs is the drone pose (for arrival detection in
+`NAV_TO_ROOM`). The pose source is configurable via `pose_topic` /
+`pose_type`. Defaults to `/odom_world` (Odometry). If your bridge
+doesn't carry that, set e.g. `pose_topic:=/simple_drone/gt_pose
+pose_type:=pose`.
 
 ### Outbound (this node publishes)
 
@@ -193,20 +211,17 @@ Add **at least** these entries for the ROS2 → ROS1 direction:
     qos: { history: keep_last, depth: 1, reliability: reliable, durability: volatile }
 ```
 
-And for the ROS1 → ROS2 direction (most should already be there for
-perception_docker):
+And for the ROS1 → ROS2 direction:
 
 ```yaml
   - topic: /odom_world
     type: nav_msgs/msg/Odometry
     queue_size: 10
     qos: { history: keep_last, depth: 10, reliability: reliable, durability: volatile }
-
-  - topic: /map_ros/depth
-    type: sensor_msgs/msg/Image
-    queue_size: 5
-    qos: { history: keep_last, depth: 5, reliability: best_effort, durability: volatile }
 ```
+
+(The RGB topic that YOLO consumes — typically `/simple_drone/front/image_raw`
+— should also already be bridged for `perception_docker`.)
 
 (For a real drone whose `cmd_vel` / `land` are at root, drop the
 `/simple_drone` prefix and set `drone_ns:=""` on the orchestrator.)
@@ -223,25 +238,25 @@ perception_docker):
 | `room_center_x` / `_y`    | `4.0` / `5.0`        | First nav goal (world frame, metres).                                        |
 | `drone_ns`                | `/simple_drone`      | Namespace prefix for `/cmd_vel` and `/land`. Set `""` for real-drone root.   |
 | `pose_topic` / `pose_type`| `/odom_world` / `odometry` | Drone pose source. Use `pose_type:=pose` for a bare `geometry_msgs/Pose`.|
-| `detections_topic`        | `/perception/detections` | YOLO detections feed.                                                    |
-| `depth_topic`             | `/map_ros/depth`     | Depth image used for visual approach.                                        |
+| `detections_topic`        | `/perception/detections` | YOLO detections feed (the only stream the visual loop consumes).         |
 | `nav_arrival_radius_m`    | `0.50`               | Acceptance circle for "we arrived at the room centre".                       |
 | `rotation_rate_rad_s`     | `0.5`                | In-place yaw rate during search (+ is CCW).                                  |
 | `max_rotation_revs`       | `2.0`                | Give up after this many full turns with no detection.                        |
 
-### Visual close-in
+### Visual close-in (RGB-only)
 
-| Arg                         | Default | What it does                                                            |
-|-----------------------------|---------|-------------------------------------------------------------------------|
-| `rgb_image_width` / `_height` | `640` / `360` | Bbox normalisation. sjtu_drone defaults; override for real cameras. |
-| `visual_kp_yaw`             | `0.9`   | P-gain mapping normalised x-offset → yaw rate.                          |
-| `visual_max_yaw_rate`       | `0.6`   | rad/s saturation on the visual yaw output.                              |
-| `visual_yaw_deadband`       | `0.20`  | If `|x_off| > deadband`, set `vx=0` (yaw to centre first).              |
-| `visual_vx_max`             | `0.20`  | Max forward velocity during approach (m/s).                             |
-| `visual_slowdown_start_m`   | `1.50`  | Depth at which the linear vx ramp begins.                               |
-| `visual_land_depth_m`       | `0.45`  | Depth threshold for the `LAND` transition.                              |
-| `visual_lost_hover_s`       | `0.6`   | Window after which a missing detection counts as "lost".                |
-| `visual_giveup_s`           | `15.0`  | After this long staying lost, transition to `GIVE_UP`.                  |
+| Arg                          | Default | What it does                                                                  |
+|------------------------------|---------|-------------------------------------------------------------------------------|
+| `rgb_image_width` / `_height`| `640` / `360` | Bbox normalisation. sjtu_drone defaults; override for real cameras.     |
+| `visual_kp_yaw`              | `0.9`   | P-gain mapping normalised x-offset → yaw rate.                                |
+| `visual_max_yaw_rate`        | `0.6`   | rad/s saturation on the visual yaw output.                                    |
+| `visual_yaw_deadband`        | `0.20`  | If `|x_off| > deadband`, set `vx=0` (yaw to centre first).                    |
+| `visual_vx_max`              | `0.20`  | Max forward velocity during approach (m/s).                                   |
+| `visual_slowdown_area_frac`  | `0.03`  | Bbox area / image area at which the linear vx ramp starts.                    |
+| `visual_land_area_frac`      | `0.12`  | Bbox area / image area that triggers the `LAND` transition.                   |
+| `visual_lost_hover_s`        | `0.6`   | Window after which a missing detection counts as "lost".                      |
+| `visual_giveup_s`            | `15.0`  | After this long staying lost, transition to `GIVE_UP`.                        |
+| `visual_approach_timeout_s`  | `90.0`  | Hard fallback: `LAND` after this long even if the area threshold isn't met.   |
 
 ### YOLO
 
@@ -272,10 +287,20 @@ perception_docker):
   sign by setting `visual_kp_yaw:=-0.9` (or invert in the source).
 
 * **Drone overshoots the target.** Lower `visual_vx_max` and/or raise
-  `visual_slowdown_start_m`. The ramp is linear in `(depth - land) /
-  (slowdown - land)`, so doubling `slowdown_start_m` halves the
-  velocity at any given depth.
+  `visual_slowdown_area_frac`. The ramp is linear in
+  `(land - area) / (land - slowdown)`, so raising `slowdown_area_frac`
+  starts the slow-down earlier (at a larger remaining distance).
 
-* **Drone lands too early / too high.** Tune `visual_land_depth_m`
-  to match how close you want the body frame to the object surface
-  before sjtu_drone takes over the descent.
+* **Drone lands too early or too late.** Tune `visual_land_area_frac`.
+  Geometry: for a flat target of area `A` viewed perpendicularly,
+  area_frac ≈ `(A * fx²) / (W * H * d²)`. So halving the trigger
+  area_frac roughly multiplies the trigger distance by √2. For a
+  keyboard-sized target on the sjtu_drone front camera, `0.12` is
+  ~25 cm; `0.05` is ~40 cm; `0.25` is ~17 cm. Measure once with your
+  setup (look at the heartbeat line: it prints `area=…` per detection)
+  and pick a value.
+
+* **Bbox never gets big enough.** Wide-FOV cameras or small targets
+  may saturate at a low `area_frac`. Lower `visual_land_area_frac`
+  accordingly, or rely on `visual_approach_timeout_s` to LAND from
+  whatever the closest stable hover was.
