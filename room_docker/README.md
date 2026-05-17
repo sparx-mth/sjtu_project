@@ -34,10 +34,11 @@ overwritten by waypoint follower zeros.
 
 ```
 room_docker/
-├── Dockerfile               ROS2 Humble + ultralytics + cv_bridge + cyclonedds
+├── Dockerfile               ROS2 Humble + ultralytics + cv_bridge + cyclonedds  (x86_64)
+├── Dockerfile.jetson        Same, on dustynv/ros:humble-pytorch-l4t base       (aarch64 / Jetson AGX Orin)
 ├── entrypoint.sh
 ├── cyclonedds.xml
-├── run_room_search.sh       Bind-mounts semantic_mapper + room_search, builds, runs
+├── run_room_search.sh       Auto-picks Dockerfile by arch; bind-mounts both packages, builds, runs
 └── room_search/             ament_python package
     ├── package.xml
     ├── setup.py
@@ -52,7 +53,7 @@ room_docker/
 
 ---
 
-## Quick start
+## Quick start (x86_64 with NVIDIA GPU)
 
 ```bash
 # 1) sim + falcon + ros1_bridge already running, then:
@@ -63,6 +64,63 @@ cd room_docker
     room_center_x:=4.0 \
     room_center_y:=5.0
 ```
+
+## Quick start (Jetson AGX Orin, JetPack 6.x)
+
+```bash
+# 1) sim/drone + falcon + ros1_bridge already running on the same network, then:
+cd room_docker
+./run_room_search.sh \
+    ros2 launch room_search room_search.launch.py \
+    target_object:=keyboard \
+    room_center_x:=4.0 \
+    room_center_y:=5.0
+```
+
+The run script detects `aarch64` and switches to `Dockerfile.jetson` +
+`--runtime nvidia` + `--ipc=host` automatically. Override the
+detection with `ROOM_DOCKER_TARGET=jetson|x86`.
+
+### Jetson notes
+
+* **Base image.** `Dockerfile.jetson` uses
+  `dustynv/ros:humble-pytorch-l4t-r36.4.0` as the default base. That
+  tag ships ROS2 Humble + a Jetson-CUDA build of PyTorch built against
+  the L4T runtime. Override for a different JetPack release with:
+  ```bash
+  docker build --build-arg BASE_IMAGE=dustynv/ros:humble-pytorch-l4t-r35.4.1 \
+               -f Dockerfile.jetson -t room_search:humble-jetson room_docker
+  ```
+  `r36.*` → JetPack 6 (Jetson AGX Orin, native Humble).
+  `r35.*` → JetPack 5 (Jetson AGX Xavier; Humble works but isn't the
+  L4T-native distro for that JetPack).
+
+* **PyTorch is NOT reinstalled** in the Jetson Dockerfile. PyPI has
+  no Jetson-CUDA wheels, so a `pip install torch` would silently
+  downgrade the base image's GPU build to a CPU-only wheel and YOLO
+  would then run on the ARM cores at ~1/30th the throughput.
+  `ultralytics` is installed with `--no-deps` for exactly the same
+  reason; its non-torch deps are pulled in explicitly afterwards.
+
+* **Slimmer dependency set on Jetson.** The x86 image installs
+  `ompl`, `scikit-image`, `scipy`, `openai-clip`, and `transforms3d`
+  to keep it usable as a drop-in for the full perception_docker
+  pipeline. The Jetson image drops them because none of the three
+  semantic_mapper nodes this launch actually runs
+  (`yolo_detector`, `object_mapper_node`, `target_watcher_node`)
+  import them, and `ompl` in particular has no aarch64 pip wheel.
+  Re-add any of them in `Dockerfile.jetson` if you extend the launch.
+
+* **First run downloads the YOLO-World checkpoint** (~360 MB). The
+  run script bind-mounts `~/.cache/ultralytics` into the container so
+  the download survives container restarts — useful when a Jetson is
+  on a tethered link.
+
+* **No code changes** in `room_search_orchestrator_node.py` or
+  `room_search.launch.py` for the Jetson port: the orchestrator is
+  pure Python + ROS2 messages and the launch just instantiates nodes
+  by package name. Everything arch-specific lives in
+  `Dockerfile.jetson` and `run_room_search.sh`.
 
 ---
 
