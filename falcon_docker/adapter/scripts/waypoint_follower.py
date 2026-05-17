@@ -195,6 +195,14 @@ class WaypointFollower:
         self.freeze_pub  = rospy.Publisher("/sensor_gate/freeze", Bool,
                                             queue_size=1, latch=True)
 
+        # External control handoff. While True, _publish_twist returns early
+        # so a higher-level orchestrator (e.g. room_search) can drive
+        # /cmd_vel directly. Latched so late-arriving subscribers (us) get
+        # the current state on connect. False by default.
+        self.external_ctrl = False
+        rospy.Subscriber("/waypoint_follower/external_ctrl", Bool,
+                         self._ext_ctrl_cb, queue_size=1)
+
         rospy.Subscriber(self.t_pose,   Pose, self._pose_cb,   queue_size=10)
         rospy.Subscriber(self.t_dstate, Int8, self._dstate_cb, queue_size=10)
         rospy.Subscriber(self.t_path,   Path, self._path_cb,   queue_size=1)
@@ -235,6 +243,16 @@ class WaypointFollower:
         self.cur_pose = msg
 
     def _dstate_cb(self, msg): self.drone_state = msg.data
+
+    def _ext_ctrl_cb(self, msg):
+        new = bool(msg.data)
+        if new != self.external_ctrl:
+            rospy.loginfo("waypoint_follower: external_ctrl %s -> %s "
+                          "(state=%s)  %s",
+                          self.external_ctrl, new, self.state,
+                          "yielding /cmd_vel" if new
+                          else "resuming /cmd_vel")
+        self.external_ctrl = new
 
     def _path_cb(self, msg):
         pts = [(p.pose.position.x, p.pose.position.y) for p in msg.poses]
@@ -385,7 +403,20 @@ class WaypointFollower:
           • linear.z = 0  (fixed altitude — platform holds it on its own)
           • vx and wz are slew-limited and saturated
           • vx=0 OR wz=0 invariant is checked (logs error if violated)
+
+        External-ctrl handoff: when /waypoint_follower/external_ctrl is True,
+        this method becomes a no-op so a higher-level orchestrator (e.g.
+        room_search) can drive /cmd_vel directly without having its commands
+        overwritten by the zeros this node publishes in DONE/WAIT_PATH. The
+        internal slew memory (last_vx/last_wz) is reset to 0 so that when
+        external control is released the slewer doesn't try to resume the
+        pre-handoff velocity.
         """
+        if self.external_ctrl:
+            self.last_vx = 0.0
+            self.last_wz = 0.0
+            return
+
         if abs(vx) > 1e-6 and abs(wz) > 1e-6:
             rospy.logerr_throttle(1.0,
                 "waypoint_follower: INVARIANT VIOLATION  vx=%.3f wz=%.3f "
