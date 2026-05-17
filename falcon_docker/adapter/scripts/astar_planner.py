@@ -63,6 +63,21 @@ class AStarPlanner:
         # NEW
         self.search_margin_m    = float(G("~search_margin_m",    3.0))
         self.start_skip_m       = float(G("~start_skip_m",       0.4))
+        # ── Map-warmup gate (bug-1 fix) ──────────────────────────
+        # On startup bev_publisher latches a BEV that is all-UNK plus
+        # the simulated office walls (OCC). With unknown_blocked=False
+        # an all-UNK map looks like wide-open free space, so A* finds
+        # a straight path to the goal and the drone flies before FALCON
+        # has integrated a single real depth frame. We refuse to
+        # publish ANY path until the BEV holds at least this many genuine
+        # FREE cells — FREE only comes from FALCON's real
+        # occupancy_grid_free cloud, never from the simulated walls or
+        # from UNK, so it's a true "the map has warmed up" signal.
+        # Set 0 to disable (restores old behaviour). A goal click does
+        # NOT bypass this gate — flying into an unmapped world on a
+        # click is just as unsafe as doing it on the init goal.
+        self.min_free_cells = int(G("~min_free_cells_to_plan", 80))
+        self._warmed_up     = (self.min_free_cells <= 0)
 
         gx = G("~goal_x", None); gy = G("~goal_y", None)
         self.goal_xy = ((float(gx), float(gy))
@@ -123,11 +138,26 @@ class AStarPlanner:
 
     def _goal_cb(self, msg):
         new = (float(msg.x), float(msg.y))
-        if new != self.goal_xy:
-            rospy.loginfo("astar_planner: goal → (%.2f, %.2f)", *new)
-            self.goal_xy = new
-            self.has_plan = False
-            self._try_plan()
+        # Always log receipt so a click is visible in the log even if
+        # the goal didn't change or planning later fails. Use a small
+        # epsilon instead of exact float equality.
+        same = (self.goal_xy is not None
+                and abs(new[0] - self.goal_xy[0]) < 1e-3
+                and abs(new[1] - self.goal_xy[1]) < 1e-3)
+        rospy.loginfo("astar_planner: GOAL RECEIVED (%.2f, %.2f)%s",
+                      new[0], new[1], "  (== current goal)" if same else "")
+        # A new click is an explicit user intent: replan even if the
+        # numbers match (the world may have changed) and force-clear
+        # the plan + cost cache so the next BEV is treated as fresh.
+        self.goal_xy = new
+        self.has_plan = False
+        self._cost_cache_for = None
+        ok = self._try_plan()
+        if not ok:
+            rospy.logwarn("astar_planner: click goal (%.2f, %.2f) accepted "
+                          "but no path yet — reason=%s "
+                          "(will retry on next BEV)",
+                          new[0], new[1], self.fail_reason)
 
     def _bev_cb(self, msg):
         first = self.bev is None
@@ -186,11 +216,36 @@ class AStarPlanner:
     # ─── Planning ────────────────────────────────────────────────
     def _try_plan(self):
         if self.bev is None:
-            self.fail_reason = "no BEV yet"; return
+            self.fail_reason = "no BEV yet"; return False
         if self.goal_xy is None:
-            self.fail_reason = "no goal set"; return
+            self.fail_reason = "no goal set"; return False
         if self.pose_xy is None:
-            self.fail_reason = "no pose yet"; return
+            self.fail_reason = "no pose yet"; return False
+
+        # ── Map-warmup gate ──────────────────────────────────────
+        # Count genuine FREE cells in the current BEV. Until the map
+        # has warmed up we refuse to plan, so the follower stays in
+        # WAIT_PATH and the drone holds position instead of cruising
+        # through an all-unknown (== looks-free) map.
+        if not self._warmed_up:
+            try:
+                buf = bytes(bytearray(self.bev.data))
+                d = np.frombuffer(buf, dtype=np.int8)
+            except Exception:
+                d = np.array(self.bev.data, dtype=np.int8)
+            n_free = int((d == 0).sum())
+            if n_free < self.min_free_cells:
+                self.fail_reason = ("map warming up: %d/%d FREE cells"
+                                    % (n_free, self.min_free_cells))
+                rospy.loginfo_throttle(
+                    2.0, "astar_planner: %s — holding (no path "
+                    "published yet)", self.fail_reason)
+                return False
+            self._warmed_up = True
+            rospy.loginfo("astar_planner: map warmed up "
+                          "(%d FREE cells \u2265 %d) — planning enabled",
+                          n_free, self.min_free_cells)
+
         t0 = rospy.Time.now()
         result = self._plan(self.pose_xy, self.goal_xy)
         if isinstance(result, str):
@@ -200,12 +255,13 @@ class AStarPlanner:
                 "goal=(%.2f,%.2f)  reason=%s",
                 self.pose_xy[0], self.pose_xy[1],
                 self.goal_xy[0], self.goal_xy[1], result)
-            return
+            return False
         cells, world_pts = result
         self.last_cells = cells
         self._publish(world_pts, (rospy.Time.now() - t0).to_sec())
         self.has_plan = True
         self.fail_reason = "(success)"
+        return True
 
     def _plan(self, start_xy, goal_xy):
         cost, occ, (W, H, res, ox, oy) = self._build_cost()
