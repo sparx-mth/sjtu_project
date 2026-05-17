@@ -108,8 +108,8 @@ The first arg is the map name; the script loads `<name>.yaml` from the same dire
 Now in a **new** host terminal:
 
 ```bash
-export DISPLAY=:0
 docker exec -it falcon bash
+export DISPLAY=:0
 source /catkin_ws/devel/setup.bash
 roslaunch exploration_manager rviz.launch
 ```
@@ -124,6 +124,7 @@ In another **new** host terminal:
 
 ```bash
 docker exec -it falcon bash
+export DISPLAY=:0
 source /catkin_ws/devel/setup.bash
 rosrun falcon_adapter bev_click_goal.py
 ```
