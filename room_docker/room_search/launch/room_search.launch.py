@@ -1,25 +1,24 @@
 """
-room_search.launch.py — nav-to-room + spin-to-find + close-in-and-land.
+room_search.launch.py — nav-to-room + spin-to-find + visual close-in + land.
 
 Brings up:
   * (optional) yolo_detector         from semantic_mapper       start_yolo
+                                     (default min_dt lowered to 0.25 s so
+                                      detections arrive fast enough for the
+                                      visual servo loop)
   * (optional) object_mapper_node    from semantic_mapper       start_object_mapper
+                                     (kept for diagnostics / target_watcher
+                                      input; the orchestrator does NOT use
+                                      its world XY in the visual close-in)
   * (optional) target_watcher_node   from semantic_mapper       start_target_watcher
                                      (with halt_duration_s=0 so its halt
                                       burst doesn't fight the orchestrator's
-                                      cmd_vel during APPROACH/LAND)
+                                      cmd_vel during VISUAL_APPROACH/LAND)
   * room_search_orchestrator_node    from room_search          (always)
 
-The detector chain is in this launch so you can run the whole task from
-one place. If you already have perception_docker running, set
-  start_yolo:=false  start_object_mapper:=false  start_target_watcher:=false
-and we only launch the orchestrator.
-
-NOTE: the YOLO-World vocabulary defaults to a hospital-flavoured list in
-semantic_mapper. The default here adds 'keyboard' and a handful of common
-desk items so the small open-vocab prompts are accurate. Override with
-  yolo_vocabulary:="['keyboard','mouse','monitor']"
-on the command line if you want a tighter set.
+Set start_yolo/object_mapper/target_watcher to false if you already run
+perception_docker separately and just want this launch to add the
+orchestrator.
 """
 
 from launch import LaunchDescription
@@ -54,7 +53,7 @@ ROOM_VOCAB = [
 
 def generate_launch_description():
     args = [
-        # Mission knobs (the most important ones).
+        # Mission knobs.
         DeclareLaunchArgument('target_object',     default_value='keyboard'),
         DeclareLaunchArgument('room_center_x',     default_value='4.0'),
         DeclareLaunchArgument('room_center_y',     default_value='5.0'),
@@ -64,30 +63,48 @@ def generate_launch_description():
         DeclareLaunchArgument('pose_topic',        default_value='/odom_world'),
         DeclareLaunchArgument('pose_type',         default_value='odometry'),
 
-        # Phase radii / timings (sane defaults; override if your map is tight).
+        # Visual inputs (depth is already bridged for perception_docker).
+        DeclareLaunchArgument('detections_topic',  default_value='/perception/detections'),
+        DeclareLaunchArgument('depth_topic',       default_value='/map_ros/depth'),
+
+        # Phase radii / timings.
         DeclareLaunchArgument('nav_arrival_radius_m',  default_value='0.50'),
         DeclareLaunchArgument('rotation_rate_rad_s',   default_value='0.5'),
         DeclareLaunchArgument('max_rotation_revs',     default_value='2.0'),
-        DeclareLaunchArgument('approach_radius_m',     default_value='0.35'),
-        DeclareLaunchArgument('approach_timeout_s',    default_value='90.0'),
+
+        # Visual close-in (the new bits — read by room_search_orchestrator).
+        DeclareLaunchArgument('rgb_image_width',         default_value='640'),
+        DeclareLaunchArgument('rgb_image_height',        default_value='360'),
+        DeclareLaunchArgument('visual_kp_yaw',           default_value='0.9'),
+        DeclareLaunchArgument('visual_max_yaw_rate',     default_value='0.6'),
+        DeclareLaunchArgument('visual_yaw_deadband',     default_value='0.20'),
+        DeclareLaunchArgument('visual_vx_max',           default_value='0.20'),
+        DeclareLaunchArgument('visual_slowdown_start_m', default_value='1.50'),
+        DeclareLaunchArgument('visual_land_depth_m',     default_value='0.45'),
+        DeclareLaunchArgument('visual_lost_hover_s',     default_value='0.6'),
+        DeclareLaunchArgument('visual_giveup_s',         default_value='15.0'),
 
         # YOLO knobs.
         DeclareLaunchArgument('yolo_model',     default_value='yolov8s-world.pt'),
         DeclareLaunchArgument('yolo_device',    default_value='cuda:0'),
-        DeclareLaunchArgument('yolo_min_dt',    default_value='1.0'),
+        # IMPORTANT for the visual servo loop: at 1 Hz YOLO the bbox is
+        # ~half a metre stale per tick when advancing at 0.2 m/s, which
+        # is on the order of the bbox size for a keyboard at close
+        # range. 4 Hz keeps the closed loop crisp without overrunning
+        # an RTX-class GPU.
+        DeclareLaunchArgument('yolo_min_dt',    default_value='0.25'),
         DeclareLaunchArgument('yolo_conf',      default_value='0.30'),
         DeclareLaunchArgument(
             'yolo_vocabulary',
             default_value=str(ROOM_VOCAB)),
 
-        # object_mapper knobs.
+        # object_mapper knobs (kept for diagnostics / target_watcher).
         DeclareLaunchArgument('min_observations', default_value='2'),
         DeclareLaunchArgument('dedup_radius_m',   default_value='0.40'),
         DeclareLaunchArgument('min_conf',         default_value='0.30'),
 
-        # target_watcher: disable LLM by default (fuzzy substring works for
-        # 'keyboard' vs 'keyboard'). halt_duration_s is forced to 0 so the
-        # orchestrator owns /cmd_vel after target acquisition.
+        # target_watcher: disable LLM by default; halt_duration_s forced
+        # to 0 so the orchestrator owns /cmd_vel after target acquisition.
         DeclareLaunchArgument('use_llm',          default_value='false'),
 
         # Component toggles.
@@ -127,9 +144,6 @@ def generate_launch_description():
         parameters=[{
             'target_object':   LaunchConfiguration('target_object'),
             'use_llm':         LaunchConfiguration('use_llm'),
-            # CRITICAL: the watcher's halt-burst would stamp on the
-            # orchestrator's /cmd_vel during APPROACH/LAND. Disable it;
-            # the orchestrator handles halt + land itself.
             'halt_duration_s': 0.0,
         }],
     )
@@ -144,11 +158,21 @@ def generate_launch_description():
             'drone_ns':              LaunchConfiguration('drone_ns'),
             'pose_topic':            LaunchConfiguration('pose_topic'),
             'pose_type':             LaunchConfiguration('pose_type'),
+            'detections_topic':      LaunchConfiguration('detections_topic'),
+            'depth_topic':           LaunchConfiguration('depth_topic'),
             'nav_arrival_radius_m':  LaunchConfiguration('nav_arrival_radius_m'),
             'rotation_rate_rad_s':   LaunchConfiguration('rotation_rate_rad_s'),
             'max_rotation_revs':     LaunchConfiguration('max_rotation_revs'),
-            'approach_radius_m':     LaunchConfiguration('approach_radius_m'),
-            'approach_timeout_s':    LaunchConfiguration('approach_timeout_s'),
+            'rgb_image_width':       LaunchConfiguration('rgb_image_width'),
+            'rgb_image_height':      LaunchConfiguration('rgb_image_height'),
+            'visual_kp_yaw':         LaunchConfiguration('visual_kp_yaw'),
+            'visual_max_yaw_rate':   LaunchConfiguration('visual_max_yaw_rate'),
+            'visual_yaw_deadband':   LaunchConfiguration('visual_yaw_deadband'),
+            'visual_vx_max':         LaunchConfiguration('visual_vx_max'),
+            'visual_slowdown_start_m': LaunchConfiguration('visual_slowdown_start_m'),
+            'visual_land_depth_m':   LaunchConfiguration('visual_land_depth_m'),
+            'visual_lost_hover_s':   LaunchConfiguration('visual_lost_hover_s'),
+            'visual_giveup_s':       LaunchConfiguration('visual_giveup_s'),
         }],
     )
 

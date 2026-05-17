@@ -2,11 +2,12 @@
 
 ROS2 Humble container for the **room_search** task:
 
-1. Auto-navigate to a point on the map (e.g. the centre of a room, `(4, 5)`).
+1. Auto-navigate to a point on the map (e.g. the centre of a room, `(4, 5)`)
+   using the existing `falcon_docker` A* nav stack.
 2. Rotate in place while watching the YOLO detector for one given object
    (e.g. `keyboard`).
-3. When the object is detected, stop rotating, drive to the object's
-   world XY, and land on it.
+3. When the object is detected, **close in on it using the depth image only**
+   — no world-frame XY, no A*, no localisation — and land on it.
 
 The detection chain (`yolo_detector`, `object_mapper_node`,
 `target_watcher_node`) comes from `perception_docker/semantic_mapper`
@@ -15,15 +16,15 @@ node** plus a launch file:
 
 | New | What |
 |---|---|
-| `room_search_orchestrator_node` | State machine: `WAIT_INIT → NAV_TO_ROOM → ROTATE_AND_SEARCH → APPROACH_TARGET → LAND → DONE`. |
+| `room_search_orchestrator_node` | State machine: `WAIT_INIT → NAV_TO_ROOM → ROTATE_AND_SEARCH → VISUAL_APPROACH → LAND → DONE`. |
 | `launch/room_search.launch.py` | Brings up the orchestrator together with YOLO + object_mapper + target_watcher, pre-wired with the target string and a small open-vocab YOLO prompt that includes `keyboard`. |
 
 There is also **one small change** in `falcon_docker`:
 `waypoint_follower.py` now subscribes to `/waypoint_follower/external_ctrl`
 (`std_msgs/Bool`, latched). While `True`, `waypoint_follower._publish_twist`
 is a no-op, so the orchestrator can drive `/cmd_vel` directly during the
-in-place rotation without its commands being overwritten by waypoint
-follower zeros.
+in-place rotation and visual close-in without its commands being
+overwritten by waypoint follower zeros.
 
 ```
 room_docker/
@@ -59,16 +60,102 @@ cd room_docker
 
 ---
 
+## The state machine
+
+```
+                ┌─────────────────────────┐
+                │       WAIT_INIT         │   wait for first pose msg
+                └────────────┬────────────┘
+                             ▼
+                ┌─────────────────────────┐
+                │      NAV_TO_ROOM        │   publish (cx, cy) to
+                │                         │   /waypoint_nav/goal,
+                │                         │   re-publish every
+                │                         │   nav_goal_republish_s,
+                │                         │   exit when d < nav_arr_r
+                └────────────┬────────────┘
+                             ▼
+                ┌─────────────────────────┐
+                │   ROTATE_AND_SEARCH     │   external_ctrl = True
+                │                         │   spin at rotation_rate_rad_s,
+                │                         │   exit when target_seen AND
+                │                         │   a matching detection is fresh
+                │                         │   in /perception/detections.
+                │                         │   give up after max_rotation_revs
+                └────────────┬────────────┘
+                             ▼
+                ┌─────────────────────────┐
+                │    VISUAL_APPROACH      │   external_ctrl STAYS True
+                │   (depth-image only —   │   closed loop on:
+                │    no localisation)     │     * bbox cx → yaw to centre
+                │                         │     * depth at bbox → forward vx
+                │                         │   exit when depth ≤ land_depth_m
+                │                         │   or visual_giveup_s of lost
+                └────────────┬────────────┘
+                             ▼
+                ┌─────────────────────────┐
+                │          LAND           │   publish land_burst_count ×
+                │                         │   <drone_ns>/land Empty
+                │                         │   at land_burst_hz
+                └────────────┬────────────┘
+                             ▼
+                ┌─────────────────────────┐
+                │          DONE           │
+                └─────────────────────────┘
+```
+
+The orchestrator never overrides altitude or vy. Once the visual
+approach reaches `visual_land_depth_m`, the sjtu_drone landing
+controller does the actual descent (in response to `/<ns>/land Empty`).
+The orchestrator only ever commands `(linear.x, angular.z)`.
+
+### Why depth-only after detection
+
+World-frame XY for the target depends on the camera pose, the depth
+quality, and the projection — three independent sources of metric
+error, accumulated at the moment of detection. For "land *exactly* on
+the keyboard", a closed visual loop on the live image is more direct:
+the bbox centre IS the target, the depth at that pixel IS the
+distance, and the controller drives both errors to zero without ever
+materialising a world XY.
+
+### Visual control law
+
+Each `1 / visual_ctrl_hz` (default 15 Hz):
+
+1. Take the highest-confidence detection whose class name matches the
+   target (substring, case-insensitive). If none arrived within
+   `visual_lost_hover_s`, publish zero cmd and start counting toward
+   `visual_giveup_s`.
+2. Project the RGB bbox centre into the depth image (proportional FOV
+   scaling — assumes the RGB and depth pair have similar FOV, true for
+   the sjtu_drone front camera) and sample a centred patch covering
+   `visual_depth_patch_pct` of the bbox. Robust depth = the
+   `visual_depth_percentile` percentile of in-range samples.
+3. If `depth ≤ visual_land_depth_m`, transition to `LAND`.
+4. Otherwise:
+   - `x_off = (bbox_cx - rgb_W/2) / (rgb_W/2)` (normalised to `[-1, +1]`)
+   - `wz = -visual_kp_yaw * x_off`, saturated at `visual_max_yaw_rate`
+     (sign: ROS body-frame +z yaws CCW; with a forward-facing camera that
+      shifts content LEFTWARDS, so target right of centre means yaw right)
+   - If `|x_off| > visual_yaw_deadband`, force `vx = 0` (yaw to centre
+     first, then advance — avoids losing a far-off-axis target).
+   - Else `vx = visual_vx_max * clamp((depth - land) / (slowdown - land), 0, 1)`.
+5. Publish `(vx, wz)` to `/<drone_ns>/cmd_vel`.
+
+---
+
 ## How it talks to the rest of the stack
 
 ### Inbound (this node subscribes)
 
-| Topic                  | Type                       | Origin                                 |
-|------------------------|----------------------------|----------------------------------------|
-| `/odom_world`          | `nav_msgs/Odometry`        | `falcon_adapter` (ROS1) → bridge       |
-| `/target_seen`         | `std_msgs/Bool`            | `target_watcher_node` (ROS2 native)    |
-| `/target_seen/info`    | `std_msgs/String` (JSON)   | `target_watcher_node` (ROS2 native)    |
-| `/perception/objects`  | `std_msgs/String` (JSON)   | `object_mapper_node` (ROS2 native)     |
+| Topic                  | Type                              | Origin                                 |
+|------------------------|-----------------------------------|----------------------------------------|
+| `/odom_world`          | `nav_msgs/Odometry`               | `falcon_adapter` (ROS1) → bridge       |
+| `/target_seen`         | `std_msgs/Bool`                   | `target_watcher_node` (ROS2 native)    |
+| `/target_seen/info`    | `std_msgs/String` (JSON)          | `target_watcher_node` (ROS2 native)    |
+| `/perception/detections` | `vision_msgs/Detection2DArray`  | `yolo_detector` (ROS2 native)          |
+| `/map_ros/depth`       | `sensor_msgs/Image` (32FC1)       | `falcon_adapter` (ROS1) → bridge       |
 
 The pose source is configurable via `pose_topic` / `pose_type`. Defaults
 to `/odom_world` (Odometry). If your bridge doesn't carry that, set e.g.
@@ -87,8 +174,7 @@ to `/odom_world` (Odometry). If your bridge doesn't carry that, set e.g.
 
 `parameter_bridge` is interface-pinned in this project (see
 `ros_bridge_docker/bridge.yaml`), so every bridged topic must be listed.
-Add **at least** these entries — the orchestrator publishes from ROS2
-and the consumers are in ROS1:
+Add **at least** these entries for the ROS2 → ROS1 direction:
 
 ```yaml
   - topic: /waypoint_nav/goal
@@ -107,84 +193,62 @@ and the consumers are in ROS1:
     qos: { history: keep_last, depth: 1, reliability: reliable, durability: volatile }
 ```
 
-(For a real drone whose `cmd_vel` and `land` are at root, drop the
+And for the ROS1 → ROS2 direction (most should already be there for
+perception_docker):
+
+```yaml
+  - topic: /odom_world
+    type: nav_msgs/msg/Odometry
+    queue_size: 10
+    qos: { history: keep_last, depth: 10, reliability: reliable, durability: volatile }
+
+  - topic: /map_ros/depth
+    type: sensor_msgs/msg/Image
+    queue_size: 5
+    qos: { history: keep_last, depth: 5, reliability: best_effort, durability: volatile }
+```
+
+(For a real drone whose `cmd_vel` / `land` are at root, drop the
 `/simple_drone` prefix and set `drone_ns:=""` on the orchestrator.)
-
-The reverse direction — `/odom_world` (or whatever pose topic you pick)
-ROS1 → ROS2 — should already be in your bridge yaml since
-`perception_docker` consumes the same source.
-
----
-
-## The state machine
-
-```
-                ┌─────────────────────────┐
-                │       WAIT_INIT         │   wait for first pose msg
-                └────────────┬────────────┘
-                             ▼
-                ┌─────────────────────────┐
-                │      NAV_TO_ROOM        │   publish (cx, cy) to
-                │                         │   /waypoint_nav/goal,
-                │                         │   re-publish every
-                │                         │   nav_goal_republish_s,
-                │                         │   exit when d < nav_arr_r
-                └────────────┬────────────┘
-                             ▼
-                ┌─────────────────────────┐
-                │   ROTATE_AND_SEARCH     │   external_ctrl=True
-                │                         │   spin at rotation_rate_rad_s,
-                │                         │   exit on /target_seen=True
-                │                         │   (with XY in target_seen/info)
-                │                         │   give up after max_rotation_revs
-                └────────────┬────────────┘
-                             ▼
-                ┌─────────────────────────┐
-                │    APPROACH_TARGET      │   external_ctrl=False
-                │                         │   publish target_xy to
-                │                         │   /waypoint_nav/goal,
-                │                         │   keep refining XY from
-                │                         │   /perception/objects until
-                │                         │   we're within lock_r,
-                │                         │   exit when d < approach_r
-                └────────────┬────────────┘
-                             ▼
-                ┌─────────────────────────┐
-                │          LAND           │   publish land_burst_count ×
-                │                         │   <drone_ns>/land Empty
-                │                         │   at land_burst_hz
-                └────────────┬────────────┘
-                             ▼
-                ┌─────────────────────────┐
-                │          DONE           │
-                └─────────────────────────┘
-```
-
-The orchestrator never overrides altitude or vy — those are still owned
-by the sjtu_drone landing controller and by `waypoint_follower`'s
-`linear.z ≡ 0, linear.y ≡ 0` invariants. The orchestrator only ever
-commands `(linear.x, angular.z)` during the rotation phase and lets the
-existing nav stack do the rest.
 
 ---
 
 ## Launch arguments
 
+### Mission
+
 | Arg                       | Default              | What it does                                                                 |
 |---------------------------|----------------------|------------------------------------------------------------------------------|
-| `target_object`           | `keyboard`           | Goes to `target_watcher_node.target_object` AND to the orchestrator.         |
-| `room_center_x`           | `4.0`                | First nav goal X (world frame, metres).                                      |
-| `room_center_y`           | `5.0`                | First nav goal Y.                                                            |
+| `target_object`           | `keyboard`           | Goes to `target_watcher.target_object` AND to the orchestrator.              |
+| `room_center_x` / `_y`    | `4.0` / `5.0`        | First nav goal (world frame, metres).                                        |
 | `drone_ns`                | `/simple_drone`      | Namespace prefix for `/cmd_vel` and `/land`. Set `""` for real-drone root.   |
-| `pose_topic`              | `/odom_world`        | Drone pose source for arrival detection.                                     |
-| `pose_type`               | `odometry`           | `odometry` / `pose_stamped` / `pose`.                                        |
+| `pose_topic` / `pose_type`| `/odom_world` / `odometry` | Drone pose source. Use `pose_type:=pose` for a bare `geometry_msgs/Pose`.|
+| `detections_topic`        | `/perception/detections` | YOLO detections feed.                                                    |
+| `depth_topic`             | `/map_ros/depth`     | Depth image used for visual approach.                                        |
 | `nav_arrival_radius_m`    | `0.50`               | Acceptance circle for "we arrived at the room centre".                       |
 | `rotation_rate_rad_s`     | `0.5`                | In-place yaw rate during search (+ is CCW).                                  |
 | `max_rotation_revs`       | `2.0`                | Give up after this many full turns with no detection.                        |
-| `approach_radius_m`       | `0.35`               | Acceptance circle for "we reached the target".                               |
-| `approach_timeout_s`      | `90.0`               | Hard timeout in APPROACH; lands anyway when hit.                             |
-| `yolo_model`              | `yolov8s-world.pt`   | YOLO-World checkpoint (downloaded by ultralytics on first run).              |
-| `yolo_vocabulary`         | desk/room set (incl. `keyboard`) | YOLO-World prompts. Override with a Python-list literal.         |
+
+### Visual close-in
+
+| Arg                         | Default | What it does                                                            |
+|-----------------------------|---------|-------------------------------------------------------------------------|
+| `rgb_image_width` / `_height` | `640` / `360` | Bbox normalisation. sjtu_drone defaults; override for real cameras. |
+| `visual_kp_yaw`             | `0.9`   | P-gain mapping normalised x-offset → yaw rate.                          |
+| `visual_max_yaw_rate`       | `0.6`   | rad/s saturation on the visual yaw output.                              |
+| `visual_yaw_deadband`       | `0.20`  | If `|x_off| > deadband`, set `vx=0` (yaw to centre first).              |
+| `visual_vx_max`             | `0.20`  | Max forward velocity during approach (m/s).                             |
+| `visual_slowdown_start_m`   | `1.50`  | Depth at which the linear vx ramp begins.                               |
+| `visual_land_depth_m`       | `0.45`  | Depth threshold for the `LAND` transition.                              |
+| `visual_lost_hover_s`       | `0.6`   | Window after which a missing detection counts as "lost".                |
+| `visual_giveup_s`           | `15.0`  | After this long staying lost, transition to `GIVE_UP`.                  |
+
+### YOLO
+
+| Arg                | Default               | What it does                                                                 |
+|--------------------|-----------------------|------------------------------------------------------------------------------|
+| `yolo_min_dt`      | `0.25` (~4 Hz)        | Lower than perception_docker default (1.0 s) because the visual servo loop needs fresh bboxes. |
+| `yolo_vocabulary`  | desk/room set incl. `keyboard` | Python-list literal. Override for a tighter set.                    |
 | `start_yolo` / `start_object_mapper` / `start_target_watcher` | `true` | Set `false` if you already run perception_docker. |
 
 ---
@@ -203,9 +267,15 @@ existing nav stack do the rest.
   yolo_vocabulary:="['keyboard','laptop','monitor','desk','chair']"
   ```
 
-* **Rotation direction.** `rotation_rate_rad_s:=-0.5` to spin clockwise.
+* **Yaw sign inverted.** If the drone yaws *away* from the target
+  during VISUAL_APPROACH, your camera convention is mirrored — flip the
+  sign by setting `visual_kp_yaw:=-0.9` (or invert in the source).
 
-* **Drone won't go all the way to the target.** Bump
-  `approach_radius_m` down (e.g. `0.20`) and lower the `astar_planner`
-  inflation in `gazebo_waypoint_nav.launch` so the planner doesn't
-  refuse cells adjacent to the (presumably non-obstacle) target.
+* **Drone overshoots the target.** Lower `visual_vx_max` and/or raise
+  `visual_slowdown_start_m`. The ramp is linear in `(depth - land) /
+  (slowdown - land)`, so doubling `slowdown_start_m` halves the
+  velocity at any given depth.
+
+* **Drone lands too early / too high.** Tune `visual_land_depth_m`
+  to match how close you want the body frame to the object surface
+  before sjtu_drone takes over the descent.
