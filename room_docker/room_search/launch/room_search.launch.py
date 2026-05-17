@@ -64,8 +64,10 @@ def generate_launch_description():
         DeclareLaunchArgument('pose_type',         default_value='odometry'),
 
         # Visual input (RGB-only — detector runs on the RGB topic; the
-        # orchestrator consumes its bboxes).
+        # orchestrator subscribes to BOTH the detection stream and the
+        # raw RGB stream so it can seed + propagate the LK tracker).
         DeclareLaunchArgument('detections_topic',  default_value='/perception/detections'),
+        DeclareLaunchArgument('rgb_topic',         default_value='/simple_drone/front/image_raw'),
 
         # Phase radii / timings.
         DeclareLaunchArgument('nav_arrival_radius_m',  default_value='0.50'),
@@ -91,15 +93,31 @@ def generate_launch_description():
         DeclareLaunchArgument('visual_giveup_s',           default_value='15.0'),
         DeclareLaunchArgument('visual_approach_timeout_s', default_value='90.0'),
 
+        # Sparse Lucas-Kanade tracker (the inner loop's only work).
+        DeclareLaunchArgument('track_max_corners',          default_value='80'),
+        DeclareLaunchArgument('track_corner_quality',       default_value='0.05'),
+        DeclareLaunchArgument('track_corner_min_dist',      default_value='5.0'),
+        DeclareLaunchArgument('track_lk_win',               default_value='21'),
+        DeclareLaunchArgument('track_lk_levels',            default_value='3'),
+        DeclareLaunchArgument('track_min_matches',          default_value='8'),
+        # If True, every fresh YOLO match while in VISUAL_APPROACH
+        # re-seeds the tracker — bounds drift to the YOLO inter-arrival
+        # time. Turn off only if YOLO is completely off after the first
+        # hit (saves a YOLO re-anchor every yolo_min_dt seconds).
+        DeclareLaunchArgument('track_re_seed_on_detection', default_value='true'),
+        DeclareLaunchArgument('track_frame_buffer_len',     default_value='30'),
+        DeclareLaunchArgument('track_seed_roi_margin',      default_value='0.10'),
+
         # YOLO knobs.
         DeclareLaunchArgument('yolo_model',     default_value='yolov8s-world.pt'),
         DeclareLaunchArgument('yolo_device',    default_value='cuda:0'),
-        # IMPORTANT for the visual servo loop: at 1 Hz YOLO the bbox is
-        # ~half a metre stale per tick when advancing at 0.2 m/s, which
-        # is on the order of the bbox size for a keyboard at close
-        # range. 4 Hz keeps the closed loop crisp without overrunning
-        # an RTX-class GPU.
-        DeclareLaunchArgument('yolo_min_dt',    default_value='0.25'),
+        # YOLO is no longer in the inner control loop — sparse LK
+        # optical flow propagates the bbox at camera rate. YOLO only
+        # needs to fire often enough to (a) provide the initial bbox
+        # during ROTATE_AND_SEARCH and (b) re-anchor the tracker if
+        # it drifts. 1 Hz default is comfortable on a Jetson AGX while
+        # everything else runs.
+        DeclareLaunchArgument('yolo_min_dt',    default_value='1.0'),
         DeclareLaunchArgument('yolo_conf',      default_value='0.30'),
         DeclareLaunchArgument(
             'yolo_vocabulary',
@@ -166,6 +184,7 @@ def generate_launch_description():
             'pose_topic':            LaunchConfiguration('pose_topic'),
             'pose_type':             LaunchConfiguration('pose_type'),
             'detections_topic':          LaunchConfiguration('detections_topic'),
+            'rgb_topic':                 LaunchConfiguration('rgb_topic'),
             'nav_arrival_radius_m':      LaunchConfiguration('nav_arrival_radius_m'),
             'rotation_rate_rad_s':       LaunchConfiguration('rotation_rate_rad_s'),
             'max_rotation_revs':         LaunchConfiguration('max_rotation_revs'),
@@ -181,6 +200,16 @@ def generate_launch_description():
             'visual_lost_hover_s':       LaunchConfiguration('visual_lost_hover_s'),
             'visual_giveup_s':           LaunchConfiguration('visual_giveup_s'),
             'visual_approach_timeout_s': LaunchConfiguration('visual_approach_timeout_s'),
+
+            'track_max_corners':          LaunchConfiguration('track_max_corners'),
+            'track_corner_quality':       LaunchConfiguration('track_corner_quality'),
+            'track_corner_min_dist':      LaunchConfiguration('track_corner_min_dist'),
+            'track_lk_win':               LaunchConfiguration('track_lk_win'),
+            'track_lk_levels':            LaunchConfiguration('track_lk_levels'),
+            'track_min_matches':          LaunchConfiguration('track_min_matches'),
+            'track_re_seed_on_detection': LaunchConfiguration('track_re_seed_on_detection'),
+            'track_frame_buffer_len':     LaunchConfiguration('track_frame_buffer_len'),
+            'track_seed_roi_margin':      LaunchConfiguration('track_seed_roi_margin'),
         }],
     )
 

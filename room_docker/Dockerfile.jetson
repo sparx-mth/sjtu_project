@@ -49,6 +49,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ros-humble-rmw-cyclonedds-cpp \
         python3-colcon-common-extensions \
         python3-pip \
+        python3-opencv \
         git \
     && rm -rf /var/lib/apt/lists/*
 
@@ -83,6 +84,15 @@ RUN pip install --no-cache-dir --no-deps \
 # replaced with a CPU wheel" regression early.
 RUN python3 -c "import torch; print('torch', torch.__version__, 'CUDA build:', torch.version.cuda)"
 RUN python3 -c "from ultralytics import YOLOWorld; print('ultralytics + YOLO-World import OK')"
+# cv2 needs goodFeaturesToTrack + calcOpticalFlowPyrLK for the LK
+# tracker the orchestrator uses. Both are in base OpenCV (no contrib
+# modules required) but fail fast if the build is missing them.
+RUN python3 -c "import cv2, numpy as np; \
+    g = np.zeros((64,64), np.uint8); g[20:40, 20:40] = 255; \
+    p = cv2.goodFeaturesToTrack(g, maxCorners=8, qualityLevel=0.1, minDistance=2); \
+    assert p is not None, 'goodFeaturesToTrack returned None'; \
+    cv2.calcOpticalFlowPyrLK(g, g, p, None); \
+    print('opencv', cv2.__version__, 'LK + Shi-Tomasi OK')"
 
 # ── Workspace ───────────────────────────────────────────────
 RUN mkdir -p /ros2_ws/src

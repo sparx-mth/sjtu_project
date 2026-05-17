@@ -6,14 +6,18 @@ ROS2 Humble container for the **room_search** task:
    using the existing `falcon_docker` A* nav stack.
 2. Rotate in place while watching the YOLO detector for one given object
    (e.g. `keyboard`).
-3. When the object is detected, **close in on it using only the RGB image
-   stream** — no depth, no world-frame XY, no A*, no localisation — and
-   land on it. The drone yaws to keep the bounding box centred and
-   advances forward at a velocity throttled by how much of the image the
-   bbox is filling (bbox area as a 1/d² proxy for proximity). LAND fires
-   when the bbox is "big enough" — at that point the drone is as close
-   as a monocular RGB-only controller can resolve, and the platform's
-   landing controller takes over the descent.
+3. When the object is detected, **close in on it using sparse
+   Lucas-Kanade optical flow on the RGB stream** — no depth, no
+   world-frame XY, no A*, no localisation, and no YOLO in the inner
+   loop. YOLO seeds an initial bbox; Shi-Tomasi corners inside that
+   bbox are then propagated frame-to-frame with `calcOpticalFlowPyrLK`
+   at camera rate (~30 Hz, costs 2–3 ms/frame on Jetson AGX Orin CPU,
+   no neural inference, no contrib OpenCV modules). The bounding rect
+   of the still-matched corners IS the updated bbox — so scale is
+   implicit, and the same area-fraction threshold as before triggers
+   LAND. Any fresh YOLO match while in approach re-seeds the tracker
+   to bound drift to the YOLO inter-arrival time (1 s default on
+   Jetson, configurable down to "essentially off").
 
 The detection chain (`yolo_detector`, `object_mapper_node`,
 `target_watcher_node`) comes from `perception_docker/semantic_mapper`
@@ -183,6 +187,32 @@ viewed perpendicularly through a pinhole). We don't need an absolute
 distance to know we're "as close as we can get" — we just need a
 threshold on how much of the image the target is filling.
 
+### Why detect-once / track-many
+
+Running YOLO-World at 4 Hz on a Jetson AGX while perception, control,
+ROS2, and the drone hardware loop all share the same SoC is wasteful
+once we already have a bbox. The inner loop uses **sparse Lucas-Kanade
+optical flow** to propagate the bbox between YOLO frames:
+
+* YOLO runs at `yolo_min_dt` (1 Hz default on Jetson) just to acquire
+  the initial bbox during `ROTATE_AND_SEARCH` and to opportunistically
+  re-anchor the tracker if it drifts.
+* The orchestrator subscribes to the raw RGB topic and on every frame:
+  - converts to grayscale (cv_bridge + `cv2.cvtColor`),
+  - runs `cv2.calcOpticalFlowPyrLK` on the Shi-Tomasi corners that
+    were seeded inside the YOLO bbox,
+  - drops corners with `status == 0` or outside the image,
+  - takes the bounding rect of the survivors as the new bbox.
+* If too few corners survive (`< track_min_matches`, default 8), the
+  tracker is marked invalid and the drone hovers waiting for any
+  fresh YOLO match to re-seed.
+
+This is among the lightest robust trackers available — no neural
+inference, no `opencv-contrib` modules, no CUDA needed. On a Jetson
+AGX Orin CPU it costs ~2–3 ms per 640x360 frame, so a 30 Hz camera
+stream is processed live with headroom to spare for the rest of the
+ROS pipeline.
+
 ### Platform invariant
 
 **Every published Twist must satisfy `(linear.x = 0) XOR (angular.z = 0)`**
@@ -194,12 +224,12 @@ same invariant.)
 
 ### Visual control law
 
-Each `1 / visual_ctrl_hz` (default 15 Hz):
+Each `1 / visual_ctrl_hz` (default 20 Hz) reads the **tracked** bbox
+(updated by the LK loop on every RGB frame, not by YOLO):
 
-1. From `/perception/detections`, take the highest-confidence detection
-   whose class name matches the target (exact or substring,
-   case-insensitive). If none arrived within `visual_lost_hover_s`,
-   publish a zero Twist and start counting toward `visual_giveup_s`.
+1. If the tracker is invalid (lost lock, no fresh seed yet, or RGB
+   stream silent for more than `visual_lost_hover_s`), publish a zero
+   Twist and start counting toward `visual_giveup_s`.
 2. Compute
    ```
    x_off     = (bbox_cx - rgb_W/2) / (rgb_W/2)       # normalised, [-1, +1]
@@ -243,14 +273,14 @@ rather than hovering forever.
 | `/odom_world`          | `nav_msgs/Odometry`               | `falcon_adapter` (ROS1) → bridge       |
 | `/target_seen`         | `std_msgs/Bool`                   | `target_watcher_node` (ROS2 native)    |
 | `/target_seen/info`    | `std_msgs/String` (JSON)          | `target_watcher_node` (ROS2 native)    |
-| `/perception/detections` | `vision_msgs/Detection2DArray`  | `yolo_detector` (ROS2 native, runs on the RGB camera topic) |
+| `/perception/detections` | `vision_msgs/Detection2DArray`  | `yolo_detector` (ROS2 native; seed + occasional re-seed only) |
+| `/simple_drone/front/image_raw` | `sensor_msgs/Image`        | drone (ROS1) → bridge; consumed by the LK tracker on every frame |
 
-The visual close-in does NOT subscribe to depth. The only ROS1→ROS2
-input it needs is the drone pose (for arrival detection in
-`NAV_TO_ROOM`). The pose source is configurable via `pose_topic` /
-`pose_type`. Defaults to `/odom_world` (Odometry). If your bridge
-doesn't carry that, set e.g. `pose_topic:=/simple_drone/gt_pose
-pose_type:=pose`.
+The visual close-in does NOT subscribe to depth. The pose source is
+configurable via `pose_topic` / `pose_type` (default `/odom_world` /
+`odometry`). The RGB topic is configurable via `rgb_topic` (default
+`/simple_drone/front/image_raw`). Both need to be bridged from ROS1
+— see your `ros_bridge_docker/bridge.yaml`.
 
 ### Outbound (this node publishes)
 
@@ -336,9 +366,23 @@ And for the ROS1 → ROS2 direction:
 
 | Arg                | Default               | What it does                                                                 |
 |--------------------|-----------------------|------------------------------------------------------------------------------|
-| `yolo_min_dt`      | `0.25` (~4 Hz)        | Lower than perception_docker default (1.0 s) because the visual servo loop needs fresh bboxes. |
+| `yolo_min_dt`      | `1.0`                 | YOLO is no longer in the inner loop — the LK tracker propagates the bbox at camera rate. 1 Hz is plenty to seed + occasionally re-anchor. Crank up (e.g. `5.0`) for tighter Jetson budgets; down (e.g. `0.25`) if drift is severe. |
 | `yolo_vocabulary`  | desk/room set incl. `keyboard` | Python-list literal. Override for a tighter set.                    |
 | `start_yolo` / `start_object_mapper` / `start_target_watcher` | `true` | Set `false` if you already run perception_docker. |
+
+### Lucas-Kanade tracker (inner loop)
+
+| Arg                          | Default | What it does                                                                |
+|------------------------------|---------|-----------------------------------------------------------------------------|
+| `track_max_corners`          | `80`    | Cap on Shi-Tomasi corners seeded per bbox. More corners = more robust but more LK work per frame. |
+| `track_corner_quality`       | `0.05`  | Shi-Tomasi quality threshold. Lower = more (weaker) corners.                |
+| `track_corner_min_dist`      | `5.0`   | Minimum separation between seeded corners (pixels).                          |
+| `track_lk_win`               | `21`    | LK window size. Bigger = handles larger motion but more compute.            |
+| `track_lk_levels`            | `3`     | Pyramid levels. 3 handles motion up to ~`win * 2^levels` ≈ 168 px / frame.  |
+| `track_min_matches`          | `8`     | Below this many surviving corners, tracker is lost.                         |
+| `track_re_seed_on_detection` | `true`  | Re-seed corners from YOLO bbox on every fresh match — bounds tracker drift. |
+| `track_frame_buffer_len`     | `30`    | Recent-frame ring buffer used for stamp-matching the YOLO bbox to the right frame. |
+| `track_seed_roi_margin`      | `0.10`  | Fraction of bbox W/H added when extracting the ROI for corner seeding (gives Shi-Tomasi context on object edges). |
 
 ---
 
