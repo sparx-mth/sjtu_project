@@ -1,0 +1,188 @@
+# ============================================================
+# bridge_sim.yaml — ros1_bridge parameter_bridge topics for SIM
+#
+# Sim-only counterpart to bridge.yaml (which stays as-is for the
+# real drone). Loaded by run_bridge_sim.sh — never by the real
+# drone path. If you find yourself editing one of these to make
+# something work, ask whether the change really belongs in the
+# OTHER mode's file instead of being copied between them.
+#
+# QoS rules of thumb (Foxy):
+#   • Sensor data (Image, CameraInfo): best_effort + volatile.
+#     Gazebo's sjtu_drone camera plugin publishes with
+#     SensorDataQoS; a *reliable* subscriber will not receive
+#     these messages (this is the silent-stall bug we hit
+#     before). Keep best_effort here unless you've checked
+#     the publisher side.
+#   • Commands and small pose msgs: reliable + volatile.
+#   • Latched signals (e.g. external_ctrl):
+#     reliable + transient_local on BOTH sides; parameter_bridge
+#     forwards the durability across.
+# ============================================================
+
+topics:
+
+  # ── Sensor data: sjtu_drone → FALCON ────────────────────────
+  - topic: /simple_drone/front_depth/depth/image_raw
+    type: sensor_msgs/msg/Image
+    queue_size: 2
+    qos:
+      history: keep_last
+      depth: 2
+      reliability: best_effort
+      durability: volatile
+
+  - topic: /simple_drone/front_depth/depth/camera_info
+    type: sensor_msgs/msg/CameraInfo
+    queue_size: 2
+    qos:
+      history: keep_last
+      depth: 2
+      reliability: best_effort
+      durability: volatile
+
+  - topic: /simple_drone/gt_pose
+    type: geometry_msgs/msg/Pose
+    queue_size: 10
+    qos:
+      history: keep_last
+      depth: 10
+      reliability: reliable
+      durability: volatile
+
+  # ── Control: FALCON → sjtu_drone ────────────────────────────
+  # cmd_to_vel publishes on /simple_drone/{cmd_vel, takeoff,
+  # land, posctrl} (drone_ns default); the bridge carries them
+  # to the Gazebo plugin which subscribes on the same names.
+  - topic: /simple_drone/cmd_vel
+    type: geometry_msgs/msg/Twist
+    queue_size: 1
+    qos:
+      history: keep_last
+      depth: 1
+      reliability: reliable
+      durability: volatile
+
+  - topic: /simple_drone/takeoff
+    type: std_msgs/msg/Empty
+    queue_size: 1
+    qos:
+      history: keep_last
+      depth: 1
+      reliability: reliable
+      durability: volatile
+
+  - topic: /simple_drone/land
+    type: std_msgs/msg/Empty
+    queue_size: 1
+    qos:
+      history: keep_last
+      depth: 1
+      reliability: reliable
+      durability: volatile
+
+  - topic: /simple_drone/posctrl
+    type: std_msgs/msg/Bool
+    queue_size: 1
+    qos:
+      history: keep_last
+      depth: 1
+      reliability: reliable
+      durability: volatile
+
+  # ──────────────────────────────────────────────────────────────
+  # room_search additions (additive — none of the above changed)
+  # ──────────────────────────────────────────────────────────────
+
+  # ── Pose for room_search arrival detection (ROS1 → ROS2) ───
+  # falcon_adapter publishes /odom_world from /simple_drone/gt_pose
+  # with its noise model. room_search subscribes in ROS2 to know
+  # when the drone has reached the room centre.
+  - topic: /odom_world
+    type: nav_msgs/msg/Odometry
+    queue_size: 10
+    qos:
+      history: keep_last
+      depth: 10
+      reliability: reliable
+      durability: volatile
+
+  # ── Perception support for target_watcher (ROS1 → ROS2) ────
+  # falcon_adapter re-publishes the camera-frame depth + pose for
+  # FALCON's voxel mapper. semantic_mapper/object_mapper_node
+  # consumes them in ROS2 to project YOLO detections into world
+  # XY for the target_watcher's "is the target visible" decision.
+  # The room_search orchestrator itself does NOT use world XY
+  # (it visually closes in on the bbox), but the target_watcher
+  # → /target_seen path that gates ROTATE → VISUAL_APPROACH
+  # depends on object_mapper, which depends on these two.
+  - topic: /map_ros/depth
+    type: sensor_msgs/msg/Image
+    queue_size: 2
+    qos:
+      history: keep_last
+      depth: 2
+      reliability: best_effort
+      durability: volatile
+
+  - topic: /map_ros/pose
+    type: geometry_msgs/msg/PoseStamped
+    queue_size: 10
+    qos:
+      history: keep_last
+      depth: 10
+      reliability: reliable
+      durability: volatile
+
+  # ── room_search → FALCON nav stack (ROS2 → ROS1) ───────────
+  # Orchestrator publishes the room-centre nav goal (and later
+  # the target-XY goal in modes that use one — current visual
+  # close-in does not, but having it bridged keeps the option
+  # open). astar_planner in ROS1 consumes it.
+  - topic: /waypoint_nav/goal
+    type: geometry_msgs/msg/Point
+    queue_size: 1
+    qos:
+      history: keep_last
+      depth: 1
+      reliability: reliable
+      durability: volatile
+
+  # Orchestrator latches True before taking over /cmd_vel for the
+  # in-place rotation and the visual approach. waypoint_follower
+  # in ROS1 stops publishing zero Twists while this is True so
+  # the orchestrator's cmd_vel reaches Gazebo unopposed.
+  # transient_local + reliable so a late-arriving (or restarted)
+  # waypoint_follower sees the current value on connect — the
+  # orchestrator publishes this once per state transition, not
+  # in a loop.
+  - topic: /waypoint_follower/external_ctrl
+    type: std_msgs/msg/Bool
+    queue_size: 1
+    qos:
+      history: keep_last
+      depth: 1
+      reliability: reliable
+      durability: transient_local
+
+# ────────────────────────────────────────────────────────────
+# NOTES ON WHAT'S NOT HERE AND WHY
+#
+# /tf, /tf_static  — intentionally omitted. falcon_adapter
+#   publishes world→body→camera itself with wall-clock stamps.
+#   Bridging the sim's /tf would inject sim-time-stamped frames
+#   into the ROS1 graph (1.77e9-second delay on base_footprint),
+#   confusing FALCON.
+#
+# /clock  — omitted. FALCON runs on wall clock; bridging /clock
+#   risks flipping use_sim_time on any auto-subscriber.
+#
+# /simple_drone/{odom, imu}  — not needed by FALCON or room_search.
+#
+# /simple_drone/front/image_raw  — Gazebo publishes the RGB
+#   camera in ROS2 directly; yolo_detector + room_search
+#   subscribe in ROS2. No bridge needed.
+#
+# /perception/{detections, objects} + /target_seen  — pure ROS2
+#   between semantic_mapper nodes and the orchestrator.
+# ────────────────────────────────────────────────────────────
