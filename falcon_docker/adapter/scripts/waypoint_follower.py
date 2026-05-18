@@ -30,10 +30,15 @@ vs v8:
     transition to FINISH on DONE.
 
 State machine:
-    WAIT_IDLE → HOVER_SETTLE → WAIT_PATH →
+    TAKEOFF → HOVER_SETTLE → WAIT_PATH →
     REQ_TURNING → YAW_ALIGN → REQ_FLY_STRAIGHT → ADVANCE →
       (BRAKE → REQ_TURNING → YAW_ALIGN → REQ_FLY_STRAIGHT → ADVANCE)*
       → DONE (request FINISH)
+
+The initial S.TAKEOFF mirrors DemoMode.TAKEOFF: the planner is
+inert (no publishes, no path computation) until /xtend/demo_mode
+explicitly reports IDLE. A stray transient mode received before
+IDLE will NOT wake the planner.
 
 All control-loop branches are non-blocking: requests are re-published
 at most once per `request_repeat_sec` and confirmation is checked by
@@ -72,7 +77,7 @@ class DemoMode:
 
 
 class S:
-    WAIT_IDLE        = "WAIT_IDLE"
+    TAKEOFF          = "TAKEOFF"
     HOVER_SETTLE     = "HOVER_SETTLE"
     WAIT_PATH        = "WAIT_PATH"
     REQ_TURNING      = "REQ_TURNING"
@@ -208,9 +213,12 @@ class WaypointFollower:
                               log_path, e)
                 self._log_file = None
 
-        # State — start in WAIT_IDLE. Nothing is published until the
-        # bridged DemoMode reports anything other than TAKEOFF.
-        self.state         = S.WAIT_IDLE
+        # State — start in TAKEOFF, mirroring the system DemoMode.
+        # The planner stays passive (publishes nothing, plans nothing)
+        # until the bridged /xtend/demo_mode reports IDLE. Any other
+        # value (None, TAKEOFF, or a stray mode like TURNING received
+        # before IDLE) keeps the planner silent.
+        self.state         = S.TAKEOFF
         self.t_state       = rospy.Time.now()
         self.cur_pose      = None
         self.takeoff_pose  = None
@@ -260,14 +268,14 @@ class WaypointFollower:
         rospy.loginfo("  drone_ns = %s", self.drone_ns)
         rospy.loginfo("  ctrl=%dHz  vel_x=%.2f m/s  yaw_rate=%.2f rad/s",
                       int(self.ctrl_rate_hz), self.vel_x, self.yaw_rate)
-        rospy.loginfo("  demo_mode  in  = %s   (waiting for non-TAKEOFF)",
+        rospy.loginfo("  demo_mode  in  = %s   (waiting for IDLE)",
                       self.demo_mode_topic)
         rospy.loginfo("  demo_mode  out = %s   (request repeat=%.2fs)",
                       self.demo_mode_request_topic, self.request_repeat_sec)
         if self.auto_takeoff:
             rospy.logwarn("waypoint_follower: auto_takeoff=true is IGNORED "
                           "in v9 — the ROS2 system owns takeoff. The node "
-                          "stays passive until /xtend/demo_mode != TAKEOFF.")
+                          "stays passive until /xtend/demo_mode == IDLE.")
         rospy.loginfo("  YAW_ALIGN: yaw_rad=%.2f  yaw_settle=%.2f  "
                       "lead=%.1f%% (live: rosparam set ~yaw_lead_pct)",
                       self.yaw_radius, self.yaw_settle, self.yaw_lead_pct)
@@ -592,18 +600,18 @@ class WaypointFollower:
 
     # ─── Control loop ────────────────────────────────────────────
     def _ctrl_loop(self, _):
-        # ── WAIT_IDLE: completely passive. ──
+        # ── TAKEOFF: completely passive. ──
         # Don't publish anything — not even zero Twists, not even
-        # /sensor_gate/freeze — until the system says it's out of
-        # TAKEOFF. _publishing_allowed() makes this a hard contract,
-        # but we also short-circuit here so we don't run any other
-        # control-loop logic that might want to publish.
-        if self.state == S.WAIT_IDLE:
-            if (self.current_demo_mode is not None
-                    and self.current_demo_mode != DemoMode.TAKEOFF):
-                rospy.loginfo("waypoint_follower: DemoMode left TAKEOFF "
-                              "(now=%s) — activating planner",
-                              self.current_demo_mode)
+        # /sensor_gate/freeze — and don't plan or compute paths.
+        # _publishing_allowed() makes this a hard contract, but we
+        # also short-circuit here so no other control-loop logic
+        # runs while the system has not yet reached IDLE. We require
+        # IDLE specifically (not just "anything but TAKEOFF") so a
+        # stray transient mode can't activate the planner early.
+        if self.state == S.TAKEOFF:
+            if self.current_demo_mode == DemoMode.IDLE:
+                rospy.loginfo("waypoint_follower: DemoMode reached IDLE "
+                              "— activating planner")
                 self._enter(S.HOVER_SETTLE)
             return
 
@@ -837,9 +845,9 @@ class WaypointFollower:
 
     # ─── 1 Hz status ───────────────────────────────────────────
     def _status(self, _):
-        if self.state == S.WAIT_IDLE:
+        if self.state == S.TAKEOFF:
             rospy.loginfo("[%-16s] passive — demo_mode=%s (waiting for "
-                          "non-TAKEOFF on %s)",
+                          "IDLE on %s)",
                           self.state, self.current_demo_mode,
                           self.demo_mode_topic)
             return
@@ -874,7 +882,7 @@ class WaypointFollower:
     def _on_shutdown(self):
         # On shutdown, only emit a brake burst if we were ever
         # allowed to publish in the first place. If we never left
-        # WAIT_IDLE there is nothing to stop.
+        # S.TAKEOFF there is nothing to stop.
         try:
             if self._publishing_allowed():
                 for _ in range(5):
