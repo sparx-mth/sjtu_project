@@ -143,7 +143,7 @@ class WaypointFollower:
         self.vel_xy_sat = float(G("~vel_xy_sat", 1.25))
         self.yaw_rate_sat = float(G("~yaw_rate_sat", 2.4))
         self.accel_limit = float(G("~accel_limit", 1.5))
-        self.yaw_accel_limit = float(G("~yaw_accel_limit", 2.0))
+        self.yaw_accel_limit = float(G("~yaw_accel_limit", 3.5))
 
         # Behaviour
         self.freeze_during_yaw = bool(G("~freeze_during_yaw", True))
