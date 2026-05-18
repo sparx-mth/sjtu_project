@@ -38,29 +38,32 @@
   <!-- v5: when false, sensor_gate ignores camera_info entirely. -->
   <arg name="bridge_camera_info" default="false" />
 
-  <!-- Camera intrinsics: three layers, evaluated in this order so each
-       can be overridden by the next.
-         1. cam_* arg defaults below — the baked-in fallback.
-         2. cam_* CLI overrides (e.g. `roslaunch ... cam_fx:=...`).
-         3. camera_config_file overlay — a calibration YAML in the
-            camera_calibration_parsers format (image_width,
-            image_height, fx, fy, cx, cy at the top level). When set,
-            its values win over the args. Set to "" to disable the
-            overlay and rely on the args alone.
-       Defaults match the top-level scalars in
-       config/camera_xtend_ros_calib_504_392_crop_resize.yaml (the
-       post-crop/resize-adjusted intrinsics matching the 504x392
-       stream). MUST match the actual depth stream — if image_width
-       / image_height don't match, frames are silently dropped. -->
+  <!-- Camera intrinsics — loaded from a camera_calibration_parsers
+       YAML (camera_config_file) when set; the cam_* args below act as
+       both the literal fallback (when camera_config_file:='') and the
+       CLI override path (`roslaunch ... cam_fx:=...`).
+
+       The launch reads from the YAML's standard `camera_matrix.data`
+       (the K matrix, post-crop/resize), NOT the top-level fx/fy/cx/cy
+       scalars, because in calibration files produced by a crop+resize
+       pipeline the top-level scalars are the PRE-crop intrinsics and
+       camera_matrix.data is the POST-crop matrix matching
+       image_width / image_height. image_width / image_height come
+       from the YAML's top-level (those keys are unambiguous).
+
+       Fallback literals match camera_matrix.data from
+       config/camera_xtend_ros_calib_504_392_crop_resize.yaml.
+       MUST match the actual depth stream — if image_width /
+       image_height don't match, frames are silently dropped. -->
   <arg name="camera_config_file"
        default="$(find falcon_adapter)/config/camera_xtend_ros_calib_504_392_crop_resize.yaml"
-       doc="Path to a camera_calibration_parsers YAML. Empty disables the overlay." />
-  <arg name="cam_fx"        default="460.9072976392783" />
-  <arg name="cam_fy"        default="461.9847581630249" />
-  <arg name="cam_cx"        default="345.80685226685307" />
-  <arg name="cam_cy"        default="128.61455823829436" />
-  <arg name="cam_width"     default="504" />
-  <arg name="cam_height"    default="392" />
+       doc="Path to a camera_calibration_parsers YAML. Empty disables YAML loading." />
+  <arg name="cam_fx"        default="$(eval __import__('yaml').safe_load(open(arg('camera_config_file')))['camera_matrix']['data'][0] if arg('camera_config_file') else 430.1801444633264)" />
+  <arg name="cam_fy"        default="$(eval __import__('yaml').safe_load(open(arg('camera_config_file')))['camera_matrix']['data'][4] if arg('camera_config_file') else 431.1857742854899)" />
+  <arg name="cam_cx"        default="$(eval __import__('yaml').safe_load(open(arg('camera_config_file')))['camera_matrix']['data'][2] if arg('camera_config_file') else 238.75306211572953)" />
+  <arg name="cam_cy"        default="$(eval __import__('yaml').safe_load(open(arg('camera_config_file')))['camera_matrix']['data'][5] if arg('camera_config_file') else 120.04025435574141)" />
+  <arg name="cam_width"     default="$(eval __import__('yaml').safe_load(open(arg('camera_config_file')))['image_width']  if arg('camera_config_file') else 504)" />
+  <arg name="cam_height"    default="$(eval __import__('yaml').safe_load(open(arg('camera_config_file')))['image_height'] if arg('camera_config_file') else 392)" />
   <arg name="cam_min_depth" default="0.1" />
   <arg name="cam_max_depth" default="10.0" />
 
@@ -141,9 +144,10 @@
   <rosparam command="load" file="$(find exploration_utils)/config/perception_utils.yaml"/>
   <rosparam command="load" file="$(find exploration_manager)/config/exploration_manager.yaml"/>
 
-  <!-- Base layer: args (always set). These are the fallback when
-       camera_config_file is empty, and they cover min_depth/max_depth
-       which the calibration YAML doesn't carry. -->
+  <!-- Camera intrinsics: the cam_* args are now fully resolved
+       (either from the YAML's camera_matrix.data via $(eval) above,
+       or from literal fallbacks / CLI overrides), so a flat
+       arg-to-param mapping is all that's needed here. -->
   <param name="/uav_model/sensing_parameters/camera_intrinsics/fx" value="$(arg cam_fx)" />
   <param name="/uav_model/sensing_parameters/camera_intrinsics/fy" value="$(arg cam_fy)" />
   <param name="/uav_model/sensing_parameters/camera_intrinsics/cx" value="$(arg cam_cx)" />
@@ -152,23 +156,6 @@
   <param name="/uav_model/sensing_parameters/image_height" value="$(arg cam_height)" />
   <param name="/uav_model/sensing_parameters/min_depth"    value="$(arg cam_min_depth)" />
   <param name="/uav_model/sensing_parameters/max_depth"    value="$(arg cam_max_depth)" />
-
-  <!-- Overlay layer: load the calibration YAML last so any keys it
-       contains win over the args above. The YAML follows the standard
-       camera_calibration_parsers layout: top-level image_width,
-       image_height, fx, fy, cx, cy (scalars). We load it twice so
-       fx/fy/cx/cy land under .../camera_intrinsics/ where FALCON
-       reads them, and image_width/image_height land at the parent
-       namespace. Extra keys (camera_matrix, distortion_*, etc.) are
-       loaded too but harmlessly ignored. -->
-  <group if="$(eval arg('camera_config_file') != '')">
-    <rosparam command="load"
-              file="$(arg camera_config_file)"
-              ns="/uav_model/sensing_parameters" />
-    <rosparam command="load"
-              file="$(arg camera_config_file)"
-              ns="/uav_model/sensing_parameters/camera_intrinsics" />
-  </group>
 
   <!-- Transformer -->
   <param name="/transformer/pose_topic_type"     value="pose" />
