@@ -87,19 +87,6 @@ import numpy as np
 from geometry_msgs.msg import Pose, PoseStamped
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import Image
-from std_msgs.msg import String
-
-
-class DemoMode:
-    """Mirrors the ROS2 DemoMode(str, Enum) used by the system state
-    machine. The adapter only needs to recognise TAKEOFF vs. anything
-    else — see the gate in gt_pose_cb / depth_cb."""
-    TAKEOFF         = "takeoff"
-    IDLE            = "idle"
-    FLY_STRAIGHT    = "fly_straight"
-    TURNING         = "turning"
-    VISUAL_SERVOING = "visual_servoing"
-    FINISH          = "finish"
 
 
 def _yaw_from_R(R):
@@ -228,16 +215,6 @@ class FalconAdapter:
 
         self.tf_br = tf.TransformBroadcaster()
 
-        # ── DemoMode gate ─────────────────────────────────────────
-        # While the system is in TAKEOFF (or before any DemoMode has
-        # been observed) the adapter does NOT feed pose/depth into
-        # the FALCON mapping/planning stack. This prevents the
-        # exploration_node from generating trajectories before the
-        # drone is in IDLE. TF still ticks so RViz stays usable.
-        self.demo_mode_topic   = rospy.get_param("~demo_mode_topic",
-                                                  "/xtend/demo_mode")
-        self.current_demo_mode = None
-
         # Publishers (to FALCON)
         self.odom_pub     = rospy.Publisher("/odom_world", Odometry, queue_size=10)
         self.pose_pub     = rospy.Publisher("/map_ros/pose", PoseStamped, queue_size=10)
@@ -247,37 +224,14 @@ class FalconAdapter:
         rospy.Subscriber(self.drone_ns + "/gt_pose", Pose, self.gt_pose_cb)
         rospy.Subscriber(self.drone_ns + "/front_depth/depth/image_raw",
                          Image, self.depth_cb)
-        rospy.Subscriber(self.demo_mode_topic, String, self._demo_mode_cb,
-                         queue_size=10)
 
-        rospy.loginfo("falcon_adapter ready  drone=%s  pose_noise=%s  "
-                      "demo_mode_gate=%s",
-                      self.drone_ns, self._summarize_noise(),
-                      self.demo_mode_topic)
+        # Brief stabilisation delay — give the bridged subscribers a
+        # moment to receive their first message before we start
+        # forwarding pose/depth to FALCON.
+        rospy.sleep(float(rospy.get_param("~startup_delay_sec", 1.0)))
 
-    # ──────────────────────────────────────────────────────────
-    # DemoMode
-    # ──────────────────────────────────────────────────────────
-    def _demo_mode_cb(self, msg):
-        new_mode = (msg.data or "").strip().lower()
-        if new_mode == self.current_demo_mode:
-            return
-        rospy.loginfo("falcon_adapter: DemoMode  %s → %s",
-                      self.current_demo_mode, new_mode)
-        self.current_demo_mode = new_mode
-
-    # Modes during which we must not feed FALCON. Same rule as the
-    # planner: silent during TAKEOFF (ascent) and FINISH (descent)
-    # so the exploration_node can't compute trajectories while the
-    # ROS2 system owns the airframe.
-    SILENT_MODES = (DemoMode.TAKEOFF, DemoMode.FINISH)
-
-    def _feed_falcon_allowed(self):
-        """Gate for the three FALCON-bound publishers (odom, pose,
-        depth). TF is intentionally NOT gated — it's needed for
-        visualization throughout takeoff and landing."""
-        m = self.current_demo_mode
-        return m is not None and m not in self.SILENT_MODES
+        rospy.loginfo("falcon_adapter ready  drone=%s  pose_noise=%s",
+                      self.drone_ns, self._summarize_noise())
 
     # ──────────────────────────────────────────────────────────
     # Pose callback (drone -> FALCON)
@@ -311,41 +265,37 @@ class FalconAdapter:
         fp = falcon_pose.position
         fo = falcon_pose.orientation
 
-        feed_falcon = self._feed_falcon_allowed()
-
         # 1. Odometry (FALCON's pose belief)
-        if feed_falcon:
-            odom = Odometry()
-            odom.header.stamp    = now
-            odom.header.frame_id = self.world_frame
-            odom.child_frame_id  = self.body_frame
-            odom.pose.pose = falcon_pose
-            odom.twist.twist.linear.x = self.vel[0]
-            odom.twist.twist.linear.y = self.vel[1]
-            odom.twist.twist.linear.z = self.vel[2]
-            self.odom_pub.publish(odom)
+        odom = Odometry()
+        odom.header.stamp    = now
+        odom.header.frame_id = self.world_frame
+        odom.child_frame_id  = self.body_frame
+        odom.pose.pose = falcon_pose
+        odom.twist.twist.linear.x = self.vel[0]
+        odom.twist.twist.linear.y = self.vel[1]
+        odom.twist.twist.linear.z = self.vel[2]
+        self.odom_pub.publish(odom)
 
         # 2. Camera-frame sensor pose (FALCON's mapping reference)
-        if feed_falcon:
-            T_w_b = tft.quaternion_matrix([fo.x, fo.y, fo.z, fo.w])
-            T_w_b[0, 3], T_w_b[1, 3], T_w_b[2, 3] = fp.x, fp.y, fp.z
-            T_w_c = T_w_b @ self.T_b_c
-            cam_pos  = T_w_c[:3, 3]
-            cam_quat = tft.quaternion_from_matrix(T_w_c)
+        T_w_b = tft.quaternion_matrix([fo.x, fo.y, fo.z, fo.w])
+        T_w_b[0, 3], T_w_b[1, 3], T_w_b[2, 3] = fp.x, fp.y, fp.z
+        T_w_c = T_w_b @ self.T_b_c
+        cam_pos  = T_w_c[:3, 3]
+        cam_quat = tft.quaternion_from_matrix(T_w_c)
 
-            ps = PoseStamped()
-            ps.header.stamp    = now
-            ps.header.frame_id = self.world_frame
-            ps.pose.position.x    = cam_pos[0]
-            ps.pose.position.y    = cam_pos[1]
-            ps.pose.position.z    = cam_pos[2]
-            ps.pose.orientation.x = cam_quat[0]
-            ps.pose.orientation.y = cam_quat[1]
-            ps.pose.orientation.z = cam_quat[2]
-            ps.pose.orientation.w = cam_quat[3]
-            self.pose_pub.publish(ps)
+        ps = PoseStamped()
+        ps.header.stamp    = now
+        ps.header.frame_id = self.world_frame
+        ps.pose.position.x    = cam_pos[0]
+        ps.pose.position.y    = cam_pos[1]
+        ps.pose.position.z    = cam_pos[2]
+        ps.pose.orientation.x = cam_quat[0]
+        ps.pose.orientation.y = cam_quat[1]
+        ps.pose.orientation.z = cam_quat[2]
+        ps.pose.orientation.w = cam_quat[3]
+        self.pose_pub.publish(ps)
 
-        # 3. TF (always GT, so RViz remains a fair witness — not gated)
+        # 3. TF (always GT, so RViz remains a fair witness)
         gt_p, gt_o = msg.position, msg.orientation
         self.tf_br.sendTransform(
             (gt_p.x, gt_p.y, gt_p.z),
@@ -481,9 +431,6 @@ class FalconAdapter:
 
         if self.noise_depth_std > 0 or self.noise_depth_proportional > 0:
             msg = self._add_depth_noise(msg)
-        # Gated: don't feed the FALCON mapper while in TAKEOFF.
-        if not self._feed_falcon_allowed():
-            return
         self.depth_pub.publish(msg)
 
     # ──────────────────────────────────────────────────────────
