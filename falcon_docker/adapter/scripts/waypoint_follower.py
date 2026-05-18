@@ -204,18 +204,43 @@ class WaypointFollower:
         self.freeze_pub  = rospy.Publisher("/sensor_gate/freeze", Bool,
                                             queue_size=1, latch=True)
         # DemoMode handshake (bridged via ros1_bridge: see bridge.yaml).
-        # We assume the system starts in FLY_STRAIGHT; only TURNING
-        # entries need a handshake. Latched so the most recent request
-        # is visible to a late-joining subscriber across the bridge.
-        self.current_demo_mode  = DemoMode.FLY_STRAIGHT
-        self._last_demo_req_t   = rospy.Time(0)
-        self.demo_req_pub = rospy.Publisher("/xtend/demo_mode_request",
+        #
+        # demo_mode_topic         : ROS2-owned current state (we read).
+        # demo_mode_request_topic : ROS1-owned transition request
+        #                           (we publish; system reacts).
+        # request_repeat_sec      : while waiting for confirmation we
+        #                           re-publish the request at this
+        #                           cadence so a brief bridge stutter
+        #                           doesn't deadlock the handshake.
+        # request_timeout_sec     : log loudly if a request hasn't been
+        #                           confirmed in this long. 0 disables.
+        # current_demo_mode       : the last value seen on
+        #                           demo_mode_topic. None until the
+        #                           first message arrives (the
+        #                           ~startup_delay_sec below covers
+        #                           that window).
+        # requested_demo_mode     : the mode we are currently asking
+        #                           for. Used to detect "new request"
+        #                           and reset the timeout/repeat clocks.
+        self.demo_mode_topic         = G("~demo_mode_topic",
+                                         "/xtend/demo_mode")
+        self.demo_mode_request_topic = G("~demo_mode_request_topic",
+                                         "/xtend/demo_mode_request")
+        self.request_repeat_sec  = float(G("~request_repeat_sec",  0.5))
+        self.request_timeout_sec = float(G("~request_timeout_sec", 5.0))
+        self.current_demo_mode   = None
+        self.requested_demo_mode = None
+        self._last_request_pub_t = rospy.Time(0)
+        self._request_entered_t  = rospy.Time(0)
+        # Latched so the most recent request is visible to a late-
+        # joining subscriber across the bridge.
+        self.demo_req_pub = rospy.Publisher(self.demo_mode_request_topic,
                                              String, queue_size=1, latch=True)
 
         rospy.Subscriber(self.t_pose,   Pose, self._pose_cb,   queue_size=10)
         rospy.Subscriber(self.t_dstate, Int8, self._dstate_cb, queue_size=10)
         rospy.Subscriber(self.t_path,   Path, self._path_cb,   queue_size=1)
-        rospy.Subscriber("/xtend/demo_mode", String,
+        rospy.Subscriber(self.demo_mode_topic, String,
                          self._demo_mode_cb, queue_size=10)
 
         # Brief stabilisation delay. The launcher only starts us once
@@ -269,21 +294,49 @@ class WaypointFollower:
                           self.current_demo_mode, new_mode)
             self.current_demo_mode = new_mode
 
-    def _ensure_mode(self, mode):
-        """Stop in place, request `mode`, return True iff the system
-        has confirmed it on /xtend/demo_mode. Callers invoke this at
-        the top of motion states and bail out (publishing only zeros)
-        until it returns True — this is the entire handshake."""
-        self._publish_twist(0.0, 0.0)
+    def _request_demo_mode(self, mode):
+        """Publish a DemoMode transition request (rate-limited + with
+        a soft timeout). Switching `mode` resets the request clocks so
+        the timeout measures "this attempt", not the cumulative
+        history. We keep re-publishing on `request_repeat_sec` cadence
+        until the system confirms; the latched publisher means a late-
+        joining subscriber still sees the last request immediately.
+        """
+        if self.requested_demo_mode != mode:
+            self.requested_demo_mode = mode
+            self._request_entered_t  = rospy.Time.now()
+            self._last_request_pub_t = rospy.Time(0)
+            rospy.loginfo("waypoint_follower: DemoMode REQUEST → %s "
+                          "(current=%s)", mode, self.current_demo_mode)
+        # Already confirmed → stop re-publishing.
         if self.current_demo_mode == mode:
-            return True
-        if (rospy.Time.now() - self._last_demo_req_t).to_sec() > 0.5:
+            return
+        now = rospy.Time.now()
+        if (now - self._last_request_pub_t).to_sec() >= self.request_repeat_sec:
             self.demo_req_pub.publish(String(data=mode))
-            self._last_demo_req_t = rospy.Time.now()
-            rospy.loginfo_throttle(1.0,
-                "waypoint_follower: requesting DemoMode → %s (current=%s)",
-                mode, self.current_demo_mode)
-        return False
+            self._last_request_pub_t = now
+        if (self.request_timeout_sec > 0.0 and
+                (now - self._request_entered_t).to_sec()
+                    > self.request_timeout_sec):
+            rospy.logwarn_throttle(2.0,
+                "waypoint_follower: DemoMode request '%s' not confirmed "
+                "after %.1fs (current=%s) — holding zero velocity",
+                mode, (now - self._request_entered_t).to_sec(),
+                self.current_demo_mode)
+
+    def _ensure_mode(self, mode):
+        """Stop -> Request -> Wait -> Action.
+
+        Hard-publish zero velocity (the "Stop"), then drive the
+        request handshake. Returns True iff the system has officially
+        confirmed `mode` via /xtend/demo_mode. Callers invoke this at
+        the top of every motion state and bail out (continuing to
+        hold zero velocity) on False — physical motion only runs once
+        this returns True.
+        """
+        self._publish_twist(0.0, 0.0)
+        self._request_demo_mode(mode)
+        return self.current_demo_mode == mode
 
     def _path_cb(self, msg):
         pts = [(p.pose.position.x, p.pose.position.y) for p in msg.poses]
