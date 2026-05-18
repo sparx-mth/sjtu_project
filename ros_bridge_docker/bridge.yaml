@@ -43,3 +43,38 @@ topics:
       # reliable; best_effort here would cause a QoS mismatch.
       reliability: reliable
       durability: volatile
+
+  # ── DemoMode state machine handshake ──────────────────────────────
+  # Two String topics bridge the ROS2-owned DemoMode state machine to
+  # the ROS1 Falcon planner. parameter_bridge bridges each entry in
+  # both directions; the asymmetry below is purely about which side
+  # is the authoritative publisher.
+  #
+  #   /xtend/demo_mode          published by ROS2 (system),
+  #                             subscribed by ROS1 (waypoint_follower,
+  #                             falcon_adapter). Current system state.
+  #   /xtend/demo_mode_request  published by ROS1 (waypoint_follower)
+  #                             to request a transition; consumed by
+  #                             the ROS2 state-machine owner.
+  #
+  # Both use transient_local durability so a late-joining subscriber
+  # (e.g. the bridge or Falcon restarting mid-flight) picks up the
+  # last known state/request without waiting for the next publish.
+
+  - topic: /xtend/demo_mode
+    type: std_msgs/msg/String
+    queue_size: 10
+    qos:
+      history: keep_last
+      depth: 10
+      reliability: reliable
+      durability: transient_local
+
+  - topic: /xtend/demo_mode_request
+    type: std_msgs/msg/String
+    queue_size: 10
+    qos:
+      history: keep_last
+      depth: 10
+      reliability: reliable
+      durability: transient_local

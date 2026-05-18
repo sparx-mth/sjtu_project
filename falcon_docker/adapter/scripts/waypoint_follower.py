@@ -1,30 +1,43 @@
 #!/usr/bin/env python3
 """
-waypoint_follower.py  (v8 — XY=X-only, Z=fixed, YAW-or-X separation)
+waypoint_follower.py  (v9 — DemoMode handshake + takeoff gating)
 
 PLATFORM INVARIANTS (hard requirements):
   1. vy ≡ 0 in every published Twist.   (no lateral movement)
   2. vz ≡ 0 in every published Twist after takeoff.   (fixed altitude)
   3. vx = 0  OR  wz = 0  in every published Twist.    (never both)
+  4. NOTHING is published — no /cmd_vel, no /takeoff, no /sensor_gate
+     /freeze, no /xtend/demo_mode_request — while the system DemoMode
+     is TAKEOFF (or before any DemoMode has been observed). The drone
+     takes off and stabilises without any interference from this node.
 
-The drone climbs to `takeoff_z` during the TAKING_OFF state by
-re-publishing /takeoff (Empty) — this is the existing sjtu_drone
-takeoff path and the code does NOT command vz to climb. Once
-airborne, the underlying flight controller holds altitude on its own
-when given linear.z = 0. From HOVER_SETTLE onwards, every Twist this
-node publishes has vy = 0 AND vz = 0.
+vs v8:
+  • Takeoff is now owned by the ROS2 system, not this planner. The
+    auto_takeoff arg is kept for back-compat but it no longer triggers
+    /takeoff publishes from here.
+  • Added a hard gate on every publish path. The gate opens only once
+    the bridged ROS2 topic /xtend/demo_mode reports anything other
+    than TAKEOFF (typically IDLE).
+  • Added a strict handshake before every motion-mode change. Before
+    the drone physically turns, the node:
+        a) commands a hover (zero vx, zero wz),
+        b) publishes the requested mode on /xtend/demo_mode_request,
+        c) waits for /xtend/demo_mode to report the matching mode,
+        d) only then enters the actual motion state (YAW_ALIGN /
+           ADVANCE) and starts driving wz / vx.
+    The same handshake gates the transition from turning back to
+    forward flight (REQ_FLY_STRAIGHT → ADVANCE), and the final
+    transition to FINISH on DONE.
 
-vs v7:
-  • vz forced to 0 in _publish_twist (was: alt-hold P-controller).
-  • Takeoff altitude is now an explicit ~takeoff_z argument (default
-    1.0 m). cruise_z and the altitude-hold parameters are removed.
-  • _publish_twist now takes (vx, wz) only — vy and vz are no longer
-    even arguments. There is exactly one path through which a Twist
-    can be assembled, and that path hardwires linear.y = linear.z = 0.
+State machine:
+    WAIT_IDLE → HOVER_SETTLE → WAIT_PATH →
+    REQ_TURNING → YAW_ALIGN → REQ_FLY_STRAIGHT → ADVANCE →
+      (BRAKE → REQ_TURNING → YAW_ALIGN → REQ_FLY_STRAIGHT → ADVANCE)*
+      → DONE (request FINISH)
 
-State machine (unchanged from v7):
-    WAIT_POSE → TAKING_OFF → HOVER_SETTLE → WAIT_PATH →
-    YAW_ALIGN → ADVANCE → (BRAKE → YAW_ALIGN → ADVANCE)* → DONE
+All control-loop branches are non-blocking: requests are re-published
+at most once per `request_repeat_sec` and confirmation is checked by
+the cached current_demo_mode value, never by a sleep/spin.
 """
 import math
 import json
@@ -35,7 +48,7 @@ import tf.transformations as tft
 
 from geometry_msgs.msg import Pose, Twist
 from nav_msgs.msg import Path
-from std_msgs.msg import Empty, Bool, Int8
+from std_msgs.msg import Empty, Bool, Int8, String
 
 
 def wrap_pi(a):    return math.atan2(math.sin(a), math.cos(a))
@@ -46,15 +59,28 @@ def saturate(v, lim):
     return v
 
 
+class DemoMode:
+    """Mirrors the ROS2 DemoMode(str, Enum) used by the system state
+    machine. Kept as plain strings so equality matches the raw payload
+    of std_msgs/String coming over the ros1_bridge."""
+    TAKEOFF         = "takeoff"
+    IDLE            = "idle"
+    FLY_STRAIGHT    = "fly_straight"
+    TURNING         = "turning"
+    VISUAL_SERVOING = "visual_servoing"
+    FINISH          = "finish"
+
+
 class S:
-    WAIT_POSE    = "WAIT_POSE"
-    TAKING_OFF   = "TAKING_OFF"
-    HOVER_SETTLE = "HOVER_SETTLE"
-    WAIT_PATH    = "WAIT_PATH"
-    YAW_ALIGN    = "YAW_ALIGN"
-    ADVANCE      = "ADVANCE"
-    BRAKE        = "BRAKE"
-    DONE         = "DONE"
+    WAIT_IDLE        = "WAIT_IDLE"
+    HOVER_SETTLE     = "HOVER_SETTLE"
+    WAIT_PATH        = "WAIT_PATH"
+    REQ_TURNING      = "REQ_TURNING"
+    YAW_ALIGN        = "YAW_ALIGN"
+    REQ_FLY_STRAIGHT = "REQ_FLY_STRAIGHT"
+    ADVANCE          = "ADVANCE"
+    BRAKE            = "BRAKE"
+    DONE             = "DONE"
 
 
 class WaypointFollower:
@@ -107,18 +133,37 @@ class WaypointFollower:
         # to-target geometry.
         self._advance_yaw_at_entry   = 0.0
 
-        # Takeoff
-        self.auto_takeoff      = bool (G("~auto_takeoff",      True))
-        # NEW v8 — explicit takeoff altitude. The TAKING_OFF state
-        # publishes /takeoff (Empty) until the drone reaches
-        # takeoff_z_thresh; after that we trust the platform's own
-        # altitude hold and never command vz again. The argument name
-        # and a launch override are documented in the README.
+        # Takeoff — owned by the ROS2 system in v9. auto_takeoff is
+        # accepted for back-compat but only logged; this node never
+        # publishes /takeoff. The drone climbs and stabilises while
+        # the system state is DemoMode.TAKEOFF; we just wait silently.
+        self.auto_takeoff      = bool (G("~auto_takeoff",      False))
         self.takeoff_z         = float(G("~takeoff_z",         1.0))
         self.takeoff_z_thresh  = float(G("~takeoff_z_thresh",  0.5))
         self.takeoff_timeout   = float(G("~takeoff_timeout",   30.0))
         self.takeoff_retry_sec = float(G("~takeoff_retry_sec", 1.0))
         self.hover_settle_sec  = float(G("~hover_settle_sec",  2.5))
+
+        # DemoMode handshake (bridged via ros1_bridge: see bridge.yaml).
+        # demo_mode_topic         : ROS2-owned current state (we read).
+        # demo_mode_request_topic : ROS1-owned transition request
+        #                           (we publish; system reacts).
+        # request_repeat_sec      : while waiting for confirmation we
+        #                           re-publish the request at this
+        #                           cadence so a brief bridge stutter
+        #                           doesn't deadlock the handshake.
+        # request_timeout_sec     : log loudly if a request hasn't been
+        #                           confirmed in this long. 0 disables.
+        self.demo_mode_topic         = G("~demo_mode_topic",
+                                          "/xtend/demo_mode")
+        self.demo_mode_request_topic = G("~demo_mode_request_topic",
+                                          "/xtend/demo_mode_request")
+        self.request_repeat_sec  = float(G("~request_repeat_sec",  0.5))
+        self.request_timeout_sec = float(G("~request_timeout_sec", 5.0))
+        self.current_demo_mode   = None
+        self.requested_demo_mode = None
+        self._last_request_pub_t = rospy.Time(0)
+        self._request_entered_t  = rospy.Time(0)
 
         # Slew + saturations
         self.vel_xy_sat       = float(G("~vel_xy_sat",       1.25))
@@ -163,8 +208,9 @@ class WaypointFollower:
                               log_path, e)
                 self._log_file = None
 
-        # State
-        self.state         = S.WAIT_POSE
+        # State — start in WAIT_IDLE. Nothing is published until the
+        # bridged DemoMode reports anything other than TAKEOFF.
+        self.state         = S.WAIT_IDLE
         self.t_state       = rospy.Time.now()
         self.cur_pose      = None
         self.takeoff_pose  = None
@@ -194,22 +240,34 @@ class WaypointFollower:
                                             queue_size=1, latch=True)
         self.freeze_pub  = rospy.Publisher("/sensor_gate/freeze", Bool,
                                             queue_size=1, latch=True)
+        # Latched so the most recent request is visible to a late-
+        # joining subscriber across the bridge.
+        self.demo_req_pub = rospy.Publisher(self.demo_mode_request_topic,
+                                            String, queue_size=1, latch=True)
 
         rospy.Subscriber(self.t_pose,   Pose, self._pose_cb,   queue_size=10)
         rospy.Subscriber(self.t_dstate, Int8, self._dstate_cb, queue_size=10)
         rospy.Subscriber(self.t_path,   Path, self._path_cb,   queue_size=1)
+        rospy.Subscriber(self.demo_mode_topic, String,
+                         self._demo_mode_cb, queue_size=10)
 
         rospy.on_shutdown(self._on_shutdown)
         rospy.Timer(rospy.Duration(1.0 / self.ctrl_rate_hz), self._ctrl_loop)
         rospy.Timer(rospy.Duration(1.0 / self.status_hz),    self._status)
 
         rospy.loginfo("=" * 64)
-        rospy.loginfo("waypoint_follower v8 ready  (X+YAW only, fixed altitude)")
+        rospy.loginfo("waypoint_follower v9 ready  (DemoMode-gated, X+YAW only)")
         rospy.loginfo("  drone_ns = %s", self.drone_ns)
         rospy.loginfo("  ctrl=%dHz  vel_x=%.2f m/s  yaw_rate=%.2f rad/s",
                       int(self.ctrl_rate_hz), self.vel_x, self.yaw_rate)
-        rospy.loginfo("  takeoff_z=%.2f m  (Empty msgs to %s; no vz commands)",
-                      self.takeoff_z, self.t_takeoff)
+        rospy.loginfo("  demo_mode  in  = %s   (waiting for non-TAKEOFF)",
+                      self.demo_mode_topic)
+        rospy.loginfo("  demo_mode  out = %s   (request repeat=%.2fs)",
+                      self.demo_mode_request_topic, self.request_repeat_sec)
+        if self.auto_takeoff:
+            rospy.logwarn("waypoint_follower: auto_takeoff=true is IGNORED "
+                          "in v9 — the ROS2 system owns takeoff. The node "
+                          "stays passive until /xtend/demo_mode != TAKEOFF.")
         rospy.loginfo("  YAW_ALIGN: yaw_rad=%.2f  yaw_settle=%.2f  "
                       "lead=%.1f%% (live: rosparam set ~yaw_lead_pct)",
                       self.yaw_radius, self.yaw_settle, self.yaw_lead_pct)
@@ -235,6 +293,64 @@ class WaypointFollower:
         self.cur_pose = msg
 
     def _dstate_cb(self, msg): self.drone_state = msg.data
+
+    def _demo_mode_cb(self, msg):
+        new_mode = (msg.data or "").strip().lower()
+        if new_mode == self.current_demo_mode:
+            return
+        rospy.loginfo("waypoint_follower: DemoMode  %s → %s",
+                      self.current_demo_mode, new_mode)
+        self.current_demo_mode = new_mode
+
+    # ─── DemoMode handshake helpers ──────────────────────────────
+    def _publishing_allowed(self):
+        """Hard gate on every outbound publish.
+
+        Returns False until the bridged system state has reported any
+        non-TAKEOFF mode at least once. This implements the strict
+        "do not interfere with takeoff" requirement: no /cmd_vel, no
+        /sensor_gate/freeze, no /takeoff and no /xtend/demo_mode_request
+        leaves this node while the system is in TAKEOFF (or before any
+        DemoMode message has been received).
+        """
+        m = self.current_demo_mode
+        return m is not None and m != DemoMode.TAKEOFF
+
+    def _request_demo_mode(self, mode):
+        """Publish a DemoMode transition request (rate-limited).
+
+        Re-publishing periodically while we wait for confirmation
+        survives a brief bridge stutter without deadlocking. The very
+        first request for a given target also resets the timeout
+        clock used for the staleness warning.
+        """
+        if not self._publishing_allowed():
+            return
+        if self.requested_demo_mode != mode:
+            self.requested_demo_mode = mode
+            self._request_entered_t  = rospy.Time.now()
+            self._last_request_pub_t = rospy.Time(0)
+            rospy.loginfo("waypoint_follower: DemoMode REQUEST → %s", mode)
+        # Once the system has confirmed, stop spamming. The latched
+        # publisher means a late subscriber still sees the last value.
+        if self._demo_mode_is(mode):
+            return
+        now = rospy.Time.now()
+        if (now - self._last_request_pub_t).to_sec() < self.request_repeat_sec:
+            return
+        self.demo_req_pub.publish(String(data=mode))
+        self._last_request_pub_t = now
+        if (self.request_timeout_sec > 0.0 and
+                (now - self._request_entered_t).to_sec()
+                    > self.request_timeout_sec):
+            rospy.logwarn_throttle(2.0,
+                "waypoint_follower: DemoMode request '%s' not confirmed "
+                "after %.1fs (current=%s) — still waiting, no motion",
+                mode, (now - self._request_entered_t).to_sec(),
+                self.current_demo_mode)
+
+    def _demo_mode_is(self, mode):
+        return self.current_demo_mode == mode
 
     def _path_cb(self, msg):
         pts = [(p.pose.position.x, p.pose.position.y) for p in msg.poses]
@@ -274,7 +390,8 @@ class WaypointFollower:
         rospy.loginfo("waypoint_follower: NEW PATH  %d wp  "
                       "first=(%.2f,%.2f)  last=(%.2f,%.2f)",
                       len(pts), pts[0][0], pts[0][1], pts[-1][0], pts[-1][1])
-        if self.state in (S.YAW_ALIGN, S.ADVANCE, S.BRAKE, S.DONE):
+        if self.state in (S.REQ_TURNING, S.YAW_ALIGN, S.REQ_FLY_STRAIGHT,
+                           S.ADVANCE, S.BRAKE, S.DONE):
             # Refresh per-state snapshots BEFORE deciding state. If the
             # new path's first waypoint requires a totally different
             # rotation (e.g. old sweep was +34° and new is -147°), the
@@ -293,25 +410,34 @@ class WaypointFollower:
             self._entry_after_new_path()
 
     def _entry_after_new_path(self):
+        # Route the post-new-path decision through the handshake
+        # states. Any "go to YAW_ALIGN" becomes "REQ_TURNING first";
+        # any "go to ADVANCE" becomes "REQ_FLY_STRAIGHT first".
+        # BRAKE still chains via REQ_TURNING after it has stopped.
         if not self.path_xy or self.cur_pose is None:
-            self._enter(S.YAW_ALIGN); return
+            self._enter(S.REQ_TURNING); return
         tx, ty = self.path_xy[0]
         cx, cy = self.cur_pose.position.x, self.cur_pose.position.y
         if math.hypot(tx - cx, ty - cy) < 1e-3:
-            self._enter(S.YAW_ALIGN); return
+            self._enter(S.REQ_TURNING); return
         bearing = math.atan2(ty - cy, tx - cx)
         yaw_cur = quat_yaw(self.cur_pose.orientation)
         moving  = abs(self.last_vx) > 0.05
         if moving and abs(wrap_pi(bearing - yaw_cur)) < self.skip_yaw_thresh:
+            # Already pointing the right way and already moving — no
+            # physical mode change, just keep going. We're still in
+            # FLY_STRAIGHT, no need to re-handshake.
             self._enter(S.ADVANCE)
         else:
-            self._enter(S.BRAKE if moving else S.YAW_ALIGN)
+            self._enter(S.BRAKE if moving else S.REQ_TURNING)
 
     # ─── Helpers ─────────────────────────────────────────────────
     def _enter(self, new):
-        # Forward-only mode: never enter YAW_ALIGN; jump straight to ADVANCE.
-        if new == S.YAW_ALIGN and self.forward_only:
-            new = S.ADVANCE
+        # Forward-only mode: skip the turn entirely. Both the request-
+        # turn handshake and the physical turn collapse into "request
+        # fly_straight then advance".
+        if new in (S.REQ_TURNING, S.YAW_ALIGN) and self.forward_only:
+            new = S.REQ_FLY_STRAIGHT
         if new != self.state:
             rospy.loginfo("waypoint_follower: %s → %s", self.state, new)
             self.state   = new
@@ -367,6 +493,10 @@ class WaypointFollower:
 
     def _set_freeze(self, want):
         if self.last_freeze is want: return
+        # Gated like every other publish: nothing leaves this node
+        # while the system is in TAKEOFF.
+        if not self._publishing_allowed():
+            return
         self.freeze_pub.publish(Bool(data=bool(want)))
         self.last_freeze = want
 
@@ -391,6 +521,26 @@ class WaypointFollower:
                 "waypoint_follower: INVARIANT VIOLATION  vx=%.3f wz=%.3f "
                 "in state %s — zeroing wz", vx, wz, self.state)
             wz = 0.0
+
+        # DemoMode gate: while TAKEOFF (or before any DemoMode is
+        # observed), publish absolutely nothing. The state machine
+        # keeps ticking but no Twist leaves this node, so the drone
+        # is free to take off and stabilise undisturbed.
+        if not self._publishing_allowed():
+            return
+
+        # Handshake gate: while we're waiting on the system to
+        # confirm a requested mode, the only valid Twist is a hover.
+        # The control-loop branches do the right thing on their own,
+        # but this is a belt-and-braces check: never command vx or
+        # wz while the system has not yet entered TURNING /
+        # FLY_STRAIGHT respectively.
+        if self.state == S.REQ_TURNING and not self._demo_mode_is(
+                DemoMode.TURNING):
+            vx, wz = 0.0, 0.0
+        elif self.state == S.REQ_FLY_STRAIGHT and not self._demo_mode_is(
+                DemoMode.FLY_STRAIGHT):
+            vx, wz = 0.0, 0.0
 
         # Startup hold: swallow every motion command for the first
         # `startup_hold_sec` seconds. The state machine keeps running;
@@ -442,35 +592,22 @@ class WaypointFollower:
 
     # ─── Control loop ────────────────────────────────────────────
     def _ctrl_loop(self, _):
-        if self.state == S.WAIT_POSE:
-            if self.cur_pose is not None:
-                self._enter(S.TAKING_OFF if self.auto_takeoff
-                            else S.HOVER_SETTLE)
+        # ── WAIT_IDLE: completely passive. ──
+        # Don't publish anything — not even zero Twists, not even
+        # /sensor_gate/freeze — until the system says it's out of
+        # TAKEOFF. _publishing_allowed() makes this a hard contract,
+        # but we also short-circuit here so we don't run any other
+        # control-loop logic that might want to publish.
+        if self.state == S.WAIT_IDLE:
+            if (self.current_demo_mode is not None
+                    and self.current_demo_mode != DemoMode.TAKEOFF):
+                rospy.loginfo("waypoint_follower: DemoMode left TAKEOFF "
+                              "(now=%s) — activating planner",
+                              self.current_demo_mode)
+                self._enter(S.HOVER_SETTLE)
             return
 
         if self.cur_pose is None:
-            return
-
-        # ── TAKING_OFF: re-publish /takeoff Empty until airborne. ──
-        # We do NOT command vz to climb — sjtu_drone owns the vertical
-        # actuation in response to the Empty msg. We pump zeros
-        # (vx=wz=0) so the cmd_vel stream is continuous.
-        if self.state == S.TAKING_OFF:
-            now = rospy.Time.now()
-            if (now - self.last_takeoff).to_sec() > self.takeoff_retry_sec:
-                self.takeoff_pub.publish(Empty())
-                self.last_takeoff   = now
-                self.takeoff_count += 1
-                rospy.loginfo("waypoint_follower: published /takeoff (#%d)  "
-                              "target_z=%.2f", self.takeoff_count, self.takeoff_z)
-            self._publish_zero()
-            airborne = (self.drone_state == 1
-                        or self.cur_pose.position.z >= self.takeoff_z_thresh)
-            if airborne:
-                self._enter(S.HOVER_SETTLE)
-            elif self._t_in() > self.takeoff_timeout:
-                rospy.logerr("waypoint_follower: takeoff timeout, continuing")
-                self._enter(S.HOVER_SETTLE)
             return
 
         if self.state == S.HOVER_SETTLE:
@@ -488,11 +625,33 @@ class WaypointFollower:
         if self.state == S.WAIT_PATH:
             self._publish_zero()
             if self.path_xy and self.wp_idx < len(self.path_xy):
+                self._enter(S.REQ_TURNING)
+            return
+
+        # ── REQ_TURNING: hover, request TURNING, wait for confirm ──
+        # The physical turn must not start until the bridged state
+        # topic reports DemoMode.TURNING. We publish zeros (which
+        # also serves as a fresh brake to kill residual vx) and
+        # re-publish the request at request_repeat_sec.
+        if self.state == S.REQ_TURNING:
+            self._set_freeze(False)
+            self._publish_zero()
+            self._request_demo_mode(DemoMode.TURNING)
+            if self._demo_mode_is(DemoMode.TURNING):
                 self._enter(S.YAW_ALIGN)
             return
 
         # ── YAW_ALIGN: pure wz, vx forced to 0 ─────────────────
         if self.state == S.YAW_ALIGN:
+            # Defensive: if the system mode slid out from under us
+            # mid-turn (e.g. system commanded a hold), brake and
+            # re-handshake on the next tick.
+            if not self._demo_mode_is(DemoMode.TURNING):
+                rospy.logwarn("waypoint_follower: DemoMode left TURNING "
+                              "mid-rotation (now=%s) — re-requesting",
+                              self.current_demo_mode)
+                self._enter(S.REQ_TURNING)
+                return
             tx, ty = self.path_xy[self.wp_idx]
             cx, cy = self.cur_pose.position.x, self.cur_pose.position.y
             if math.hypot(tx - cx, ty - cy) < self.pos_radius:
@@ -502,7 +661,11 @@ class WaypointFollower:
                 if self.wp_idx >= len(self.path_xy):
                     self._enter(S.DONE)
                 else:
+                    # New waypoint, still in TURNING mode — stay here
+                    # and re-snapshot the sweep on the next tick. No
+                    # handshake needed (we never left TURNING).
                     self._enter(S.YAW_ALIGN)
+                    self._snapshot_yaw_lead()
                 return
 
             yaw_des = math.atan2(ty - cy, tx - cx)
@@ -524,7 +687,9 @@ class WaypointFollower:
                     and abs(self.last_wz) < self.yaw_settle):
                 self._set_freeze(False)
                 self._publish_zero()
-                self._enter(S.ADVANCE)
+                # Rotation complete — handshake back to fly_straight
+                # before commanding any forward motion.
+                self._enter(S.REQ_FLY_STRAIGHT)
                 return
 
             self._set_freeze(self.freeze_during_yaw)
@@ -540,8 +705,28 @@ class WaypointFollower:
             self._publish_twist(0.0, wz_target)
             return
 
+        # ── REQ_FLY_STRAIGHT: hover, request FLY_STRAIGHT, wait ──
+        if self.state == S.REQ_FLY_STRAIGHT:
+            self._set_freeze(False)
+            self._publish_zero()
+            self._request_demo_mode(DemoMode.FLY_STRAIGHT)
+            if self._demo_mode_is(DemoMode.FLY_STRAIGHT):
+                self._enter(S.ADVANCE)
+            return
+
         # ── ADVANCE: pure vx, wz forced to 0 ────────────────────
         if self.state == S.ADVANCE:
+            # Defensive: same idea as in YAW_ALIGN. If the system
+            # mode drifts off FLY_STRAIGHT, stop driving and re-
+            # handshake. We brake first so we don't slam into the
+            # next state with residual velocity.
+            if not self._demo_mode_is(DemoMode.FLY_STRAIGHT):
+                rospy.logwarn("waypoint_follower: DemoMode left "
+                              "FLY_STRAIGHT mid-advance (now=%s) — "
+                              "braking & re-handshaking",
+                              self.current_demo_mode)
+                self._enter(S.BRAKE)
+                return
             self._set_freeze(False)
             tx, ty = self.path_xy[self.wp_idx]
             cx, cy = self.cur_pose.position.x, self.cur_pose.position.y
@@ -625,12 +810,17 @@ class WaypointFollower:
                 if self.wp_idx >= len(self.path_xy):
                     self._enter(S.DONE)
                 else:
-                    self._enter(S.YAW_ALIGN)
+                    # Stopped → handshake into a new turn.
+                    self._enter(S.REQ_TURNING)
             return
 
         if self.state == S.DONE:
             self._set_freeze(False)
             self._publish_zero()
+            # Announce completion to the system. Idempotent: once the
+            # system confirms FINISH, _request_demo_mode no-ops on
+            # repeats so this doesn't spam the bridge.
+            self._request_demo_mode(DemoMode.FINISH)
             return
 
     @staticmethod
@@ -647,16 +837,22 @@ class WaypointFollower:
 
     # ─── 1 Hz status ───────────────────────────────────────────
     def _status(self, _):
+        if self.state == S.WAIT_IDLE:
+            rospy.loginfo("[%-16s] passive — demo_mode=%s (waiting for "
+                          "non-TAKEOFF on %s)",
+                          self.state, self.current_demo_mode,
+                          self.demo_mode_topic)
+            return
         if self.cur_pose is None:
-            rospy.loginfo("[%-12s] no /gt_pose yet (subscribed to %s)",
+            rospy.loginfo("[%-16s] no /gt_pose yet (subscribed to %s)",
                           self.state, self.t_pose); return
         p = self.cur_pose.position
         yaw = math.degrees(quat_yaw(self.cur_pose.orientation))
         # Status line shows what we publish: vy and vz are always 0.
         extra = ""
-        if self.state == S.TAKING_OFF:
-            extra = "  takeoff_pubs=%d  z=%.2f→%.2f" % (
-                    self.takeoff_count, p.z, self.takeoff_z)
+        if self.state in (S.REQ_TURNING, S.REQ_FLY_STRAIGHT):
+            extra = "  requested=%s  current=%s" % (
+                    self.requested_demo_mode, self.current_demo_mode)
         elif self.state == S.WAIT_PATH:
             extra = "  (no path yet on %s)" % self.t_path
         elif self.state == S.BRAKE:
@@ -669,16 +865,21 @@ class WaypointFollower:
                               - quat_yaw(self.cur_pose.orientation)))
             extra = ("  wp=%d/%d target=(%.2f,%.2f) d=%.2fm yaw_err=%5.1f°"
                      % (self.wp_idx + 1, len(self.path_xy), tx, ty, d, ey))
-        rospy.loginfo("[%-12s] pose=(%.2f,%.2f,%.2f) yaw=%5.1f° | "
+        rospy.loginfo("[%-16s] demo=%s pose=(%.2f,%.2f,%.2f) yaw=%5.1f° | "
                       "cmd: vx=%.2f wz=%.2f%s",
-                      self.state, p.x, p.y, p.z, yaw,
+                      self.state, self.current_demo_mode,
+                      p.x, p.y, p.z, yaw,
                       self.last_vx, self.last_wz, extra)
 
     def _on_shutdown(self):
+        # On shutdown, only emit a brake burst if we were ever
+        # allowed to publish in the first place. If we never left
+        # WAIT_IDLE there is nothing to stop.
         try:
-            for _ in range(5):
-                self._publish_zero()
-                rospy.sleep(0.02)
+            if self._publishing_allowed():
+                for _ in range(5):
+                    self._publish_zero()
+                    rospy.sleep(0.02)
         except Exception:
             pass
         if self._log_file is not None:
