@@ -266,12 +266,18 @@ class FalconAdapter:
                       self.current_demo_mode, new_mode)
         self.current_demo_mode = new_mode
 
+    # Modes during which we must not feed FALCON. Same rule as the
+    # planner: silent during TAKEOFF (ascent) and FINISH (descent)
+    # so the exploration_node can't compute trajectories while the
+    # ROS2 system owns the airframe.
+    SILENT_MODES = (DemoMode.TAKEOFF, DemoMode.FINISH)
+
     def _feed_falcon_allowed(self):
         """Gate for the three FALCON-bound publishers (odom, pose,
         depth). TF is intentionally NOT gated — it's needed for
-        visualization throughout takeoff."""
+        visualization throughout takeoff and landing."""
         m = self.current_demo_mode
-        return m is not None and m != DemoMode.TAKEOFF
+        return m is not None and m not in self.SILENT_MODES
 
     # ──────────────────────────────────────────────────────────
     # Pose callback (drone -> FALCON)

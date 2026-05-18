@@ -8,8 +8,9 @@ PLATFORM INVARIANTS (hard requirements):
   3. vx = 0  OR  wz = 0  in every published Twist.    (never both)
   4. NOTHING is published — no /cmd_vel, no /takeoff, no /sensor_gate
      /freeze, no /xtend/demo_mode_request — while the system DemoMode
-     is TAKEOFF (or before any DemoMode has been observed). The drone
-     takes off and stabilises without any interference from this node.
+     is in a SILENT_MODE (TAKEOFF during ascent, FINISH during the
+     system's landing phase) or before any DemoMode has been observed.
+     The ROS2 system owns the airframe end-to-end during entry/exit.
 
 vs v8:
   • Takeoff is now owned by the ROS2 system, not this planner. The
@@ -310,19 +311,30 @@ class WaypointFollower:
                       self.current_demo_mode, new_mode)
         self.current_demo_mode = new_mode
 
+    # Modes during which the planner must be completely silent.
+    # TAKEOFF: the drone is climbing/stabilising under ROS2 control.
+    # FINISH:  the system has taken over for landing; we must not
+    #          inject any /cmd_vel or hand-off requests while it is
+    #          bringing the drone down.
+    # The pre-IDLE "no DemoMode received yet" case is handled
+    # separately by the `m is None` check below.
+    SILENT_MODES = (DemoMode.TAKEOFF, DemoMode.FINISH)
+
     # ─── DemoMode handshake helpers ──────────────────────────────
     def _publishing_allowed(self):
         """Hard gate on every outbound publish.
 
-        Returns False until the bridged system state has reported any
-        non-TAKEOFF mode at least once. This implements the strict
-        "do not interfere with takeoff" requirement: no /cmd_vel, no
-        /sensor_gate/freeze, no /takeoff and no /xtend/demo_mode_request
-        leaves this node while the system is in TAKEOFF (or before any
-        DemoMode message has been received).
+        Returns False:
+          * before any DemoMode message has been received,
+          * while the system is in TAKEOFF (drone is climbing),
+          * while the system is in FINISH  (drone is landing).
+        In all three cases no /cmd_vel, no /takeoff, no
+        /sensor_gate/freeze and no /xtend/demo_mode_request leaves
+        this node, so the system owns the airframe end-to-end during
+        the entry and exit phases.
         """
         m = self.current_demo_mode
-        return m is not None and m != DemoMode.TAKEOFF
+        return m is not None and m not in self.SILENT_MODES
 
     def _request_demo_mode(self, mode):
         """Publish a DemoMode transition request (rate-limited).
