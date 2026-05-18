@@ -43,25 +43,30 @@
        both the literal fallback (when camera_config_file:='') and the
        CLI override path (`roslaunch ... cam_fx:=...`).
 
-       The launch reads from the YAML's standard `camera_matrix.data`
-       (the K matrix, post-crop/resize), NOT the top-level fx/fy/cx/cy
-       scalars, because in calibration files produced by a crop+resize
-       pipeline the top-level scalars are the PRE-crop intrinsics and
-       camera_matrix.data is the POST-crop matrix matching
-       image_width / image_height. image_width / image_height come
-       from the YAML's top-level (those keys are unambiguous).
+       Source is the YAML's `projection_matrix.data` (the rectified
+       3x4 P matrix), NOT camera_matrix.data. Reason: after image
+       rectification and crop, the principal point and effective focal
+       length live in the upper-left 3x3 block of P; K still describes
+       the unrectified raw sensor. Falcon consumes the rectified
+       stream, so it needs P-derived intrinsics.
 
-       Fallback literals match camera_matrix.data from
+       P is a 12-element row-major array. The mapping is:
+         fx = P[0]   cx = P[2]
+         fy = P[5]   cy = P[6]
+       The rest of P encodes the (zero here) stereo baseline and the
+       0/0/0/1 homogeneous row, which we ignore for monocular use.
+
+       Fallback literals match projection_matrix.data from
        config/camera_xtend_ros_calib_504_392_crop_resize.yaml.
        MUST match the actual depth stream — if image_width /
        image_height don't match, frames are silently dropped. -->
   <arg name="camera_config_file"
        default="$(find falcon_adapter)/config/camera_xtend_ros_calib_504_392_crop_resize.yaml"
        doc="Path to a camera_calibration_parsers YAML. Empty disables YAML loading." />
-  <arg name="cam_fx"        default="$(eval __import__('yaml').safe_load(open(arg('camera_config_file')))['camera_matrix']['data'][0] if arg('camera_config_file') else 430.1801444633264)" />
-  <arg name="cam_fy"        default="$(eval __import__('yaml').safe_load(open(arg('camera_config_file')))['camera_matrix']['data'][4] if arg('camera_config_file') else 431.1857742854899)" />
-  <arg name="cam_cx"        default="$(eval __import__('yaml').safe_load(open(arg('camera_config_file')))['camera_matrix']['data'][2] if arg('camera_config_file') else 238.75306211572953)" />
-  <arg name="cam_cy"        default="$(eval __import__('yaml').safe_load(open(arg('camera_config_file')))['camera_matrix']['data'][5] if arg('camera_config_file') else 120.04025435574141)" />
+  <arg name="cam_fx"        default="$(eval __import__('yaml').safe_load(open(arg('camera_config_file')))['projection_matrix']['data'][0] if arg('camera_config_file') else 337.4222244007882)" />
+  <arg name="cam_fy"        default="$(eval __import__('yaml').safe_load(open(arg('camera_config_file')))['projection_matrix']['data'][5] if arg('camera_config_file') else 383.3801464218712)" />
+  <arg name="cam_cx"        default="$(eval __import__('yaml').safe_load(open(arg('camera_config_file')))['projection_matrix']['data'][2] if arg('camera_config_file') else 230.85392360854863)" />
+  <arg name="cam_cy"        default="$(eval __import__('yaml').safe_load(open(arg('camera_config_file')))['projection_matrix']['data'][6] if arg('camera_config_file') else 108.97888041795339)" />
   <arg name="cam_width"     default="$(eval __import__('yaml').safe_load(open(arg('camera_config_file')))['image_width']  if arg('camera_config_file') else 504)" />
   <arg name="cam_height"    default="$(eval __import__('yaml').safe_load(open(arg('camera_config_file')))['image_height'] if arg('camera_config_file') else 392)" />
   <arg name="cam_min_depth" default="0.1" />
