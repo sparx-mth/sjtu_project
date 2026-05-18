@@ -2,10 +2,10 @@ topics:
 
   - topic: /xtend/depth_m
     type: sensor_msgs/msg/Image
-    queue_size: 5
+    queue_size: 1
     qos:
       history: keep_last
-      depth: 5
+      depth: 1
       # best_effort matches the drone's publisher. With reliable here,
       # no data flows (this was the bug).
       reliability: best_effort

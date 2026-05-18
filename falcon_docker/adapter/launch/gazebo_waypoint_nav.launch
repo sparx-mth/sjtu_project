@@ -79,12 +79,12 @@
   <!-- Speeds & radii -->
   <arg name="vel_x"                  default="0.3" />
   <arg name="yaw_rate"               default="0.7" />
-  <arg name="pos_acquisition_radius" default="0.35" />
-  <arg name="yaw_acquisition_radius" default="0.2" />
+  <arg name="pos_acquisition_radius" default="0.1" />
+  <arg name="yaw_acquisition_radius" default="0.1" />
   <arg name="yaw_lead_pct"           default="10.0" />
 
   <!-- A* / path -->
-  <arg name="waypoint_spacing_m"    default="1.0" />
+  <arg name="waypoint_spacing_m"    default="0.5" />
   <arg name="inflate_radius_m"      default="0.01" />
   <arg name="unknown_blocked"       default="false" />
   <arg name="unknown_cost"          default="1.0" />
