@@ -137,7 +137,7 @@ class WaypointFollower:
 
         # Behaviour
         self.freeze_during_yaw = bool (G("~freeze_during_yaw", True))
-        self.ctrl_rate_hz      = float(G("~ctrl_rate_hz",      50.0))
+        self.ctrl_rate_hz      = float(G("~ctrl_rate_hz",      5.0))
         self.status_hz         = float(G("~status_hz",         1.0))
 
         # Startup hold: for the first `startup_hold_sec` seconds the
