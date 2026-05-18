@@ -144,7 +144,7 @@ class WaypointFollower:
         # node refuses to command any motion (vx and wz forced to 0),
         # so the drone waits while the map warms up instead of cruising
         # into an all-unknown world. 0 disables.
-        self.startup_hold_sec = float(G("~startup_hold_sec", 5.0))
+        self.startup_hold_sec = float(G("~startup_hold_sec", 3.0))
         self._node_start_t    = rospy.Time.now()
 
         # Forward-only mode: skip YAW_ALIGN entirely (treat all transitions
