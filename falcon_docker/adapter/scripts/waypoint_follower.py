@@ -26,11 +26,13 @@ State machine (unchanged from v7):
     WAIT_POSE → TAKING_OFF → HOVER_SETTLE → WAIT_PATH →
     YAW_ALIGN → ADVANCE → (BRAKE → YAW_ALIGN → ADVANCE)* → DONE
 
-LOGGING ENHANCEMENTS (v8-enhanced):
-  • Mode transitions: logs INTENT when requesting TURNING/FLY_STRAIGHT
-  • Waypoint acquisition: logs detailed distance, yaw, and radius checks
-  • System state: each control step shows current state + intention
-  • Status line: clearer "want" vs "doing" semantics
+FIXES (v8-minimal):
+  • _ensure_mode() now only publishes zero while WAITING for mode confirmation.
+    Once confirmed (current_demo_mode == requested mode), no more zero commands
+    are sent—the motion state handler takes over with actual control.
+  • _request_demo_mode() is called less frequently (only on state entry or when
+    mode changes), reducing network chatter. It intelligently re-publishes only
+    on ~request_repeat_sec cadence until confirmed.
 """
 import math
 import json
@@ -337,18 +339,26 @@ class WaypointFollower:
                                    self.current_demo_mode)
 
     def _ensure_mode(self, mode):
-        """Stop -> Request -> Wait -> Action.
+        """Stop → Request → Wait → Action.
 
-        Hard-publish zero velocity (the "Stop"), then drive the
-        request handshake. Returns True iff the system has officially
-        confirmed `mode` via /xtend/demo_mode. Callers invoke this at
-        the top of every motion state and bail out (continuing to
-        hold zero velocity) on False — physical motion only runs once
-        this returns True.
+        While the requested mode is NOT yet confirmed:
+          • Publish zero velocity (the "Stop")
+          • Drive the request handshake
+          • Return False (caller continues to hold zero)
+
+        Once the mode has been confirmed (current_demo_mode == mode):
+          • Return True immediately
+          • NO more zero commands published here
+          • Caller proceeds with actual motion commands
         """
+        # Already in the right mode → proceed with motion
+        if self.current_demo_mode == mode:
+            return True
+
+        # Mode transition in progress: hold zero and request
         self._publish_twist(0.0, 0.0)
         self._request_demo_mode(mode)
-        return self.current_demo_mode == mode
+        return False
 
     def _path_cb(self, msg):
         pts = [(p.pose.position.x, p.pose.position.y) for p in msg.poses]
