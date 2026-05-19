@@ -13,6 +13,11 @@ catkin_install_python(PROGRAMS
   scripts/waypoint_follower.py
   scripts/voxel_reset_watcher.py
   scripts/pose_adapter.py
+  scripts/visual_servoing_controller.py
+  scripts/nav_geom.py
+  scripts/navdp_client.py
+  scripts/pixel_goal_tracker.py
+  scripts/trajectory_tracker.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

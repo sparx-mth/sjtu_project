@@ -572,6 +572,17 @@ class WaypointFollower:
 
     # ─── Control loop ────────────────────────────────────────────
     def _ctrl_loop(self, _):
+        # ── VISUAL_SERVOING hand-off (the ONLY change for VS) ────────
+        # While the external state machine holds the system in
+        # visual_servoing, visual_servoing_controller owns /cmd_vel and
+        # does the explicit re-zeroed 24-point tracking. We go fully
+        # passive: publish nothing, run no state logic, so there is
+        # exactly one cmd_vel publisher. When the system leaves
+        # visual_servoing this node simply resumes from its current
+        # state on the next tick.
+        if self.current_demo_mode == DemoMode.VISUAL_SERVOING:
+            return
+
         if self.state == S.WAIT_POSE:
             if self.cur_pose is not None:
                 self._enter(S.TAKING_OFF if self.auto_takeoff

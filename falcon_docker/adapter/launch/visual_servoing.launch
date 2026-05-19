@@ -1,0 +1,43 @@
+<launch>
+  <!--
+    visual_servoing.launch — starts ONLY the VISUAL_SERVOING controller.
+
+    Include this from gazebo_waypoint_nav.launch (or run standalone in
+    the falcon container). It does not start waypoint_follower / A* /
+    sensor_gate — those are already up; this node just produces the
+    NavDP-driven /path/waypoints while the system is held in the
+    `visual_servoing` DemoMode.
+
+    Remember the one-line waypoint_follower change (see README) so its
+    DemoMode handshake doesn't deadlock under visual_servoing.
+  -->
+  <arg name="drone_ns"   default="/simple_drone" />
+  <arg name="rgb_topic"  default="/camera/rgb/image_raw" />
+  <arg name="depth_topic" default="$(arg drone_ns)/front_depth/depth/image_raw" />
+  <arg name="navdp_url"  default="http://127.0.0.1:8888/pointgoal" />
+  <arg name="infer_hz"   default="2.0" />
+
+  <node pkg="falcon_adapter" type="visual_servoing_controller.py"
+        name="visual_servoing_controller" output="screen">
+    <param name="drone_ns"        value="$(arg drone_ns)" />
+    <param name="rgb_topic"       value="$(arg rgb_topic)" />
+    <param name="depth_topic"     value="$(arg depth_topic)" />
+    <param name="astar_path_topic" value="/path/waypoints" />
+    <param name="path_out_topic"  value="/path/waypoints" />
+    <param name="bev_topic"       value="/falcon/bev_2d" />
+    <param name="demo_mode_topic" value="/xtend/demo_mode" />
+    <param name="navdp_url"       value="$(arg navdp_url)" />
+    <param name="navdp_timeout_s" value="2.0" />
+    <param name="infer_hz"        value="$(arg infer_hz)" />
+    <param name="goal_max_range_m" value="8.0" />
+    <param name="goal_min_range_m" value="0.30" />
+    <!-- camera offset must match falcon_adapter's cam_offset_* -->
+    <param name="cam_offset_x"    value="0.2" />
+    <param name="cam_offset_y"    value="0.0" />
+    <param name="cam_offset_z"    value="0.0" />
+    <!-- pixel-lock tuning -->
+    <param name="pix_patch"       value="21" />
+    <param name="pix_search"      value="80" />
+    <param name="pix_min_score"   value="0.45" />
+  </node>
+</launch>

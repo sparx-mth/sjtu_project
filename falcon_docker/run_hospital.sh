@@ -93,7 +93,8 @@ for f in falcon_adapter.py cmd_to_vel.py bev_publisher.py \
          exploration_monitor.py run_recorder.py completion_watcher.py \
          batch_runner.py respawn_drone.py sensor_gate.py astar_planner.py \
          waypoint_follower.py voxel_reset_watcher.py bev_click_goal.py \
-         pose_adapter.py ; do
+         pose_adapter.py visual_servoing_controller.py nav_geom.py \
+         navdp_client.py pixel_goal_tracker.py trajectory_tracker.py ; do
   if [ -f "${SCRIPTS_HOST}/${f}" ]; then
     SCRIPT_MOUNTS+=( --volume "${SCRIPTS_HOST}/${f}:${SCRIPTS_TARGET}/${f}" )
   else
@@ -104,7 +105,7 @@ done
 LAUNCH_HOST="${SCRIPT_DIR}/adapter/launch"
 LAUNCH_TARGET="/catkin_ws/src/falcon_adapter/launch"
 LAUNCH_MOUNTS=()
-for f in gazebo_exploration.launch gazebo_waypoint_nav.launch real_drone.launch ; do
+for f in gazebo_exploration.launch gazebo_waypoint_nav.launch real_drone.launch visual_servoing.launch ; do
   if [ -f "${LAUNCH_HOST}/${f}" ]; then
     LAUNCH_MOUNTS+=( --volume "${LAUNCH_HOST}/${f}:${LAUNCH_TARGET}/${f}" )
   fi
