@@ -102,7 +102,7 @@
   <arg name="use_posctrl"       default="true" />
   <arg name="ctrl_rate_hz"      default="5.0" />
 
-  <arg name="forward_only"      default="false" />
+  <arg name="forward_only"      default="true" />
   <arg name="cmd_log_path"      default="/home/nadavc/Desktop/cmd_log_{ts}.jsonl" />
 
   <!-- BEV -->
