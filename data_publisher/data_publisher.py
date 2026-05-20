@@ -14,14 +14,15 @@ class DataPublisher(Node):
         super().__init__('data_publisher')
 
         # Define Publishers
+        self.finish = 0
         self.pose_pub = self.create_publisher(PoseStamped, '/flow_depth/pose_est', 10)
         self.depth_pub = self.create_publisher(Image, '/xtend/depth_m', 10)
 
         self.bridge = CvBridge()
 
         # Paths - Docker maps the host's Desktop folder to /data
-        self.depth_dir = '/data/xtend_rectified_depth_take_003_20260429_160647/depth_npy'
-        self.json_path = '/data/estimated_trajectory_xtend_rectified_depth_take_003_20260429_160647.json'
+        self.depth_dir = '/data/Large/depth_npy'
+        self.json_path = '/data/estimated_trajectory_test_1.json'
 
         # Load localization file (JSON)
         with open(self.json_path, 'r') as f:
@@ -42,6 +43,7 @@ class DataPublisher(Node):
         # Reset index to 0 to loop indefinitely
         if self.current_idx >= self.max_idx:
             self.get_logger().info("Reached the end of data. Restarting loop...")
+            self.finish += 1
             self.current_idx = 0
 
         now = self.get_clock().now().to_msg()
@@ -66,7 +68,8 @@ class DataPublisher(Node):
         pose_msg.pose.orientation.z = math.sin(half)
         pose_msg.pose.orientation.w = math.cos(half)
 
-        self.pose_pub.publish(pose_msg)
+        if self.finish<= 5:
+            self.pose_pub.publish(pose_msg)
 
         # --- Create and publish depth image (Image) ---
         depth_file = self.depth_files[self.current_idx]
@@ -81,7 +84,8 @@ class DataPublisher(Node):
         image_msg.header.stamp = now
         image_msg.header.frame_id = "camera_depth_frame"
 
-        self.depth_pub.publish(image_msg)
+        if self.finish <= 5:
+            self.depth_pub.publish(image_msg)
 
         self.current_idx += 1
 

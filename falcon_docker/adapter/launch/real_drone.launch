@@ -58,6 +58,12 @@
   <arg name="cam_cy"        default="108.97888041795339" />
   <arg name="cam_width"     default="504" />
   <arg name="cam_height"    default="392" />
+<!--   <arg name="cam_fx"        default="361.52381185798737" /> -->
+<!--   <arg name="cam_fy"        default="410.764442594862" /> -->
+<!--   <arg name="cam_cx"        default="341.3434895805878" /> -->
+<!--   <arg name="cam_cy"        default="116.76308616209292" /> -->
+<!--   <arg name="cam_width"     default="728" /> -->
+<!--   <arg name="cam_height"    default="420" /> -->
   <arg name="cam_min_depth" default="0.1" />
   <arg name="cam_max_depth" default="10.0" />
 

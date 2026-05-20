@@ -11,6 +11,18 @@ topics:
       reliability: best_effort
       durability: volatile
 
+  - topic: /xtend/rgb
+    type: sensor_msgs/msg/Image
+    queue_size: 1
+    qos:
+      history: keep_last
+      depth: 1
+      # Same QoS as /xtend/depth_m — RGB is a high-rate sensor stream
+      # from the same camera, drops are fine. If `ros2 topic info -v
+      # /xtend/rgb` shows the publisher as reliable, flip this to
+      # reliable (mismatch = no data flows, same trap as depth).
+      reliability: best_effort
+      durability: volatile
   # camera_info intentionally NOT bridged. Intrinsics are static and
   # already loaded into rosparam on the ROS1 side via
   #   /uav_model/sensing_parameters/camera_intrinsics/{fx,fy,cx,cy}
