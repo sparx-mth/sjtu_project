@@ -27,8 +27,9 @@
     Defaults match the xtend drone:
       pose : /flow_depth/pose_est (PoseStamped)
       depth: /xtend/depth_m       (32FC1, 504x392)
-      K    : fx=430.18 fy=431.19 cx=238.75 cy=120.04
-             (from camera_matrix in camera_xtend_ros_calib_504_392_*.yaml)
+      P    : fx=390.715302 fy=395.828430 cx=222.273390 cy=108.547631
+             (from projection_matrix in camera_xtend_ros_calib_504_392_*.yaml
+              — the rectified intrinsics; FALCON does no undistortion)
 
     Run example:
       roslaunch falcon_adapter real_drone.launch
@@ -52,10 +53,10 @@
        drops frames. Override on the command line for a different camera:
          cam_fx:=... cam_fy:=... cam_cx:=... cam_cy:=...
          cam_width:=... cam_height:=... -->
-  <arg name="cam_fx"        default="445.928751" />
-  <arg name="cam_fy"        default="446.037577" />
-  <arg name="cam_cx"        default="227.132797" />
-  <arg name="cam_cy"        default="119.265047" />
+  <arg name="cam_fx"        default="390.715302" />
+  <arg name="cam_fy"        default="395.828430" />
+  <arg name="cam_cx"        default="222.273390" />
+  <arg name="cam_cy"        default="108.547631" />
   <arg name="cam_width"     default="504" />
   <arg name="cam_height"    default="392" />
 <!--   <arg name="cam_fx"        default="361.52381185798737" /> -->

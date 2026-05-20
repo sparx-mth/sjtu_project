@@ -63,10 +63,10 @@
   <arg name="camera_config_file"
        default="$(find falcon_adapter)/config/camera_xtend_ros_calib_504_392_crop_resize.yaml"
        doc="Path to a camera_calibration_parsers YAML. Empty disables YAML loading." />
-  <arg name="cam_fx"        default="445.928751" />
-  <arg name="cam_fy"        default="446.037577" />
-  <arg name="cam_cx"        default="227.132797" />
-  <arg name="cam_cy"        default="119.265047" />
+  <arg name="cam_fx"        default="390.715302" />
+  <arg name="cam_fy"        default="395.828430" />
+  <arg name="cam_cx"        default="222.273390" />
+  <arg name="cam_cy"        default="108.547631" />
   <arg name="cam_width"     default="504" />
   <arg name="cam_height"    default="392" />
   <arg name="cam_min_depth" default="0.1" />
