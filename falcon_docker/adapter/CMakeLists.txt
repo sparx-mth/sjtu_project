@@ -16,6 +16,7 @@ catkin_install_python(PROGRAMS
   scripts/visual_servoing_controller.py
   scripts/nav_geom.py
   scripts/navdp_client.py
+  scripts/navdp_click.py
   scripts/pixel_goal_tracker.py
   scripts/trajectory_tracker.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}

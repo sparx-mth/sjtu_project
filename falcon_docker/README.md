@@ -103,7 +103,7 @@ cd falcon_docker
 ./run_hospital.sh office
 ```
 
-The first arg is the map name; the script loads `<name>.yaml` from the same directory. It drops you into a bash shell inside the `falcon` container — **leave this terminal open**. We'll come back to it in step 5.
+The first arg is the map name; the script loads `<name>.yaml` from the same directory. It drops you into a bash shell inside the `falcon` container — **leave this terminal open**. We'll come back to it in step 6.
 
 Now in a **new** host terminal:
 
@@ -133,7 +133,33 @@ A 2D map window opens. **Left-click** anywhere to publish a goal — A* replans 
 
 ---
 
-## 5. Launch FALCON
+## 5. NavDP click viewer (optional, standalone sanity check)
+
+> Skip unless you're checking the NavDP path in isolation. This viewer doesn't fly the drone and doesn't replace the BEV goal flow. It only confirms that `click pixel → body-frame (gx, gy) → NavDP → trajectory` is wired up correctly.
+
+Requires the NavDP HTTP server running on `127.0.0.1:8888` (override with `_port:=`).
+
+In another **new** host terminal:
+
+```bash
+docker exec -it falcon bash
+export DISPLAY=:0
+source /catkin_ws/devel/setup.bash
+rosrun falcon_adapter navdp_click.py
+```
+
+An RGB + depth window opens. **Hover** the depth panel to read the depth value at the cursor. **Left-click** on the RGB panel to set a pixel goal, then press **ENTER** to send it to NavDP — the returned trajectory appears in a second window. `r` clears, `q` quits.
+
+Override topics or intrinsics on a real drone (defaults are the sjtu_drone front camera, 640×480, 90° HFOV):
+
+```
+_rgb_topic:=... _depth_topic:=...
+_fx:=... _fy:=... _cx:=... _cy:=...
+```
+
+---
+
+## 6. Launch FALCON
 
 Go back to the terminal from step 3 (the one running `./run_hospital.sh`):
 
@@ -147,7 +173,7 @@ The state machine progresses `WAIT_POSE → TAKING_OFF → HOVER_SETTLE → WAIT
 
 ---
 
-## 6. Topics
+## 7. Topics
 
 **Inputs (provided by your drone OR `run_publisher.sh`, bridged from ROS2):**
 
@@ -190,6 +216,10 @@ docker exec -it falcon bash -c \
 # Terminal 5 — 2D map (BEV click-to-goal)
 docker exec -it falcon bash -c \
   "source /catkin_ws/devel/setup.bash && rosrun falcon_adapter bev_click_goal.py _drone_ns:=''"
+
+# Terminal 6 — NavDP click viewer (optional)
+docker exec -it falcon bash -c \
+  "source /catkin_ws/devel/setup.bash && rosrun falcon_adapter navdp_click.py"
 
 # Terminal 3 (again) — launch FALCON
 source /catkin_ws/devel/setup.bash
