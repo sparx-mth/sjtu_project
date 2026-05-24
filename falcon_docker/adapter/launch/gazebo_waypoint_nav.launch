@@ -79,13 +79,13 @@
   <!-- Speeds & radii -->
   <arg name="vel_x"                  default="0.3" />
   <arg name="yaw_rate"               default="0.7" />
-  <arg name="pos_acquisition_radius" default="0.1" />
-  <arg name="yaw_acquisition_radius" default="0.1" />
+  <arg name="pos_acquisition_radius" default="0.3" />
+  <arg name="yaw_acquisition_radius" default="0.2" />
   <arg name="yaw_lead_pct"           default="10.0" />
 
   <!-- A* / path -->
-  <arg name="waypoint_spacing_m"    default="0.5" />
-  <arg name="inflate_radius_m"      default="0.01" />
+  <arg name="waypoint_spacing_m"    default="1.5" />
+  <arg name="inflate_radius_m"      default="0.1" />
   <arg name="unknown_blocked"       default="false" />
   <arg name="unknown_cost"          default="1.0" />
   <arg name="los_smoothing"         default="true" />
@@ -102,7 +102,7 @@
   <arg name="use_posctrl"       default="true" />
   <arg name="ctrl_rate_hz"      default="5.0" />
 
-  <arg name="forward_only"      default="true" />
+  <arg name="forward_only"      default="false" />
   <arg name="cmd_log_path"      default="/home/nadavc/Desktop/cmd_log_{ts}.jsonl" />
 
   <!-- BEV -->
@@ -139,15 +139,15 @@
   <!-- ══════════════════════════════════════════════════════════════
        LOAD FALCON CONFIG
        ══════════════════════════════════════════════════════════════ -->
-  <rosparam command="load" file="$(find exploration_manager)/config/robot/uav_model_simulator.yaml"/>
-  <rosparam command="load" file="$(find exploration_manager)/config/map/$(arg map_name).yaml"/>
+<!--   <rosparam command="load" file="$(find exploration_manager)/config/robot/uav_model_simulator.yaml"/> -->
+<!--   <rosparam command="load" file="$(find exploration_manager)/config/map/$(arg map_name).yaml"/> -->
   <rosparam command="load" file="$(find voxel_mapping)/config/voxel_mapping.yaml"/>
   <rosparam command="load" file="$(find pathfinding)/config/astar.yaml"/>
   <rosparam command="load" file="$(find fast_planner)/config/fast_planner.yaml"/>
   <rosparam command="load" file="$(find exploration_preprocessing)/config/frontier_finder.yaml"/>
   <rosparam command="load" file="$(find exploration_preprocessing)/config/hgrid.yaml"/>
   <rosparam command="load" file="$(find exploration_utils)/config/perception_utils.yaml"/>
-  <rosparam command="load" file="$(find exploration_manager)/config/exploration_manager.yaml"/>
+<!--   <rosparam command="load" file="$(find exploration_manager)/config/exploration_manager.yaml"/> -->
 
   <!-- Camera intrinsics: the cam_* args are now fully resolved
        (either from the YAML's camera_matrix.data via $(eval) above,

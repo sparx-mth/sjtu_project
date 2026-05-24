@@ -13,6 +13,7 @@ catkin_install_python(PROGRAMS
   scripts/waypoint_follower.py
   scripts/voxel_reset_watcher.py
   scripts/pose_adapter.py
+  scripts/sim_adapter.py
   scripts/visual_servoing_controller.py
   scripts/nav_geom.py
   scripts/navdp_client.py

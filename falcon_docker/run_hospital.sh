@@ -93,7 +93,7 @@ for f in falcon_adapter.py cmd_to_vel.py bev_publisher.py \
          exploration_monitor.py run_recorder.py completion_watcher.py \
          batch_runner.py respawn_drone.py sensor_gate.py astar_planner.py \
          waypoint_follower.py voxel_reset_watcher.py bev_click_goal.py \
-         pose_adapter.py visual_servoing_controller.py nav_geom.py \
+         pose_adapter.py sim_adapter.py visual_servoing_controller.py nav_geom.py \
          navdp_client.py navdp_click.py pixel_goal_tracker.py \
          trajectory_tracker.py ; do
   if [ -f "${SCRIPTS_HOST}/${f}" ]; then

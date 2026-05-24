@@ -198,10 +198,10 @@
     <visualize>1</visualize>
     <update_rate>60</update_rate>
     <camera>
-      <horizontal_fov>2.09</horizontal_fov>
+      <horizontal_fov>1.3098</horizontal_fov>
       <image>
-        <width>640</width>
-        <height>360</height>
+        <width>600</width>
+        <height>600</height>
         <format>R8G8B8</format>
       </image>
       <clip>
@@ -248,15 +248,15 @@
     <visualize>1</visualize>
     <update_rate>15</update_rate>
     <camera>
-      <horizontal_fov>1.5708</horizontal_fov>
+      <horizontal_fov>1.3098</horizontal_fov>
       <image>
-        <width>640</width>
-        <height>480</height>
+        <width>600</width>
+        <height>600</height>
         <format>R8G8B8</format>
       </image>
       <clip>
         <near>0.1</near>
-        <far>5.0</far>
+        <far>10.0</far>
       </clip>
     </camera>
     <plugin name="camera_front_depth" filename="libgazebo_ros_camera.so">
