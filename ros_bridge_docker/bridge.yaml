@@ -31,7 +31,8 @@ topics:
   # the topic, so there's no reason to drag /xtend/camera_info across.
   # If you ever need it back, re-add the entry here AND set
   # bridge_camera_info:=true on the ROS1 sensor_gate.
-
+#- topic: /flow_depth/pose_est
+#  - topic: /xtend/amcl_pose
   - topic: /flow_depth/pose_est
     type: geometry_msgs/msg/PoseStamped
     queue_size: 10
@@ -44,7 +45,7 @@ topics:
       reliability: best_effort
       durability: volatile
 
-  - topic: /cmd_vel_temp
+  - topic: /cmd_vel
     type: geometry_msgs/msg/Twist
     queue_size: 10
     qos:

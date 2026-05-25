@@ -95,7 +95,7 @@ for f in falcon_adapter.py cmd_to_vel.py bev_publisher.py \
          waypoint_follower.py voxel_reset_watcher.py bev_click_goal.py \
          pose_adapter.py sim_adapter.py visual_servoing_controller.py nav_geom.py \
          navdp_client.py navdp_click.py pixel_goal_tracker.py \
-         trajectory_tracker.py ; do
+         trajectory_tracker.py depth_debug.py ; do
   if [ -f "${SCRIPTS_HOST}/${f}" ]; then
     SCRIPT_MOUNTS+=( --volume "${SCRIPTS_HOST}/${f}:${SCRIPTS_TARGET}/${f}" )
   else
