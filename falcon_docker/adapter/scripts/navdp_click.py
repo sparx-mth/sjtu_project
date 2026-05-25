@@ -478,6 +478,30 @@ def main():
                 px, py, end_u, end_v,
                 d, float(np.hypot(end_x, end_y)))
 
+            # Full 24-waypoint dump in body frame. Columns are
+            #   i      step index 0..23
+            #   fwd    metres forward (NavDP X+)
+            #   left   metres left    (NavDP Y+)
+            #   yaw    heading change (rad) if present, else "  -  "
+            # Useful for sanity-checking whether NavDP is producing
+            # waypoints that actually march outward, or stalling
+            # near the origin. Compact two-decimal format so all 24
+            # rows fit on a normal terminal.
+            has_yaw = best.shape[1] >= 3
+            rospy.loginfo(
+                "  waypoints (n=%d): %s",
+                best.shape[0],
+                "fwd/left/yaw" if has_yaw else "fwd/left")
+            for i, wp in enumerate(best):
+                if has_yaw:
+                    rospy.loginfo(
+                        "    [%2d]  fwd=%+5.2fm  left=%+5.2fm  yaw=%+5.2frad",
+                        i, float(wp[0]), float(wp[1]), float(wp[2]))
+                else:
+                    rospy.loginfo(
+                        "    [%2d]  fwd=%+5.2fm  left=%+5.2fm",
+                        i, float(wp[0]), float(wp[1]))
+
             # Dump what we actually POSTed to NavDP, byte-for-byte,
             # so you can open and verify. /tmp/navdp_sent/rgb.png is
             # the cropped 504×392 RGB; depth_raw.png is the 16-bit
