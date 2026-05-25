@@ -119,21 +119,6 @@ if [ "${ARCH}" != "aarch64" ] && [ -S /var/run/docker.sock ]; then
   DOCKER_SOCK_MOUNT=( --volume /var/run/docker.sock:/var/run/docker.sock )
 fi
 
-# Mount a host copy of voxel_mapping.yaml over the in-container one so
-# resolution / inflation / etc. can be tweaked without rebuilding the image.
-# Guarded: if the host file is missing, docker would silently create an
-# empty *directory* at the target path and FALCON's YAML load would crash
-# with a confusing parser error. Skip the mount when not present.
-VOXEL_CFG_HOST="${SCRIPT_DIR}/runs/voxel_mapping.yaml"
-VOXEL_CFG_TARGET="/catkin_ws/src/FALCON/falcon_planner/voxel_mapping/config/voxel_mapping.yaml"
-VOXEL_CFG_MOUNT=()
-if [ -f "${VOXEL_CFG_HOST}" ]; then
-  VOXEL_CFG_MOUNT=( --volume "${VOXEL_CFG_HOST}:${VOXEL_CFG_TARGET}" )
-  echo "[INFO] Mounting host voxel_mapping.yaml -> container"
-else
-  echo "[INFO] No host voxel_mapping.yaml at ${VOXEL_CFG_HOST}; using image default"
-fi
-
 # ── Run ───────────────────────────────────────────────────────
 docker run -it --rm \
     --name "${CONTAINER}" \
@@ -146,7 +131,6 @@ docker run -it --rm \
     "${SCRIPT_MOUNTS[@]}" \
     "${LAUNCH_MOUNTS[@]}" \
     "${DOCKER_SOCK_MOUNT[@]}" \
-    "${VOXEL_CFG_MOUNT[@]}" \
     --volume "${SCRIPT_DIR}/${ENV_NAME}.yaml:/catkin_ws/src/FALCON/falcon_planner/exploration_manager/config/map/${ENV_NAME}.yaml" \
     --volume "${SCRIPT_DIR}/runs:/home/falcon/runs" \
     --network host \
