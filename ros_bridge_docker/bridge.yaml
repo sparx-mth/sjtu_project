@@ -44,7 +44,7 @@ topics:
       reliability: best_effort
       durability: volatile
 
-  - topic: /cmd_vel
+  - topic: /cmd_vel_temp
     type: geometry_msgs/msg/Twist
     queue_size: 10
     qos:
@@ -91,56 +91,56 @@ topics:
       reliability: reliable
       durability: transient_local
 
-  # ── SIM-mode inputs (Gazebo via gazebo_ros, ROS2 → ROS1) ─────────────
-  # These three are consumed by ROS1's sim_adapter.py, which crops the
-  # images and republishes them on the real-drone topic names so the
-  # rest of the stack doesn't know it's sim. Real-drone runs don't
-  # need these — they cost nothing if no one publishes them.
-  #
-  # QoS notes:
-  #   • Gazebo's libgazebo_ros_camera.so default is RELIABLE / VOLATILE.
-  #     If `ros2 topic info -v /simple_drone/front/image_raw` shows
-  #     best_effort instead, flip the matching reliability line — a
-  #     mismatch means zero data flows (same trap as /xtend/depth_m).
-  #   • /simple_drone/gt_pose is Pose, not PoseStamped — sim_adapter
-  #     adds the header before republishing as PoseStamped on
-  #     /flow_depth/pose_est.
-
-  - topic: /simple_drone/front/image_raw
-    type: sensor_msgs/msg/Image
-    queue_size: 1
-    qos:
-      history: keep_last
-      depth: 1
-      reliability: reliable
-      durability: volatile
-
-  - topic: /simple_drone/front_depth/depth/image_raw
-    type: sensor_msgs/msg/Image
-    queue_size: 1
-    qos:
-      history: keep_last
-      depth: 1
-      reliability: reliable
-      durability: volatile
-
-  - topic: /simple_drone/gt_pose
-    type: geometry_msgs/msg/Pose
-    queue_size: 10
-    qos:
-      history: keep_last
-      depth: 10
-      reliability: reliable
-      durability: volatile
-
-  - topic: /simple_drone/cmd_vel
-    type: geometry_msgs/msg/Twist
-    queue_size: 10
-    qos:
-      history: keep_last
-      depth: 10
-      # Outbound: FALCON publishes /cmd_vel (ROS1). sim_adapter renames
-      # it to /simple_drone/cmd_vel (ROS1). This entry bridges
-      # /simple_drone/cmd_vel ROS1→ROS2 so Gazebo's sjtu_drone gets it.
-      reliability: reliable
-      durability: volatile
+#  # ── SIM-mode inputs (Gazebo via gazebo_ros, ROS2 → ROS1) ─────────────
+#  # These three are consumed by ROS1's sim_adapter.py, which crops the
+#  # images and republishes them on the real-drone topic names so the
+#  # rest of the stack doesn't know it's sim. Real-drone runs don't
+#  # need these — they cost nothing if no one publishes them.
+#  #
+#  # QoS notes:
+#  #   • Gazebo's libgazebo_ros_camera.so default is RELIABLE / VOLATILE.
+#  #     If `ros2 topic info -v /simple_drone/front/image_raw` shows
+#  #     best_effort instead, flip the matching reliability line — a
+#  #     mismatch means zero data flows (same trap as /xtend/depth_m).
+#  #   • /simple_drone/gt_pose is Pose, not PoseStamped — sim_adapter
+#  #     adds the header before republishing as PoseStamped on
+#  #     /flow_depth/pose_est.
+#
+#  - topic: /simple_drone/front/image_raw
+#    type: sensor_msgs/msg/Image
+#    queue_size: 1
+#    qos:
+#      history: keep_last
+#      depth: 1
+#      reliability: reliable
+#      durability: volatile
+#
+#  - topic: /simple_drone/front_depth/depth/image_raw
+#    type: sensor_msgs/msg/Image
+#    queue_size: 1
+#    qos:
+#      history: keep_last
+#      depth: 1
+#      reliability: reliable
+#      durability: volatile
+#
+#  - topic: /simple_drone/gt_pose
+#    type: geometry_msgs/msg/Pose
+#    queue_size: 10
+#    qos:
+#      history: keep_last
+#      depth: 10
+#      reliability: reliable
+#      durability: volatile
+#
+#  - topic: /simple_drone/cmd_vel
+#    type: geometry_msgs/msg/Twist
+#    queue_size: 10
+#    qos:
+#      history: keep_last
+#      depth: 10
+#      # Outbound: FALCON publishes /cmd_vel (ROS1). sim_adapter renames
+#      # it to /simple_drone/cmd_vel (ROS1). This entry bridges
+#      # /simple_drone/cmd_vel ROS1→ROS2 so Gazebo's sjtu_drone gets it.
+#      reliability: reliable
+#      durability: volatile
