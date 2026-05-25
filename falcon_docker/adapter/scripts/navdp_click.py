@@ -53,6 +53,7 @@ from PIL import Image as PILImage
 import rospy
 from sensor_msgs.msg import Image
 from geometry_msgs.msg import PoseStamped
+from nav_msgs.msg import Path
 
 
 # ── shared mouse state (mouse_cb writes, main loop reads) ──────────
@@ -137,6 +138,17 @@ class NavDPClick:
                          self._depth_cb, queue_size=5)
         rospy.Subscriber(self.pose_topic,  PoseStamped,
                          self._pose_cb,  queue_size=10)
+
+        # Publish the chosen 24-waypoint body-frame trajectory so
+        # flight_executor (or any other follower) can consume it as
+        # a nav_msgs/Path. Each pose's position.x = forward (m),
+        # position.y = left (m); orientation is identity (the
+        # follower derives heading from atan2(dy, dx) along the
+        # segments). Published on ENTER / SPACE only — same moment
+        # as the snapshot panel and waypoint log.
+        self.path_topic = G("~path_topic", "/navdp/path")
+        self.path_pub   = rospy.Publisher(self.path_topic, Path,
+                                          queue_size=1)
 
         rospy.loginfo("=" * 64)
         rospy.loginfo("navdp_click ready")
@@ -501,6 +513,24 @@ def main():
                     rospy.loginfo(
                         "    [%2d]  fwd=%+5.2fm  left=%+5.2fm",
                         i, float(wp[0]), float(wp[1]))
+
+            # Publish the body-frame trajectory as nav_msgs/Path so
+            # flight_executor (or any other follower) can pick it
+            # up. frame_id is informational — we make no TF claims
+            # here; the follower treats every pose as (fwd, left)
+            # in body frame at the moment of publication.
+            path_msg = Path()
+            path_msg.header.stamp    = rospy.Time.now()
+            path_msg.header.frame_id = "base_link"
+            for wp in best:
+                ps = PoseStamped()
+                ps.header = path_msg.header
+                ps.pose.position.x = float(wp[0])     # forward
+                ps.pose.position.y = float(wp[1])     # left
+                ps.pose.position.z = 0.0
+                ps.pose.orientation.w = 1.0           # identity quat
+                path_msg.poses.append(ps)
+            node.path_pub.publish(path_msg)
 
             # Dump what we actually POSTed to NavDP, byte-for-byte,
             # so you can open and verify. /tmp/navdp_sent/rgb.png is

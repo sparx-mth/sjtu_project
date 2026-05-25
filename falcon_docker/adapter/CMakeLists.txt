@@ -21,6 +21,7 @@ catkin_install_python(PROGRAMS
   scripts/pixel_goal_tracker.py
   scripts/trajectory_tracker.py
   scripts/depth_debug.py
+  scripts/flight_executor.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
