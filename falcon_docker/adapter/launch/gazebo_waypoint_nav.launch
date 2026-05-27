@@ -63,20 +63,12 @@
   <arg name="camera_config_file"
        default="$(find falcon_adapter)/config/camera_xtend_ros_calib_504_392_crop_resize.yaml"
        doc="Path to a camera_calibration_parsers YAML. Empty disables YAML loading." />
-<!--   <arg name="cam_fx"        default="390.715302" /> -->
-<!--   <arg name="cam_fy"        default="395.828430" /> -->
-<!--   <arg name="cam_cx"        default="222.273390" /> -->
-<!--   <arg name="cam_cy"        default="108.547631" /> -->
-<!--   <arg name="cam_width"     default="504" /> -->
-<!--   <arg name="cam_height"    default="392" /> -->
-<!--   <arg name="cam_min_depth" default="0.1" /> -->
-<!--   <arg name="cam_max_depth" default="10.0" /> -->
-  <arg name="cam_fx"        default="361.52381185798737" />
-  <arg name="cam_fy"        default="410.764442594862" />
-  <arg name="cam_cx"        default="341.3434895805878" />
-  <arg name="cam_cy"        default="116.76308616209292" />
-  <arg name="cam_width"     default="728" />
-  <arg name="cam_height"    default="420" />
+  <arg name="cam_fx"     default="253.06666830059115" />
+  <arg name="cam_fy"     default="287.53510981640335" />
+  <arg name="cam_cx"     default="236.14044270641145" />
+  <arg name="cam_cy"     default="81.73416031346504"  />
+  <arg name="cam_width"  default="504" />
+  <arg name="cam_height" default="294" />
   <arg name="cam_min_depth" default="0.1" />
   <arg name="cam_max_depth" default="10.0" />
 
@@ -110,7 +102,7 @@
   <arg name="use_posctrl"       default="true" />
   <arg name="ctrl_rate_hz"      default="5.0" />
 
-  <arg name="forward_only"      default="true" />
+  <arg name="forward_only"      default="false" />
   <arg name="cmd_log_path"      default="/home/nadavc/Desktop/cmd_log_{ts}.jsonl" />
 
   <!-- BEV -->
