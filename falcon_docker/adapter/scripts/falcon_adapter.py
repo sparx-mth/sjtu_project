@@ -422,6 +422,29 @@ class FalconAdapter:
     # ──────────────────────────────────────────────────────────
     # Depth
     # ──────────────────────────────────────────────────────────
+    def _uint16_to_float32(self, depth_msg):
+        """Convert 16UC1 depth (millimetres) -> 32FC1 (metres).
+
+        Pixels with raw value 0 (no return) become NaN. voxel_mapping
+        treats NaN as 'no observation' rather than 'point at the optical
+        centre' -- the latter would carve free space backwards through
+        the drone.
+        """
+        raw = np.frombuffer(depth_msg.data, dtype=np.uint16).reshape(
+            depth_msg.height, depth_msg.width)
+        arr = raw.astype(np.float32) * np.float32(0.001)  # mm -> m
+        arr[raw == 0] = np.nan
+
+        out = Image()
+        out.header = depth_msg.header
+        out.height = depth_msg.height
+        out.width = depth_msg.width
+        out.encoding = "32FC1"
+        out.is_bigendian = 0
+        out.step = depth_msg.width * 4  # 4 bytes/float32
+        out.data = arr.tobytes()
+        return out
+
     def depth_cb(self, msg):
         now = rospy.Time.now()
         if self.prev_depth_time is not None:
@@ -429,7 +452,13 @@ class FalconAdapter:
                 return
         self.prev_depth_time = now
 
-        msg.header.stamp    = now
+        # A/B test: convert UINT16 (mm) -> 32FC1 (m) before forwarding to
+        # FALCON. If voxels appear with this on but not off, the UINT16
+        # path through FALCON has a bug we haven't found yet.
+        if msg.encoding in ("16UC1", "mono16"):
+            msg = self._uint16_to_float32(msg)
+
+        msg.header.stamp = now
         msg.header.frame_id = self.cam_frame
 
         if self.noise_depth_std > 0 or self.noise_depth_proportional > 0:
