@@ -433,7 +433,6 @@ class FalconAdapter:
         raw = np.frombuffer(depth_msg.data, dtype=np.uint16).reshape(
             depth_msg.height, depth_msg.width)
         arr = raw.astype(np.float32) * np.float32(0.001)  # mm -> m
-        arr[raw == 0] = np.nan
 
         out = Image()
         out.header = depth_msg.header
