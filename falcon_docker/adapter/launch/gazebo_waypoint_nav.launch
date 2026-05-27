@@ -147,15 +147,15 @@
   <!-- ══════════════════════════════════════════════════════════════
        LOAD FALCON CONFIG
        ══════════════════════════════════════════════════════════════ -->
-<!--   <rosparam command="load" file="$(find exploration_manager)/config/robot/uav_model_simulator.yaml"/> -->
-<!--   <rosparam command="load" file="$(find exploration_manager)/config/map/$(arg map_name).yaml"/> -->
+  <rosparam command="load" file="$(find exploration_manager)/config/robot/uav_model_simulator.yaml"/>
+  <rosparam command="load" file="$(find exploration_manager)/config/map/$(arg map_name).yaml"/>
   <rosparam command="load" file="$(find voxel_mapping)/config/voxel_mapping.yaml"/>
   <rosparam command="load" file="$(find pathfinding)/config/astar.yaml"/>
   <rosparam command="load" file="$(find fast_planner)/config/fast_planner.yaml"/>
   <rosparam command="load" file="$(find exploration_preprocessing)/config/frontier_finder.yaml"/>
   <rosparam command="load" file="$(find exploration_preprocessing)/config/hgrid.yaml"/>
   <rosparam command="load" file="$(find exploration_utils)/config/perception_utils.yaml"/>
-<!--   <rosparam command="load" file="$(find exploration_manager)/config/exploration_manager.yaml"/> -->
+  <rosparam command="load" file="$(find exploration_manager)/config/exploration_manager.yaml"/>
 
   <!-- Camera intrinsics: the cam_* args are now fully resolved
        (either from the YAML's camera_matrix.data via $(eval) above,

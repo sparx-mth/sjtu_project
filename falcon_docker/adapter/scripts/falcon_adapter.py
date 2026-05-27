@@ -435,22 +435,22 @@ class FalconAdapter:
         if self.noise_depth_std > 0 or self.noise_depth_proportional > 0:
             msg = self._add_depth_noise(msg)
         self.depth_pub.publish(msg)
-        if self.save_image:
-            try:
-                if msg.encoding == "32FC1":
-                    depth = np.frombuffer(msg.data, dtype=np.float32).reshape(msg.height, msg.width)
-                else:
-                    raise ValueError(f"unsupported depth encoding: {msg.encoding}")
-
-                time_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                out_path = f"/catkin_ws/{time_str}_depth.npy"
-                np.save(out_path, depth)
-                rospy.loginfo("\n\n\n\n\n[Depth image][falcon_adapter]: saved depth snapshot to %s  shape=%s  dtype=%s  encoding=%s",
-                              out_path, depth.shape, depth.dtype, msg.encoding)
-                self.save_image = False
-            except Exception as e:
-                rospy.logwarn("\n\n\n\n\n\n[Depth image][falcon_adapter]: failed to save depth snapshot: %s", e)
-                self.save_image = False
+        # if self.save_image:
+        #     try:
+        #         if msg.encoding == "32FC1":
+        #             depth = np.frombuffer(msg.data, dtype=np.float32).reshape(msg.height, msg.width)
+        #         else:
+        #             raise ValueError(f"unsupported depth encoding: {msg.encoding}")
+        #
+        #         time_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        #         out_path = f"/catkin_ws/{time_str}_depth.npy"
+        #         np.save(out_path, depth)
+        #         rospy.loginfo("\n\n\n\n\n[Depth image][falcon_adapter]: saved depth snapshot to %s  shape=%s  dtype=%s  encoding=%s",
+        #                       out_path, depth.shape, depth.dtype, msg.encoding)
+        #         self.save_image = False
+        #     except Exception as e:
+        #         rospy.logwarn("\n\n\n\n\n\n[Depth image][falcon_adapter]: failed to save depth snapshot: %s", e)
+        #         self.save_image = False
 
     # ──────────────────────────────────────────────────────────
     # Helpers
