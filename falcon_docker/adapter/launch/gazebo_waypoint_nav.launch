@@ -163,8 +163,10 @@
   <param name="/uav_model/sensing_parameters/max_depth"    value="$(arg cam_max_depth)" />
 
   <!-- Transformer -->
-  <param name="/transformer/pose_topic_type"     value="pose" />
-  <param name="/transformer/timestamp_tolerance" value="0.05" />
+  <param name="/transformer/pose_topic_type"     value="pose_stamped" />
+  <param name="/transformer/timestamp_tolerance" value="1.0" />
+  <param name="/voxel_mapping/verbose" value="true" />
+  <param name="/transformer/verbose"   value="true" />
 
   <!-- Speed limits -->
   <param name="/uav_model/dynamics_parameters/max_linear_velocity"     value="$(arg max_vel)" />
