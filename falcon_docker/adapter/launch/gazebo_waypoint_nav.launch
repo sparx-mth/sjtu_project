@@ -164,7 +164,7 @@
 
   <!-- Transformer -->
   <param name="/transformer/pose_topic_type"     value="pose" />
-  <param name="/transformer/timestamp_tolerance" value="1.0" />
+  <param name="/transformer/timestamp_tolerance" value="0.05" />
   <param name="/voxel_mapping/verbose" value="true" />
   <param name="/transformer/verbose"   value="true" />
 
