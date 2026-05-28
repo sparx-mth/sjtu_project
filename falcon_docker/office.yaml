@@ -12,15 +12,15 @@ map_config:
   # directly behind it; everything at world x < 0 is therefore not
   # explorable. bev_publisher forces those cells to OCC so the BEV
   # (and any planner using it) treats it as a hard wall.
-  behind_wall_x: -20.0
+  behind_wall_x: -2.0
 
   # Manual hallway walls (axis-aligned, thin). Extends the hallway in
   # front of the drone with side walls so A* keeps the drone in the
   # corridor. Each entry: horizontal wall at given y, spanning x in
   # [x_min, x_max], with thickness in the y direction.
   walls:
-    - { y:  -20.8, x_min: -20.0, x_max: -21.7, thickness: 0.15 }   # left/top wall
-    - { y: -20.8, x_min: -20.0, x_max: -21.7, thickness: 0.15 }   # right/bottom wall
+    - { y:  0.8, x_min: -2.0, x_max: 1.7, thickness: 0.15 }   # left/top wall
+    - { y: -0.8, x_min: -2.0, x_max: 1.7, thickness: 0.15 }   # right/bottom wall
 
   # ── Bounds ───────────────────────────────────────────────────────
   # Sized for a recording where the drone moves several metres along
@@ -31,11 +31,11 @@ map_config:
   #     half of the image projects below the camera horizontal) don't
   #     get clipped at z = 0.
   map_size:
-    map_min_x: -12.0
-    map_min_y: -12.0
+    map_min_x: -20.0
+    map_min_y: -20.0
     map_min_z: -2.0
-    map_max_x:  12.0
-    map_max_y:  12.0
+    map_max_x:  20.0
+    map_max_y:  20.0
     map_max_z:  4.0
 
     box_min_x: -10.0

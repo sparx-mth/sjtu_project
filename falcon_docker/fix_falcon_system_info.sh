@@ -1,40 +1,50 @@
 #!/bin/bash
 # ============================================================
-# fix_falcon_system_info.sh
+# fix_falcon_system_info.sh  (robust v2)
 #
-# FALCON's printSystemInfo() (in exploration_utils/src/system_info.cpp)
-# crashes the exploration_node at startup on Jetson (Tegra X1 / Xavier /
-# AGX Orin). The function calls std::stol on the parsed output of
-#   nvidia-smi --query-gpu=name,memory.total,memory.free
-# without checking whether the call succeeded. On Jetson this nvidia-smi
-# invocation typically returns an NVML error (or empty output), so
-# std::stol receives a non-numeric string and throws
-# std::invalid_argument, aborting the process before any voxels are ever
-# published.
+# Replaces FALCON's printSystemInfo() so it NEVER aborts the
+# exploration_node when nvidia-smi is missing or returns a
+# non-numeric string.
 #
-# This patch overwrites the file with a hardened version that:
-#   * checks for empty strings before stol
-#   * wraps stol calls in try/catch
-#   * handles the case where nvidia-smi isn't installed or fails
-# Functional behaviour is otherwise unchanged.
+# Root cause it fixes:
+#   exploration_utils/src/system_info.cpp calls std::stol() on the
+#   output of `nvidia-smi --query-gpu=...`. On Jetson that query
+#   returns an NVML error string; in a CPU-only / no-utility-cap
+#   container it returns nothing. std::stol() then throws an
+#   uncaught std::invalid_argument -> SIGABRT (roslaunch exit -6)
+#   at startup, before ROS logging exists (so no .log is written).
+#
+# This version REPLACES the whole file rather than sed-patching a
+# line, so it can't silently no-op when upstream formatting changes.
+# It self-verifies at the end.
 # ============================================================
-set -e
+set -euo pipefail
 
-TARGET=/catkin_ws/src/FALCON/falcon_planner/exploration_utils/src/system_info.cpp
-
-if [ ! -f "$TARGET" ]; then
-    echo "[fix_falcon_system_info] ERROR: $TARGET not found"
-    echo "                          Was FALCON cloned at /catkin_ws/src/FALCON?"
-    exit 1
+# Locate the file regardless of workspace layout.
+SI="$(find /catkin_ws/src/FALCON -path '*exploration_utils*/system_info.cpp' | head -n1)"
+if [ -z "${SI}" ]; then
+  echo "[fix_system_info] ERROR: system_info.cpp not found under /catkin_ws/src/FALCON" >&2
+  exit 1
 fi
+echo "[fix_system_info] Patching ${SI}"
+cp "${SI}" "${SI}.orig.bak" 2>/dev/null || true
 
-cat > "$TARGET" << 'CPP_EOF'
+cat > "${SI}" <<'CPP_EOF'
 #include "system_info.h"
+
+// Crash-safe stol: never throws. Returns fallback on bad input.
+static long safe_stol(const std::string &s, long fallback = 0) {
+  try {
+    return std::stol(s);
+  } catch (...) {
+    return fallback;
+  }
+}
 
 void printSystemInfo(std::string &output) {
   std::stringstream ss;
   ss << "|---------------------------------- System Info ----------------------------------|"
-     << std::endl;
+            << std::endl;
   std::string line;
   std::string cpu_name, cpu_cores, cpu_threads, cpu_freq;
   std::ifstream cpuinfo("/proc/cpuinfo");
@@ -51,11 +61,14 @@ void printSystemInfo(std::string &output) {
       }
     }
     cpuinfo.close();
+  } else {
+    std::cerr << "Unable to open /proc/cpuinfo" << std::endl;
   }
-  ss << "CPU Name: "      << (cpu_name.empty()    ? "N/A" : cpu_name)    << std::endl;
-  ss << "CPU Cores: "     << (cpu_cores.empty()   ? "N/A" : cpu_cores)   << std::endl;
-  ss << "CPU Threads: "   << (cpu_threads.empty() ? "N/A" : cpu_threads) << std::endl;
-  ss << "CPU Frequency: " << (cpu_freq.empty()    ? "N/A" : cpu_freq + " MHz") << std::endl;
+
+  ss << "CPU Name: " << cpu_name << std::endl;
+  ss << "CPU Cores: " << cpu_cores << std::endl;
+  ss << "CPU Threads: " << cpu_threads << std::endl;
+  ss << "CPU Frequency: " << cpu_freq << " MHz" << std::endl;
 
   std::ifstream meminfo("/proc/meminfo");
   std::string mem_total, mem_free;
@@ -68,68 +81,54 @@ void printSystemInfo(std::string &output) {
       }
     }
     meminfo.close();
-  }
-  try {
-    if (!mem_total.empty())
-      ss << "Memory Total: " << std::stol(mem_total) / 1024.0 / 1024.0 << " GB" << std::endl;
-    else
-      ss << "Memory Total: N/A" << std::endl;
-  } catch (const std::exception &) {
-    ss << "Memory Total: N/A (parse failed)" << std::endl;
-  }
-  try {
-    if (!mem_free.empty())
-      ss << "Memory Free: "  << std::stol(mem_free)  / 1024.0 / 1024.0 << " GB" << std::endl;
-    else
-      ss << "Memory Free: N/A" << std::endl;
-  } catch (const std::exception &) {
-    ss << "Memory Free: N/A (parse failed)" << std::endl;
+  } else {
+    std::cerr << "Unable to open /proc/meminfo" << std::endl;
   }
 
-  // GPU info — Jetson's nvidia-smi often doesn't support --query-gpu and
-  // prints an NVML error instead. Treat any non-numeric value as N/A.
-  std::string gpu_name = "N/A", gpu_mem_total, gpu_mem_free;
+  ss << "Memory Total: " << safe_stol(mem_total) / 1024.0 / 1024.0 << " GB" << std::endl;
+  ss << "Memory Free: " << safe_stol(mem_free) / 1024.0 / 1024.0 << " GB" << std::endl;
+
+  // gpu info -- robust: never abort if nvidia-smi is absent or returns junk.
+  std::string gpu_name = "N/A", gpu_mem_total = "0", gpu_mem_free = "0";
   std::string command =
       "nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader 2>/dev/null";
   FILE *fp = popen(command.c_str(), "r");
   if (fp != NULL) {
     char buffer[1024];
     while (fgets(buffer, sizeof(buffer), fp) != NULL) {
-      std::string line(buffer);
-      size_t pos = line.find(",");
+      std::string l(buffer);
+      size_t pos = l.find(",");
+      if (pos == std::string::npos) continue;   // malformed / error line
+      gpu_name = l.substr(0, pos);
+      l = l.substr(pos + 1);
+      pos = l.find(",");
       if (pos == std::string::npos) continue;
-      gpu_name = line.substr(0, pos);
-      line = line.substr(pos + 1);
-      pos = line.find(",");
-      if (pos == std::string::npos) continue;
-      gpu_mem_total = line.substr(0, pos);
-      gpu_mem_free  = line.substr(pos + 1);
+      gpu_mem_total = l.substr(0, pos);
+      gpu_mem_free = l.substr(pos + 1);
     }
     pclose(fp);
-  }
-  ss << "GPU Name: " << gpu_name << std::endl;
-  try {
-    if (!gpu_mem_total.empty())
-      ss << "GPU Memory Total: " << std::stol(gpu_mem_total) / 1024.0 << " GB" << std::endl;
-    else
-      ss << "GPU Memory Total: N/A" << std::endl;
-  } catch (const std::exception &) {
-    ss << "GPU Memory Total: N/A (parse failed)" << std::endl;
-  }
-  try {
-    if (!gpu_mem_free.empty())
-      ss << "GPU Memory Free: "  << std::stol(gpu_mem_free)  / 1024.0 << " GB" << std::endl;
-    else
-      ss << "GPU Memory Free: N/A" << std::endl;
-  } catch (const std::exception &) {
-    ss << "GPU Memory Free: N/A (parse failed)" << std::endl;
+  } else {
+    std::cerr << "Failed to run command nvidia-smi" << std::endl;
   }
 
+  ss << "GPU Name: " << gpu_name;
+  ss << "GPU Memory Total: " << safe_stol(gpu_mem_total) / 1024.0 << " GB" << std::endl;
+  ss << "GPU Memory Free: " << safe_stol(gpu_mem_free) / 1024.0 << " GB" << std::endl;
+
   ss << "|---------------------------------------------------------------------------------|"
-     << std::endl;
+            << std::endl;
 
   output = ss.str();
 }
 CPP_EOF
 
-echo "[fix_falcon_system_info] patched $TARGET"
+# Verify the dangerous pattern is gone and the guard is present.
+if grep -qE 'std::stol\(gpu_mem' "${SI}"; then
+  echo "[fix_system_info] ERROR: bare std::stol on gpu_mem still present!" >&2
+  exit 1
+fi
+if ! grep -q 'safe_stol' "${SI}"; then
+  echo "[fix_system_info] ERROR: safe_stol guard missing after patch!" >&2
+  exit 1
+fi
+echo "[fix_system_info] OK: printSystemInfo() is now crash-safe."

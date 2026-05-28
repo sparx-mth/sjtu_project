@@ -1,12 +1,4 @@
 topics:
-  - topic: /xtend/camera_info
-    type: sensor_msgs/msg/CameraInfo
-    queue_size: 1
-    qos:
-      history: keep_last
-      depth: 1
-      reliability: best_effort     # confirm with `ros2 topic info -v /xtend/camera_info`
-      durability: volatile
 
   - topic: /xtend/depth_m
     type: sensor_msgs/msg/Image

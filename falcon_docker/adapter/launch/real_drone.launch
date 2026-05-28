@@ -53,12 +53,12 @@
        drops frames. Override on the command line for a different camera:
          cam_fx:=... cam_fy:=... cam_cx:=... cam_cy:=...
          cam_width:=... cam_height:=... -->
-  <arg name="cam_fx"     default="253.06666830059115" />
-  <arg name="cam_fy"     default="287.53510981640335" />
-  <arg name="cam_cx"     default="236.14044270641145" />
-  <arg name="cam_cy"     default="81.73416031346504"  />
-  <arg name="cam_width"  default="504" />
-  <arg name="cam_height" default="294" />
+  <arg name="cam_fx"        default="390.715302" />
+  <arg name="cam_fy"        default="395.828430" />
+  <arg name="cam_cx"        default="222.273390" />
+  <arg name="cam_cy"        default="108.547631" />
+  <arg name="cam_width"     default="504" />
+  <arg name="cam_height"    default="392" />
 <!--   <arg name="cam_fx"        default="361.52381185798737" /> -->
 <!--   <arg name="cam_fy"        default="410.764442594862" /> -->
 <!--   <arg name="cam_cx"        default="341.3434895805878" /> -->

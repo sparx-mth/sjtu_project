@@ -21,6 +21,15 @@ ENV ROS_DISTRO=noetic
 # Modern CMake (3.27+) errors on FALCON's cmake_minimum_required(2.8.3).
 ENV CMAKE_POLICY_VERSION_MINIMUM=3.5
 
+# Log visibility: FALCON uses glog (LOG(INFO)/LOG(WARNING)), which by
+# default writes INFO/WARNING to /tmp log files and sends only
+# ERROR/FATAL to stderr -- so routine logs are invisible on the console.
+# Route everything glog produces to stderr so roslaunch shows it on
+# screen. Use GLOG_alsologtostderr=1 instead if you also want glog to
+# keep writing its own /tmp log files.
+ENV GLOG_logtostderr=1
+ENV GLOG_colorlogtostderr=1
+
 # ── 1. Common system tools ────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
         wget git gnupg2 lsb-release ca-certificates \
@@ -151,6 +160,16 @@ RUN if [ "$WITH_SIM" = "1" ]; then \
 # startup with std::invalid_argument and no voxels are ever produced.
 COPY fix_falcon_system_info.sh /tmp/fix_falcon_system_info.sh
 RUN chmod +x /tmp/fix_falcon_system_info.sh && /tmp/fix_falcon_system_info.sh
+
+# ── 6a-ter. Patch FALCON hierarchical_grid.cpp cost CHECK ─────
+# UniformGrid::calculateCostMatrixSingleThread() guards every cost-matrix
+# edge with a glog FATAL CHECK_GT(cost, 1e-4). When the drone sits ~on a
+# grid-cell free center, the A*/connectivity cost is a tiny-but-nonzero
+# value below the threshold, so the node aborts (SIGABRT / exit -6) at
+# RUNTIME during planning. This floors every such cost so the check
+# can't fire while still keeping a zero-weight edge out of the solver.
+COPY fix_falcon_cost_check.sh /tmp/fix_falcon_cost_check.sh
+RUN chmod +x /tmp/fix_falcon_cost_check.sh && /tmp/fix_falcon_cost_check.sh
 
 # ── 6b. Skip CUDA-only + (Jetson) simulator-side packages ─────
 COPY ignore_cuda_pkgs.sh /tmp/ignore_cuda_pkgs.sh
