@@ -429,11 +429,19 @@ class FalconAdapter:
                 return
         self.prev_depth_time = now
 
-        msg.header.stamp    = now
-        msg.header.frame_id = self.cam_frame
-
+        # FALCON's voxel_mapping reads depth as uint16 mm and does mm->m
+        # itself (depth = *uint16_ptr * 0.001). Pass the native 16UC1
+        # stream through UNCHANGED -- converting to 32FC1 makes FALCON read
+        # float bytes as uint16 garbage.
+        #The messages are already coming sync  from the server.
+        #Why do you need to do msg.header.stamp = rospy.Time.now()?
+        #Or do you do odom.header.stamp = now? Or do you do ps.header.stamp = now?
+        
         if self.noise_depth_std > 0 or self.noise_depth_proportional > 0:
             msg = self._add_depth_noise(msg)
+
+        # Restamp onto the Jetson clock so depth pairs with pose.
+        msg.header.stamp = rospy.Time.now()
         self.depth_pub.publish(msg)
         # if self.save_image:
         #     try:

@@ -119,8 +119,8 @@
   <arg name="bev_ymin"        default="-12.0" />
   <arg name="bev_xmax"        default="12.0" />
   <arg name="bev_ymax"        default="12.0" />
-  <arg name="bev_z_min"       default="0.30" />
-  <arg name="bev_z_max"       default="1.80" />
+  <arg name="bev_z_min"       default="-1.0" />
+  <arg name="bev_z_max"       default="3.0" />
   <arg name="bev_publish_hz"  default="2.0" />
   <arg name="bev_occ_dilate"  default="0" />
 
@@ -172,7 +172,7 @@
 
   <!-- Transformer -->
   <param name="/transformer/pose_topic_type"     value="pose" />
-  <param name="/transformer/timestamp_tolerance" value="0.05" />
+  <param name="/transformer/timestamp_tolerance" value="0.2" />
 
   <!-- Speed limits -->
   <param name="/uav_model/dynamics_parameters/max_linear_velocity"     value="$(arg max_vel)" />

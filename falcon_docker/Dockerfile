@@ -171,6 +171,10 @@ RUN chmod +x /tmp/fix_falcon_system_info.sh && /tmp/fix_falcon_system_info.sh
 COPY fix_falcon_cost_check.sh /tmp/fix_falcon_cost_check.sh
 RUN chmod +x /tmp/fix_falcon_cost_check.sh && /tmp/fix_falcon_cost_check.sh
 
+# ── 6a-quater. Patch FALCON depthToPointcloud buffer overflow ─
+COPY fix_falcon_depth_overflow.sh /tmp/fix_falcon_depth_overflow.sh
+RUN chmod +x /tmp/fix_falcon_depth_overflow.sh && /tmp/fix_falcon_depth_overflow.sh
+
 # ── 6b. Skip CUDA-only + (Jetson) simulator-side packages ─────
 COPY ignore_cuda_pkgs.sh /tmp/ignore_cuda_pkgs.sh
 RUN chmod +x /tmp/ignore_cuda_pkgs.sh \
