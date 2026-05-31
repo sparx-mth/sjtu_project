@@ -45,6 +45,18 @@ topics:
       reliability: best_effort
       durability: volatile
 
+  - topic: /xtend/april_tag_pose
+    type: geometry_msgs/msg/PoseStamped
+    queue_size: 10
+    qos:
+      history: keep_last
+      depth: 10
+      # Per your QoSProfile snippet: best_effort. If pose is published
+      # reliable on the drone, change this to reliable and the depth
+      # to a higher number (50) for catch-up after stalls.
+      reliability: best_effort
+      durability: volatile
+
   - topic: /cmd_vel
     type: geometry_msgs/msg/Twist
     queue_size: 10
@@ -83,7 +95,7 @@ topics:
       reliability: reliable
       durability: transient_local
 
-  - topic: /xtend/demo_mode_request
+  - topic: /xtend/demo_mode_request_temp
     type: std_msgs/msg/String
     queue_size: 10
     qos:

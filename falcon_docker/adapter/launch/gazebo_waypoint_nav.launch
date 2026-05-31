@@ -119,8 +119,8 @@
   <arg name="bev_ymin"        default="-12.0" />
   <arg name="bev_xmax"        default="12.0" />
   <arg name="bev_ymax"        default="12.0" />
-  <arg name="bev_z_min"       default="-1.0" />
-  <arg name="bev_z_max"       default="3.0" />
+  <arg name="bev_z_min"       default="0.50" />
+  <arg name="bev_z_max"       default="1.1" />
   <arg name="bev_publish_hz"  default="2.0" />
   <arg name="bev_occ_dilate"  default="0" />
 

@@ -9,6 +9,7 @@ catkin_install_python(PROGRAMS
   scripts/cmd_to_vel.py
   scripts/bev_publisher.py
   scripts/sensor_gate.py
+  scripts/localization_freshness_gate.py
   scripts/astar_planner.py
   scripts/waypoint_follower.py
   scripts/voxel_reset_watcher.py
