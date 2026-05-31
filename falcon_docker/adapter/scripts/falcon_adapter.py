@@ -215,6 +215,14 @@ class FalconAdapter:
         self.prev_time       = None
         self.prev_depth_time = None
         self.vel             = np.zeros(3)
+        # Stamp of the most recent depth frame. The localization derives the
+        # pose FROM the depth image and is meant to carry the depth frame's
+        # timestamp; that stamp is lost upstream (pose_adapter publishes a
+        # bare Pose with no header), so we recover it here and re-apply it to
+        # the pose/odom we forward to FALCON. This keeps depth and pose on the
+        # same (capture) clock so FALCON's transformer can pair them. None
+        # until the first depth frame arrives.
+        self.last_depth_stamp = None
 
         self.tf_br = tf.TransformBroadcaster()
 
@@ -260,6 +268,13 @@ class FalconAdapter:
         self._last_vel_t = now
         self.cur_pose = msg
 
+        # Stamp the pose/odom we publish with the timestamp of the depth frame
+        # this pose corresponds to (the localization is depth-derived). Falls
+        # back to wall-clock only until the first depth frame has been seen.
+        # Do NOT use this for the dt math above -- that needs real elapsed
+        # wall-clock time; only the *published header stamps* use it.
+        stamp = self.last_depth_stamp if self.last_depth_stamp is not None else now
+
         if self.pose_noise_enabled:
             falcon_pose = self._propagate_belief_and_publish(msg, now)
         else:
@@ -270,7 +285,7 @@ class FalconAdapter:
 
         # 1. Odometry (FALCON's pose belief)
         odom = Odometry()
-        odom.header.stamp    = now
+        odom.header.stamp    = stamp
         odom.header.frame_id = self.world_frame
         odom.child_frame_id  = self.body_frame
         odom.pose.pose = falcon_pose
@@ -287,7 +302,7 @@ class FalconAdapter:
         cam_quat = tft.quaternion_from_matrix(T_w_c)
 
         ps = PoseStamped()
-        ps.header.stamp    = now
+        ps.header.stamp    = stamp
         ps.header.frame_id = self.world_frame
         ps.pose.position.x    = cam_pos[0]
         ps.pose.position.y    = cam_pos[1]
@@ -303,11 +318,11 @@ class FalconAdapter:
         self.tf_br.sendTransform(
             (gt_p.x, gt_p.y, gt_p.z),
             (gt_o.x, gt_o.y, gt_o.z, gt_o.w),
-            now, self.body_frame, self.world_frame,
+            stamp, self.body_frame, self.world_frame,
         )
         self.tf_br.sendTransform(
             self.T_b_c_trans, self.T_b_c_quat,
-            now, self.cam_frame, self.body_frame,
+            stamp, self.cam_frame, self.body_frame,
         )
 
     # ──────────────────────────────────────────────────────────
@@ -429,19 +444,23 @@ class FalconAdapter:
                 return
         self.prev_depth_time = now
 
+        # Remember this frame's REAL capture timestamp so gt_pose_cb can stamp
+        # the corresponding pose with it (the localization is depth-derived).
+        self.last_depth_stamp = msg.header.stamp
+
         # FALCON's voxel_mapping reads depth as uint16 mm and does mm->m
         # itself (depth = *uint16_ptr * 0.001). Pass the native 16UC1
         # stream through UNCHANGED -- converting to 32FC1 makes FALCON read
         # float bytes as uint16 garbage.
-        #The messages are already coming sync  from the server.
-        #Why do you need to do msg.header.stamp = rospy.Time.now()?
-        #Or do you do odom.header.stamp = now? Or do you do ps.header.stamp = now?
-        
+        #
+        # Do NOT restamp the depth here. It already carries the camera's
+        # capture timestamp, and the pose we forward is stamped with that same
+        # value (see gt_pose_cb), so depth and pose stay aligned on one clock.
+        # Restamping to rospy.Time.now() would re-introduce the pipeline-latency
+        # offset between depth and pose and break the transformer pairing.
         if self.noise_depth_std > 0 or self.noise_depth_proportional > 0:
             msg = self._add_depth_noise(msg)
 
-        # Restamp onto the Jetson clock so depth pairs with pose.
-        msg.header.stamp = rospy.Time.now()
         self.depth_pub.publish(msg)
         # if self.save_image:
         #     try:
