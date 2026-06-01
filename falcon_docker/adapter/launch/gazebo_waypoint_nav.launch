@@ -144,6 +144,7 @@
   <arg name="fsm_thresh_replan"    default="60.0" />
   <arg name="fsm_thresh_no_replan" default="60.0" />
 
+  <arg name="publish_mapping_inputs" default="true" />          <!-- sim keeps true -->
   <!-- ══════════════════════════════════════════════════════════════
        LOAD FALCON CONFIG
        ══════════════════════════════════════════════════════════════ -->
@@ -172,7 +173,7 @@
 
   <!-- Transformer -->
   <param name="/transformer/pose_topic_type"     value="pose" />
-  <param name="/transformer/timestamp_tolerance" value="0.2" />
+  <param name="/transformer/timestamp_tolerance" value="0.02" />
 
   <!-- Speed limits -->
   <param name="/uav_model/dynamics_parameters/max_linear_velocity"     value="$(arg max_vel)" />
@@ -223,6 +224,7 @@
     <param name="cam_offset_x" value="0.2" />
     <param name="odom_min_dt"  value="0.04" />
     <param name="depth_min_dt" value="0.04" />
+    <param name="publish_mapping_inputs" value="$(arg publish_mapping_inputs)" />
   </node>
 
   <node pkg="exploration_manager" name="exploration_node" type="exploration_node"

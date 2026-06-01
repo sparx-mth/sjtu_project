@@ -20,9 +20,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 ARCH=$(uname -m)
 if [ "${ARCH}" = "aarch64" ]; then
-  IMAGE="${IMAGE:-falcon-ros:jetson}"
+  # Change to your custom Jetson image tag
+  IMAGE="${IMAGE:-falcon-ros-custom:v1}"
 else
-  IMAGE="${IMAGE:-falcon-ros:noetic}"
+  # Change to your custom x86 image tag
+  IMAGE="${IMAGE:-falcon-ros-custom:v1}"
 fi
 echo "[INFO] Arch: ${ARCH}   Image: ${IMAGE}"
 
@@ -91,8 +93,8 @@ SCRIPTS_TARGET="/catkin_ws/src/falcon_adapter/scripts"
 SCRIPT_MOUNTS=()
 for f in falcon_adapter.py cmd_to_vel.py bev_publisher.py \
          exploration_monitor.py run_recorder.py completion_watcher.py \
-         batch_runner.py respawn_drone.py sensor_gate.py localization_freshness_gate.py astar_planner.py \
-         waypoint_follower.py voxel_reset_watcher.py bev_click_goal.py \
+         batch_runner.py respawn_drone.py sensor_gate.py mapping_sync.py astar_planner.py \
+         waypoint_follower.py voxel_reset_watcher.py bev_click_goal.py plot_trajectory.py \
          pose_adapter.py sim_adapter.py visual_servoing_controller.py nav_geom.py \
          navdp_client.py navdp_click.py pixel_goal_tracker.py \
          trajectory_tracker.py depth_debug.py flight_executor.py ; do

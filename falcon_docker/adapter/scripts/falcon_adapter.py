@@ -116,6 +116,7 @@ class FalconAdapter:
         # ────────────────────────────────────────────────────────────
         # Noise parameters (per body axis)
         # ────────────────────────────────────────────────────────────
+        self.publish_mapping_inputs = bool(rospy.get_param("~publish_mapping_inputs", True))
         self.AXES     = ("x", "y", "z", "yaw")
         self.POS_AXES = ("x", "y", "z")
 
@@ -227,9 +228,12 @@ class FalconAdapter:
         self.tf_br = tf.TransformBroadcaster()
 
         # Publishers (to FALCON)
-        self.odom_pub     = rospy.Publisher("/odom_world", Odometry, queue_size=10)
-        self.pose_pub     = rospy.Publisher("/map_ros/pose", PoseStamped, queue_size=10)
-        self.depth_pub    = rospy.Publisher("/map_ros/depth", Image, queue_size=2)
+        self.odom_pub = rospy.Publisher("/odom_world", Odometry, queue_size=10)
+        self.pose_pub = None
+        self.depth_pub = None
+        if self.publish_mapping_inputs:
+            self.pose_pub = rospy.Publisher("/map_ros/pose", PoseStamped, queue_size=10)
+            self.depth_pub = rospy.Publisher("/map_ros/depth", Image, queue_size=2)
 
         # Subscribers (from drone)
         rospy.Subscriber(self.drone_ns + "/gt_pose", Pose, self.gt_pose_cb)
@@ -311,7 +315,8 @@ class FalconAdapter:
         ps.pose.orientation.y = cam_quat[1]
         ps.pose.orientation.z = cam_quat[2]
         ps.pose.orientation.w = cam_quat[3]
-        self.pose_pub.publish(ps)
+        if self.pose_pub is not None:
+            self.pose_pub.publish(ps)
 
         # 3. TF (always GT, so RViz remains a fair witness)
         gt_p, gt_o = msg.position, msg.orientation
@@ -461,7 +466,8 @@ class FalconAdapter:
         if self.noise_depth_std > 0 or self.noise_depth_proportional > 0:
             msg = self._add_depth_noise(msg)
 
-        self.depth_pub.publish(msg)
+        if self.depth_pub is not None:
+            self.depth_pub.publish(msg)
         # if self.save_image:
         #     try:
         #         if msg.encoding == "32FC1":

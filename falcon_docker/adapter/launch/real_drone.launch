@@ -75,6 +75,7 @@
   <arg name="goal_x"    default="4.0" />
   <arg name="goal_y"    default="0.0" />
 
+  <arg name="publish_mapping_inputs" value="false" />
   <!-- ══════════════════════════════════════════════════════════════
        Pose adapter — converts the real-drone localization message
        into the bare geometry_msgs/Pose every consumer expects on
@@ -87,6 +88,16 @@
     <param name="out_topic" value="$(arg drone_ns)/gt_pose" />
   </node>
 
+  <node pkg="falcon_adapter" type="mapping_sync.py" name="mapping_sync" output="screen">
+    <param name="pose_stamped_topic" value="$(arg real_pose_topic)" />               <!-- /xtend/april_tag_pose -->
+    <param name="depth_topic"        value="$(arg gated_ns)/front_depth/depth/image_raw" />
+    <param name="out_pose_topic"     value="/map_ros/pose" />
+    <param name="out_depth_topic"    value="/map_ros/depth" />
+    <param name="sync_tolerance"     value="0.05" />
+    <param name="max_interp_gap"     value="0.12" />   <!-- 0 = strict nearest-only -->
+    <param name="pose_is_camera_frame" value="false" /> <!-- mirror falcon_adapter for now -->
+    <param name="cam_offset_x"         value="0.2" />   <!-- see frame note below -->
+  </node>
   <!-- ══════════════════════════════════════════════════════════════
        The actual nav stack — same launch as Gazebo, just with the
        real-drone depth topic and camera intrinsics passed in.
@@ -95,7 +106,7 @@
     <arg name="map_name"      value="$(arg map_name)" />
     <arg name="drone_ns"      value="$(arg drone_ns)" />
     <arg name="gated_ns"      value="$(arg gated_ns)" />
-
+    <arg name="publish_mapping_inputs" value="$(arg publish_mapping_inputs)" />
     <arg name="depth_topic"   value="$(arg real_depth_topic)" />
 
     <arg name="cam_fx"        value="$(arg cam_fx)" />

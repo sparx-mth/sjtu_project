@@ -50,5 +50,6 @@ docker run -it --rm \
     -v "${LOGFILE_HOST}:/tmp/bridge.log:rw" \
     -v "${SCRIPT_DIR}/fastdds_no_shm.xml:/fastdds_no_shm.xml:ro" \
     -v /dev/shm:/dev/shm \
+    -v ~/Downloads/OneDrive_1_6-1-2026:/bag:ro \
     --entrypoint /entrypoint.sh \
     "${IMAGE}"
