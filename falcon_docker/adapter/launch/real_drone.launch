@@ -41,7 +41,7 @@
   <arg name="gated_ns" default="/gated_drone" />
 
   <!-- ── Real-drone localization ──────────────────────────────── -->
-  <arg name="real_pose_topic" default="/xtend/april_tag_pose" />
+  <arg name="real_pose_topic" default="/xtend/april_tag_pose_1" />
 <!--   <arg name="real_pose_topic" default="/flow_depth/pose_est" /> -->
   <arg name="real_pose_type"  default="pose_stamped" />
 

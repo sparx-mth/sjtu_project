@@ -18,7 +18,7 @@ from geometry_msgs.msg import PoseStamped
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator
 
-TOPIC           = "/xtend/april_tag_pose"
+TOPIC           = "/xtend/april_tag_pose_1"
 # TOPIC           = "/flow_depth/pose_est"
 START_AT_ORIGIN = True    # seed the path at (0, 0)
 MIN_HALF_RANGE  = 3.0     # axes span at least [-6, 6] on both x and y

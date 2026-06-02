@@ -1,7 +1,22 @@
 <launch>
   <!--
-    gazebo_waypoint_nav.launch  (v7 — camera intrinsics as args)
+    gazebo_waypoint_nav.launch  (v8 — bev_publisher v4 wiring)
     ════════════════════════════════════════════════════════════════════
+    v8 vs v7:
+      - bev_publisher upgraded to v4: height-weighted column projection,
+        3D neighbour confirm, door/window protection, and wall completion.
+        Every pipeline stage is now a bev_* arg; the defaults already
+        de-noise the map, so overriding any of them is optional.
+      - bev_publish_hz 2.0 -> 10.0. The publish timer caps how often the
+        grid is recomputed and republished, so 10 Hz is needed to meet the
+        mapping-loop rate.
+      - Removed the dead z_slab_min / z_slab_max params. v4 uses the full
+        weighted column (z_floor / z_ceil / z_peak) instead of a thin slab.
+        bev_z_peak defaults to cruise_z so the weighting peak always tracks
+        the flight altitude.
+      - Dropped the redundant occ_topic / free_topic params from the bev
+        node — it already defaults to exactly those two FALCON topics.
+
     v7 vs v5:
       - Camera intrinsics are now <arg>s (cam_fx, cam_fy, cam_cx, cam_cy,
         cam_width, cam_height, cam_min_depth, cam_max_depth). Defaults
@@ -113,16 +128,60 @@
   <arg name="forward_only"      default="true" />
   <arg name="cmd_log_path"      default="/home/nadavc/Desktop/cmd_log_{ts}.jsonl" />
 
-  <!-- BEV -->
-  <arg name="bev_resolution"  default="0.15" />
+  <!-- ══════════════════════════════════════════════════════════════
+       BEV  (bev_publisher.py v4 — height-weighted column projection +
+       3D neighbour reasoning + opening protection + wall completion).
+       Each stage is a toggle; set a gate to its "off" value to isolate
+       one idea. The defaults already de-noise the map out of the box.
+       ══════════════════════════════════════════════════════════════ -->
+  <!-- geometry / IO -->
+  <arg name="bev_resolution"  default="0.15" />   <!-- m / cell; match FALCON's voxel size -->
   <arg name="bev_xmin"        default="-12.0" />
   <arg name="bev_ymin"        default="-12.0" />
   <arg name="bev_xmax"        default="12.0" />
   <arg name="bev_ymax"        default="12.0" />
-  <arg name="bev_z_min"       default="0.50" />
-  <arg name="bev_z_max"       default="1.1" />
-  <arg name="bev_publish_hz"  default="2.0" />
-  <arg name="bev_occ_dilate"  default="0" />
+  <arg name="bev_bbox_margin" default="1.0" />    <!-- only used if the bbox_* args are removed (bounds then come from /map_config) -->
+  <arg name="bev_publish_hz"  default="10.0" />   <!-- was 2.0; caps the recompute+publish rate -->
+  <arg name="bev_occ_dilate"  default="0" />      <!-- extra OCC inflation in cells (planner also inflates) -->
+
+  <!-- vertical column + height weighting (stage 1, the core de-noiser) -->
+  <arg name="bev_z_floor"           default="0.30" />            <!-- column z-range considered -->
+  <arg name="bev_z_ceil"            default="2.20" />
+  <arg name="bev_z_peak"            default="$(arg cruise_z)" />  <!-- weight peaks at flight altitude -->
+  <arg name="bev_weight_profile"    default="triangular" />      <!-- triangular | gaussian | flat -->
+  <arg name="bev_weight_sigma"      default="0.50" />            <!-- gaussian width (profile=gaussian) -->
+  <arg name="bev_voxel_size"        default="$(arg bev_resolution)" />  <!-- z-layer thickness -->
+  <arg name="bev_occ_weight_thresh" default="1.2" />             <!-- min weighted column mass for OCC -->
+  <arg name="bev_min_occ_voxels"    default="2" />               <!-- AND min raw voxel count for OCC -->
+  <arg name="bev_min_free_voxels"   default="1" />               <!-- min voxels for a cell to read FREE -->
+
+  <!-- 3D neighbour confirm (stage 2) — drops isolated DA3 speckle -->
+  <arg name="bev_confirm_3d"           default="true" />
+  <arg name="bev_neighbors_3d"         default="6" />            <!-- 6 | 18 | 26 -->
+  <arg name="bev_min_occ_neighbors_3d" default="1" />            <!-- raise (e.g. 2) with conn=26 to kill streaks -->
+
+  <!-- door / window protection (stage 3) — never wall an opening that is open at flight height -->
+  <arg name="bev_protect_openings"  default="true" />
+  <arg name="bev_door_band_m"       default="0.60" />           <!-- z-band around z_peak inspected for openness -->
+  <arg name="bev_door_free_voxels"  default="2" />              <!-- free voxels in the band => it's an opening -->
+  <arg name="bev_door_occ_tol"      default="0" />              <!-- max occupied voxels tolerated in the band -->
+
+  <!-- wall completion (stage 4) — bridge FOV / occlusion gaps in wall lines -->
+  <arg name="bev_wall_fill_mode"      default="directional" />  <!-- off | directional | count -->
+  <arg name="bev_wall_fill_neighbors" default="5" />            <!-- count mode only -->
+  <arg name="bev_wall_fill_iters"     default="1" />            <!-- max bridge width; keep small (1-2) -->
+
+  <!-- temporal hysteresis (stage 5, optional — FALCON already fuses, so off) -->
+  <arg name="bev_temporal_filter" default="false" />
+  <arg name="bev_t_inc" default="1.0" />
+  <arg name="bev_t_dec" default="1.0" />
+  <arg name="bev_t_max" default="5.0" />
+  <arg name="bev_t_on"  default="2.0" />
+  <arg name="bev_t_off" default="0.5" />
+
+  <!-- runtime -->
+  <arg name="bev_always_recompute"       default="false" />     <!-- recompute every tick vs only on a new cloud -->
+  <arg name="bev_skip_unchanged_publish" default="true" />
 
   <!-- FALCON speed / safety / frontier -->
   <arg name="max_vel"     default="0.25" />
@@ -236,19 +295,52 @@
 
   <node pkg="falcon_adapter" type="bev_publisher.py"
         name="bev_publisher" output="screen">
-    <param name="frame_id"         value="world" />
-    <param name="resolution"       value="$(arg bev_resolution)" />
-    <param name="bbox_xmin"        value="$(arg bev_xmin)" />
-    <param name="bbox_ymin"        value="$(arg bev_ymin)" />
-    <param name="bbox_xmax"        value="$(arg bev_xmax)" />
-    <param name="bbox_ymax"        value="$(arg bev_ymax)" />
-    <param name="z_slab_min"       value="$(arg bev_z_min)" />
-    <param name="z_slab_max"       value="$(arg bev_z_max)" />
-    <param name="publish_hz"       value="$(arg bev_publish_hz)" />
-    <param name="occ_dilate_cells" value="$(arg bev_occ_dilate)" />
-    <param name="out_topic"        value="/falcon/bev_2d" />
-    <param name="occ_topic"        value="/voxel_mapping/occupancy_grid_occupied" />
-    <param name="free_topic"       value="/voxel_mapping/occupancy_grid_free" />
+    <param name="frame_id"               value="world" />
+    <!-- geometry / IO -->
+    <param name="resolution"             value="$(arg bev_resolution)" />
+    <param name="bbox_xmin"              value="$(arg bev_xmin)" />
+    <param name="bbox_ymin"              value="$(arg bev_ymin)" />
+    <param name="bbox_xmax"              value="$(arg bev_xmax)" />
+    <param name="bbox_ymax"              value="$(arg bev_ymax)" />
+    <param name="bbox_margin_m"          value="$(arg bev_bbox_margin)" />
+    <param name="publish_hz"             value="$(arg bev_publish_hz)" />
+    <param name="occ_dilate_cells"       value="$(arg bev_occ_dilate)" />
+    <!-- vertical column + height weighting -->
+    <param name="z_floor"                value="$(arg bev_z_floor)" />
+    <param name="z_ceil"                 value="$(arg bev_z_ceil)" />
+    <param name="z_peak"                 value="$(arg bev_z_peak)" />
+    <param name="weight_profile"         value="$(arg bev_weight_profile)" />
+    <param name="weight_sigma"           value="$(arg bev_weight_sigma)" />
+    <param name="voxel_size_m"           value="$(arg bev_voxel_size)" />
+    <param name="occ_weight_thresh"      value="$(arg bev_occ_weight_thresh)" />
+    <param name="min_occ_voxels"         value="$(arg bev_min_occ_voxels)" />
+    <param name="min_free_voxels"        value="$(arg bev_min_free_voxels)" />
+    <!-- 3D neighbour confirm -->
+    <param name="confirm_3d"             value="$(arg bev_confirm_3d)" />
+    <param name="neighbors_3d"           value="$(arg bev_neighbors_3d)" />
+    <param name="min_occ_neighbors_3d"   value="$(arg bev_min_occ_neighbors_3d)" />
+    <!-- door / window protection -->
+    <param name="protect_openings"       value="$(arg bev_protect_openings)" />
+    <param name="door_band_m"            value="$(arg bev_door_band_m)" />
+    <param name="door_free_voxels"       value="$(arg bev_door_free_voxels)" />
+    <param name="door_occ_tol"           value="$(arg bev_door_occ_tol)" />
+    <!-- wall completion -->
+    <param name="wall_fill_mode"         value="$(arg bev_wall_fill_mode)" />
+    <param name="wall_fill_neighbors"    value="$(arg bev_wall_fill_neighbors)" />
+    <param name="wall_fill_iters"        value="$(arg bev_wall_fill_iters)" />
+    <!-- temporal hysteresis (optional) -->
+    <param name="temporal_filter"        value="$(arg bev_temporal_filter)" />
+    <param name="t_inc"                  value="$(arg bev_t_inc)" />
+    <param name="t_dec"                  value="$(arg bev_t_dec)" />
+    <param name="t_max"                  value="$(arg bev_t_max)" />
+    <param name="t_on"                   value="$(arg bev_t_on)" />
+    <param name="t_off"                  value="$(arg bev_t_off)" />
+    <!-- runtime -->
+    <param name="always_recompute"       value="$(arg bev_always_recompute)" />
+    <param name="skip_unchanged_publish" value="$(arg bev_skip_unchanged_publish)" />
+    <!-- output topic (input topics use the node's defaults:
+         /voxel_mapping/occupancy_grid_occupied and .../_free) -->
+    <param name="out_topic"              value="/falcon/bev_2d" />
   </node>
 
   <node pkg="falcon_adapter" type="astar_planner.py"

@@ -23,6 +23,7 @@ catkin_install_python(PROGRAMS
   scripts/depth_debug.py
   scripts/flight_executor.py
   scripts/mapping_sync.py
+  scripts/plot_trajectory_ros1.py
   scripts/plot_trajectory.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )

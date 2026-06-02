@@ -94,7 +94,7 @@ SCRIPT_MOUNTS=()
 for f in falcon_adapter.py cmd_to_vel.py bev_publisher.py \
          exploration_monitor.py run_recorder.py completion_watcher.py \
          batch_runner.py respawn_drone.py sensor_gate.py mapping_sync.py astar_planner.py \
-         waypoint_follower.py voxel_reset_watcher.py bev_click_goal.py plot_trajectory.py \
+         waypoint_follower.py voxel_reset_watcher.py bev_click_goal.py plot_trajectory.py plot_trajectory_ros1.py \
          pose_adapter.py sim_adapter.py visual_servoing_controller.py nav_geom.py \
          navdp_client.py navdp_click.py pixel_goal_tracker.py \
          trajectory_tracker.py depth_debug.py flight_executor.py ; do
