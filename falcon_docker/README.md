@@ -2,6 +2,11 @@
 
 Runs the FALCON exploration stack on a real drone. Pose + depth in → velocity commands out.
 
+> **Running the Gazebo warehouse instead?** This file covers the real drone.
+> The simulated `small_warehouse` campaign is `run_warehouse.sh`, and its state,
+> its open failure and its from-scratch bring-up are in
+> [`RESUME.md`](RESUME.md) — read that one first.
+
 ---
 
 ## Repository layout

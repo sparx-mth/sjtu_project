@@ -20,3 +20,12 @@ __pycache__/
 # Allow hospital world models to be tracked
 !aws-robomaker-hospital-world/
 !aws-robomaker-hospital-world/fuel_models/
+
+# The other AWS RoboMaker worlds are EXTERNAL CLONES, each with its own .git
+# (~313 MB together). Committing them would embed three foreign repositories in
+# this one. Clone them beside this checkout instead -- see
+# falcon_docker/RESUME.md for the URLs; only small-warehouse is needed for the
+# warehouse campaign. The hospital world above is the exception: it is vendored.
+aws-robomaker-bookstore-world/
+aws-robomaker-small-house-world/
+aws-robomaker-small-warehouse-world/
