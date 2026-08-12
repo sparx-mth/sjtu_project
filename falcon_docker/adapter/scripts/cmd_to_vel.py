@@ -104,6 +104,14 @@ class CmdToVel:
         # Takeoff orchestration
         self.auto_takeoff      = rospy.get_param("~auto_takeoff", True)
         self.takeoff_z_thresh  = rospy.get_param("~takeoff_z_thresh", 0.5)
+        # Cruise height to CLIMB to before handing over to FALCON. The plugin's
+        # own takeoff tops out low (~0.4 m); if that is below the exploration
+        # box's z floor, FALCON cannot plan from it (start outside the box ->
+        # "No path") and the drone never gets a climb command. So we climb to
+        # this height during hover-settle/scan and hand over from inside the box.
+        # 0.7 m (in the low 0.6-1.0 box) keeps the whole flight low so the forward
+        # camera keeps seeing the floor and it actually gets mapped.
+        self.takeoff_z         = rospy.get_param("~takeoff_z", 0.7)
         self.takeoff_timeout   = rospy.get_param("~takeoff_timeout", 30.0)
         self.takeoff_retry_sec = rospy.get_param("~takeoff_retry_sec", 1.0)
         self.hover_settle_sec  = rospy.get_param("~hover_settle_sec", 2.5)
@@ -322,16 +330,28 @@ class CmdToVel:
         elif self.state == S.HOVER_SETTLE:
             if self.takeoff_pose is None and self.cur_odom is not None:
                 self.takeoff_pose = self._copy_pose(self.cur_odom.pose.pose)
+                # Climb to cruise height rather than holding at the low plugin
+                # takeoff height, so the handover to FALCON happens INSIDE the
+                # exploration box (see takeoff_z). _hold_at_pose drives vz to it.
+                self.takeoff_pose.position.z = self.takeoff_z
                 p = self.takeoff_pose.position
-                rospy.loginfo("cmd_to_vel: takeoff pose snapshot at (%.2f, %.2f, %.2f)",
+                rospy.loginfo("cmd_to_vel: climbing to cruise pose (%.2f, %.2f, %.2f)",
                               p.x, p.y, p.z)
             self._hold_at_pose(self.takeoff_pose)
-            if self._t_in_state() > self.hover_settle_sec:
+            # Do not leave hover-settle until the climb has actually reached the
+            # cruise band, or FALCON will still be handed a start below the box.
+            reached = (self.cur_odom is not None
+                       and self.cur_odom.pose.pose.position.z >= self.takeoff_z - 0.15)
+            if self._t_in_state() > self.hover_settle_sec and reached:
                 if self.mapping_scan_enabled and self.cur_odom is not None:
                     self.scan_yaw_target = quat_to_yaw(self.cur_odom.pose.pose.orientation)
                     self._enter(S.MAPPING_SCAN)
                 else:
                     self._enter(S.HOVERING)
+            elif self._t_in_state() > self.takeoff_timeout:
+                rospy.logwarn("cmd_to_vel: cruise climb did not reach %.2f m in %.0fs; "
+                              "continuing anyway", self.takeoff_z, self.takeoff_timeout)
+                self._enter(S.HOVERING)
 
         elif self.state == S.MAPPING_SCAN:
             self._mapping_scan_step()

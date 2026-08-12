@@ -104,8 +104,34 @@
          Office (1.0–1.2m doors):                     inflation=0.30 safe=0.20
          Wide corridors (>1.5m):                      inflation=0.40 safe=0.40
   -->
-  <arg name="obstacles_inflation" default="0.85" />
-  <arg name="safe_distance"       default="0.85" />
+  <!-- HARD map inflation. Sized to the sjtu_drone (~0.25 m radius): 0.35 = radius
+       + margin. The old 0.85 was ~3x too large: it inflated the ~2 m warehouse
+       aisles shut, so the only "free" cells left were the see-through shelf
+       interiors and FALCON routed the drone straight THROUGH the racks. -->
+  <arg name="obstacles_inflation" default="0.35" />
+  <!-- SOFT b-spline clearance. MUST fit the passage: safe <= half_width - inflation.
+       For a ~2 m aisle: 1.0 - 0.35 = 0.65 budget -> 0.15 with slack. The old 0.85
+       was unsatisfiable in any aisle, so the optimiser produced jamb-grazing
+       splines that clipped the shelving. -->
+  <arg name="safe_distance"       default="0.15" />
+  <!-- A* airframe radius. Upstream A* tests ONE voxel per node with no notion of
+       drone size, so it routes a 0.5 m drone through a 0.3 m gap and the B-spline
+       cannot thread it. inflate_astar_by_airframe.sh makes A* test a disc of this
+       radius around each node; the params below are inert (default 0) on an image
+       that does not carry the patch, so this is safe to set unconditionally. -->
+  <arg name="astar_inflate"         default="0.40" />
+  <arg name="astar_start_clearance" default="0.50" />
+
+  <!-- Replan from where the drone IS, not from a stale point on the previous
+       trajectory. FALCON's replan starts the next curve off its own previous
+       curve; on a real (lagging) airframe those diverge and the new curve jumps
+       (measured: 3.0 m "trajectory discontinuity" that cmd_to_vel then rejects,
+       stranding the drone). Above replan_start_tolerance m of gap, or when the
+       drone has essentially stopped (replan_stopped_speed) while the plan still
+       expects motion, re-anchor to the measured state. Both default inert in the
+       patch, so an image without replan_from_measured_state.sh ignores them. -->
+  <arg name="replan_start_tolerance" default="1.0" />
+  <arg name="replan_stopped_speed"   default="0.10" />
 
   <!-- Frontier viewpoint clearance.
        rmin small  → can observe rooms from outside their doors
@@ -263,15 +289,62 @@
   <rosparam command="load" file="$(find exploration_utils)/config/perception_utils.yaml"/>
   <rosparam command="load" file="$(find exploration_manager)/config/exploration_manager.yaml"/>
 
-  <!-- Camera intrinsics -->
-  <param name="/uav_model/sensing_parameters/camera_intrinsics/fx" value="320.0" />
-  <param name="/uav_model/sensing_parameters/camera_intrinsics/fy" value="320.0" />
-  <param name="/uav_model/sensing_parameters/camera_intrinsics/cx" value="320.0" />
-  <param name="/uav_model/sensing_parameters/camera_intrinsics/cy" value="240.0" />
-  <param name="/uav_model/sensing_parameters/image_width"  value="640" />
-  <param name="/uav_model/sensing_parameters/image_height" value="480" />
+  <!-- ── Camera intrinsics: THE SJTU DRONE'S, not FALCON's reference camera ──
+       These MUST equal what /simple_drone/front_depth/depth/camera_info
+       publishes. They are the numbers map_server unprojects every depth pixel
+       with, and it takes the image DIMENSIONS from the message while taking the
+       INTRINSICS from here — so a mismatch is not caught anywhere, produces no
+       warning, and still yields a plausible-looking map.
+
+       They used to be FALCON's own reference camera (640x480, f=320,
+       c=320/240). The real sensor is 600x600, f=390.64, c=300.5/300.5. THIS IS
+       WHAT MADE THE FLOOR MISSING, and the mechanism is worth writing down
+       because "no floor voxels" sends you to the altitude and the vbox first,
+       and it is neither.
+
+       A principal point 60.5 px too high tilts the whole cloud down, and an fy
+       22% too small stretches that tilt with range. Unprojecting a floor pixel
+       at horizontal range R with the camera at height h gave
+
+           z_world = h - (0.189*R + 1.2208*h)  =  -0.221*h - 0.189*R
+
+       i.e. the flat floor came out as a BOWL sloping away from the aircraft,
+       never as a plane. Measured live against one real frame at h = 4.76 m: the
+       lowest 15% of returns landed between -2.49 m and +0.03 m with the wrong
+       numbers, and between +0.05 m and +1.76 m with these. Almost none of that
+       smear is at z ~ 0, so it never accumulated into a floor surface; all of it
+       is under vbox_min_z = -0.3 so RViz never drew it; and much of it is under
+       map_min_z = -1.0, where tsdf.cpp clamps the ray and throws it away.
+
+       Note this also mis-shaped the walls and ceiling — they leaned, and the
+       lean grew with range — which is the same defect, just harder to see than
+       a missing floor.
+
+       If the drone model's camera ever changes, read camera_info and copy it
+       here; do not adjust these to make a map look better. -->
+  <param name="/uav_model/sensing_parameters/camera_intrinsics/fx" value="390.6427353027365" />
+  <param name="/uav_model/sensing_parameters/camera_intrinsics/fy" value="390.6427353027365" />
+  <param name="/uav_model/sensing_parameters/camera_intrinsics/cx" value="300.5" />
+  <param name="/uav_model/sensing_parameters/camera_intrinsics/cy" value="300.5" />
+  <param name="/uav_model/sensing_parameters/image_width"  value="600" />
+  <param name="/uav_model/sensing_parameters/image_height" value="600" />
+
+  <!-- The same camera, as an angle. perception_utils reads these to decide
+       whether a frontier cell is VISIBLE from a candidate viewpoint, so leaving
+       them at the reference camera's 90 x 73.7 deg had FALCON scoring viewpoints
+       against a field of view the drone does not have — claiming coverage at
+       the sides it never got, and discarding cells low in frame that it did.
+       2*atan(300.5/390.6427353027365) = 75.14 deg, square, because the sensor
+       is square and fx = fy. -->
+  <param name="/uav_model/sensing_parameters/fov/horizontal" value="1.311409227" />
+  <param name="/uav_model/sensing_parameters/fov/vertical"   value="1.311409227" />
   <param name="/uav_model/sensing_parameters/min_depth" value="0.1" />
-  <param name="/uav_model/sensing_parameters/max_depth" value="5.0" />
+  <!-- 8 m, up from 5. The SJTU depth camera is valid to 10 m; a 5 m cap left the
+       map sparse ("barely any voxels") because most of a warehouse aisle is
+       further than 5 m away. Raise the fuse range to match so more of each frame
+       is mapped. Keep it under the 10 m far clip. -->
+  <param name="/uav_model/sensing_parameters/max_depth" value="8.0" />
+  <param name="/voxel_mapping/tsdf/raycast_max" value="8.0" />
 
   <!-- Transformer config -->
   <param name="/transformer/pose_topic_type"     value="pose" />
@@ -294,6 +367,18 @@
   <!-- SOFT B-spline collision penalty distance.
        Optimizer pushes trajectory toward this many meters from inflated walls. -->
   <param name="/bspline_opt/safe_distance" value="$(arg safe_distance)" />
+
+  <!-- A* airframe-radius awareness (see the astar_inflate arg above). Loaded
+       AFTER astar.yaml so it is not overwritten. On an image without the
+       inflate_astar_by_airframe patch these params are simply unread, so setting
+       them here is harmless and becomes active the moment the patch is present. -->
+  <param name="/astar/inflate_radius"  value="$(arg astar_inflate)" />
+  <param name="/astar/start_clearance" value="$(arg astar_start_clearance)" />
+
+  <!-- Re-anchor the replan to the measured state (see the args above). Inert on
+       an image without replan_from_measured_state.sh. -->
+  <param name="/exploration_node/replan_start_tolerance" value="$(arg replan_start_tolerance)" />
+  <param name="/exploration_node/replan_stopped_speed"   value="$(arg replan_stopped_speed)" />
 
   <!-- Frontier viewpoint clearances -->
   <param name="/frontier_finder/min_candidate_clearance"            value="$(arg frontier_min_clearance)" />

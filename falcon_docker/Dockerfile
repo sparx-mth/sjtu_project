@@ -175,6 +175,60 @@ RUN chmod +x /tmp/fix_falcon_cost_check.sh && /tmp/fix_falcon_cost_check.sh
 COPY fix_falcon_depth_overflow.sh /tmp/fix_falcon_depth_overflow.sh
 RUN chmod +x /tmp/fix_falcon_depth_overflow.sh && /tmp/fix_falcon_depth_overflow.sh
 
+# ── 6a-quinquies. Patch FALCON coverage tour: escape unreachable dead ends ─
+# The depth camera is blind inside ~0.95 m, so an obstacle the aircraft is about
+# to hit never enters the map; FALCON then routes A* through it and re-selects
+# the same unreachable viewpoint forever (coverage freezes, or the aircraft
+# wanders a 1-2 m pocket). This adds a blocked-region list to the frontier
+# finder and a no-progress guard in the exploration manager, so a viewpoint the
+# aircraft cannot reach is retired to dormant and the coverage tour moves on.
+COPY falcon_deadend_guard.patch /tmp/falcon_deadend_guard.patch
+COPY fix_falcon_deadend_guard.sh /tmp/fix_falcon_deadend_guard.sh
+RUN chmod +x /tmp/fix_falcon_deadend_guard.sh && /tmp/fix_falcon_deadend_guard.sh
+
+# ── 6a-sexies. Let FALCON run under /use_sim_time ──────────────────────────
+# exploration_node aborts at startup when /use_sim_time is true, but in the
+# SJTU Gazebo deployment every data stamp is already sim time and wall clocks
+# run ~12% ahead of sub-realtime physics. One clock for everything; the CHECK
+# becomes a LOG.
+COPY falcon_simtime.patch /tmp/falcon_simtime.patch
+COPY fix_falcon_simtime.sh /tmp/fix_falcon_simtime.sh
+RUN chmod +x /tmp/fix_falcon_simtime.sh && /tmp/fix_falcon_simtime.sh
+
+# ── 6a-septies. Occupancy-grid publish cadence vs map growth ───────────────
+# publishOccupancyGrid sweeps the whole voxel box at 2 Hz and serialises
+# free/unknown clouds that grow with the explored volume; everything gets
+# slower the further the mission maps. Occupied stays 2 Hz (the follower's
+# brake gate feeds on it); free/unknown drop to every 10th cycle.
+COPY falcon_visgrid_cadence.patch /tmp/falcon_visgrid_cadence.patch
+COPY fix_falcon_visgrid_cadence.sh /tmp/fix_falcon_visgrid_cadence.sh
+RUN chmod +x /tmp/fix_falcon_visgrid_cadence.sh && /tmp/fix_falcon_visgrid_cadence.sh
+
+# ── 6a-octies. Bounds-check hgrid position lookups ─────────────────────────
+# Positions outside the box (takeoff below a raised floor) indexed a vector
+# unchecked and segfaulted the planner; clamp to the nearest in-box cell.
+COPY falcon_hgrid_clamp.patch /tmp/falcon_hgrid_clamp.patch
+COPY fix_falcon_hgrid_clamp.sh /tmp/fix_falcon_hgrid_clamp.sh
+RUN chmod +x /tmp/fix_falcon_hgrid_clamp.sh && /tmp/fix_falcon_hgrid_clamp.sh
+
+# ── 6a-nonies. Tell A* how big the drone is ────────────────────────────────
+# Upstream A* tests ONE voxel per node with no radius, so it routes a 0.5 m
+# drone through a 0.3 m gap and the B-spline optimiser then cannot thread it --
+# the "FALCON planned the drone straight through the shelves" problem. This makes
+# A* test a disc of /astar/inflate_radius; inert (param defaults 0) until the
+# gazebo_exploration launch sets it, so a baseline build is unchanged.
+COPY inflate_astar_by_airframe.sh /tmp/inflate_astar_by_airframe.sh
+RUN chmod +x /tmp/inflate_astar_by_airframe.sh && /tmp/inflate_astar_by_airframe.sh
+
+# ── 6a-decies. Replan from the measured state, not a stale trajectory point ─
+# FALCON starts each new curve off its own previous curve; on a lagging airframe
+# those diverge and the new curve jumps (measured 3 m "trajectory discontinuity"
+# that cmd_to_vel then rejects, stranding the drone). Re-anchor to odometry once
+# the prediction is stale or the drone has stopped. Inert (tol 1e9) until the
+# launch sets /exploration_node/replan_start_tolerance.
+COPY replan_from_measured_state.sh /tmp/replan_from_measured_state.sh
+RUN chmod +x /tmp/replan_from_measured_state.sh && /tmp/replan_from_measured_state.sh
+
 # ── 6b. Skip CUDA-only + (Jetson) simulator-side packages ─────
 COPY ignore_cuda_pkgs.sh /tmp/ignore_cuda_pkgs.sh
 RUN chmod +x /tmp/ignore_cuda_pkgs.sh \

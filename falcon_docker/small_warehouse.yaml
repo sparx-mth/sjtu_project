@@ -1,0 +1,60 @@
+map_config:
+  map_file: ""
+  map_dimension: 2
+  # ── Match the drone's actual spawn in the small_warehouse world (origin) ──
+  init_x: 0.0
+  init_y: 0.0
+  init_z: 1.0
+  init_yaw: 0.0
+  map_size:
+    # Allocated grid: generous, covers the whole AWS small_warehouse plus margin.
+    map_min_x: -20.0
+    map_min_y: -20.0
+    map_min_z: -1.0
+    map_max_x: 20.0
+    map_max_y: 20.0
+    # Map the FULL height -- floor at ~0 up past the ceiling -- so the floor,
+    # walls and ceiling all appear in the map (and in RViz), and the ceiling is a
+    # known obstacle. The B-spline is kept below the ceiling by box_max_z, NOT by
+    # refusing to map it. Capping this too low is what gave "no floor or ceiling".
+    map_max_z: 3.0
+    # Exploration box FLOOR, lowered to 0.6 m. At 1.0 m the drone cruised too
+    # high for the forward-facing camera to see the ground -- it only grazed the
+    # floor, so the flat floor plane never filled in (its z~0 voxels were just the
+    # bottoms of walls/shelves, not the floor). 0.6 m lets it fly low enough to
+    # actually MAP THE FLOOR, while staying above the ~0.4 m floor clutter that
+    # wedged it when this was 0.0. The B-spline stays >= 0.6 m, so it still never
+    # plans through the floor at z=0.
+    box_min_x: -14.0
+    box_min_y: -14.0
+    box_min_z: 0.6
+    box_max_x: 14.0
+    box_max_y: 14.0
+    # B-SPLINE CEILING, lowered to 1.0 m. FALCON plans ONLY within box z, so
+    # capping it low FORCES the drone to fly low (0.6-1.0 m) instead of drifting
+    # up to 1.6 m -- where a forward-facing camera never sees the floor and the
+    # floor never fills in. Keeping it low is what actually maps the floor. It is
+    # still far below the real ceiling (which is mapped via map_max_z), so the
+    # trajectory never goes through the ceiling.
+    box_max_z: 1.0
+    # The VISUALISATION box is what RViz draws. Span the whole height so the floor
+    # and ceiling show -- a thin slab here is why the map looked like "barely any
+    # voxels" (the voxels were mapped; only a 20 cm slice was being drawn).
+    vbox_min_x: -20.0
+    vbox_min_y: -20.0
+    vbox_min_z: -0.3
+    vbox_max_x: 20.0
+    vbox_max_y: 20.0
+    vbox_max_z: 2.8
+  scale: 1.0
+  # Body (FLU) -> camera (RDF): x_cam=-y_body, y_cam=-z_body, z_cam=x_body
+  T_b_c:
+  - [ 0.0, 0.0, 1.0, 0.0]
+  - [-1.0, 0.0, 0.0, 0.0]
+  - [ 0.0,-1.0, 0.0, 0.0]
+  - [ 0.0, 0.0, 0.0, 1.0]
+  T_m_w:
+  - [ 1.0, 0.0, 0.0, 0.0]
+  - [ 0.0, 1.0, 0.0, 0.0]
+  - [ 0.0, 0.0, 1.0, 0.0]
+  - [ 0.0, 0.0, 0.0, 1.0]
